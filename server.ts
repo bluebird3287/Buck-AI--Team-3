@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
@@ -121,6 +122,42 @@ IMPORTANT: When a student asks to make a big decision like dropping a class (e.g
 
 Do not wrap the JSON in extra text outside the JSON object.
 `;
+
+// Project Codebase ZIP Download Endpoint
+app.get('/api/download-zip', (req, res) => {
+  try {
+    const zipPath = path.join(__dirname, 'public', 'buckeyelink-advising-ai.zip');
+    
+    // Always regenerate to guarantee user gets latest changes
+    try {
+      execSync(`python3 -c "
+import os, zipfile
+EXCLUDE_DIRS = {'node_modules', '.git', '.aistudio', 'dist', '.cache', '__pycache__'}
+EXCLUDE_FILES = {'buckeyelink-advising-ai.zip'}
+zip_path = 'public/buckeyelink-advising-ai.zip'
+with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+    for root, dirs, files in os.walk('.'):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for f in files:
+            if f in EXCLUDE_FILES: continue
+            fp = os.path.join(root, f)
+            z.write(fp, os.path.relpath(fp, '.'))
+"`);
+    } catch (zipErr) {
+      console.warn('Zip creation command warning:', zipErr);
+    }
+
+    if (fs.existsSync(zipPath)) {
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="buckeyelink-advising-ai.zip"');
+      return res.download(zipPath, 'buckeyelink-advising-ai.zip');
+    }
+    return res.status(404).send('ZIP file not found');
+  } catch (err: any) {
+    console.error('Download zip error:', err);
+    return res.status(500).send('Error packaging zip file');
+  }
+});
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
@@ -500,19 +537,6 @@ Return ONLY valid JSON.
   } catch (error: any) {
     console.error('Error generating roadmap:', error);
     res.status(500).json({ error: 'Failed to generate roadmap', message: error?.message });
-  }
-});
-
-// Download Project ZIP Endpoint
-app.get('/api/download-zip', (_req, res) => {
-  const zipPath = path.join(__dirname, 'buckeyelink-advising-assistant.zip');
-  if (fs.existsSync(zipPath)) {
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="buckeyelink-advising-assistant.zip"');
-    const filestream = fs.createReadStream(zipPath);
-    filestream.pipe(res);
-  } else {
-    res.status(404).json({ error: 'Zip file not found' });
   }
 });
 

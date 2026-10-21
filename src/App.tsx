@@ -3,7 +3,8 @@ import {
   MessageSquare,
   ArrowRight,
   ArrowLeft,
-  RotateCcw
+  RotateCcw,
+  Download
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -409,6 +410,16 @@ export default function App() {
             <RotateCcw className="w-3 h-3" />
           </button>
         )}
+        <span className="text-gray-300">|</span>
+        <a
+          href="/api/download-zip"
+          download="buckeyelink-advising-ai.zip"
+          className="text-gray-700 hover:text-[#ba0c2f] font-semibold flex items-center space-x-1 transition-colors"
+          title="Download Project ZIP"
+        >
+          <Download className="w-3.5 h-3.5 text-[#ba0c2f]" />
+          <span>ZIP</span>
+        </a>
       </div>
 
       {/* Clean Footer */}
@@ -418,12 +429,12 @@ export default function App() {
           <div className="flex items-center space-x-3">
             <a
               href="/api/download-zip"
-              download="buckeyelink-advising-assistant.zip"
+              download="buckeyelink-advising-ai.zip"
               className="text-[#ba0c2f] hover:underline font-semibold flex items-center space-x-1"
             >
-              <span>Download Project ZIP</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Project (.zip)</span>
             </a>
-            <span className="text-gray-300">|</span>
             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
               Prototype: sample data
             </span>

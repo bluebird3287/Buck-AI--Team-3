@@ -109,16 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            <a
-              href="/api/download-zip"
-              download="buckeyelink-advising-assistant.zip"
-              className="flex items-center space-x-1 text-xs text-[#ba0c2f] font-semibold bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded transition-colors"
-              title="Download Raw Project ZIP"
-            >
-              <Download className="w-3.5 h-3.5 text-[#ba0c2f]" />
-              <span>Download ZIP</span>
-            </a>
-
             <button
               onClick={handleCopyLink}
               className="hidden lg:flex items-center space-x-1 text-xs text-gray-600 hover:text-black bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded transition-colors"
@@ -136,6 +126,16 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
             </button>
+
+            <a
+              href="/api/download-zip"
+              download="buckeyelink-advising-ai.zip"
+              className="flex items-center space-x-1.5 text-xs text-white bg-[#ba0c2f] hover:bg-[#9d0a27] px-2.5 py-1 rounded font-semibold shadow-xs transition-colors"
+              title="Download Complete Project ZIP"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download ZIP</span>
+            </a>
 
             <button className="font-normal hover:text-black transition-colors">
               Sign Out

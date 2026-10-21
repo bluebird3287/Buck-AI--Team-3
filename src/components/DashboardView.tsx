@@ -31,7 +31,6 @@ interface DashboardViewProps {
   onOpenScheduling: () => void;
   onNextStep?: () => void;
   onOpenSeatAlerts?: () => void;
-  onOpenStudyAccess?: () => void;
   onSimulateSeatDrop?: () => void;
 }
 
@@ -42,7 +41,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenScheduling,
   onNextStep,
   onOpenSeatAlerts,
-  onOpenStudyAccess,
   onSimulateSeatDrop
 }) => {
   // Accordion state
@@ -404,27 +402,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div className="text-gray-600 mt-1">10/06 - Scott Traditions Dining (-1 Swipe)</div>
                     <div className="text-gray-600">10/05 - GrubHub Mirror Lake Eatery ($8.40 Dining Dollars)</div>
                   </div>
-
-                  <div className="p-3 bg-white rounded border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="font-semibold text-gray-900 flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span>After-Hours Building Access: <strong>Mason Hall Active</strong></span>
-                      </div>
-                      <div className="text-gray-500 text-[11px] mt-0.5">
-                        Doors unlock via your student BuckID tap (7 PM–2 AM). Request access across 80 campus academic buildings.
-                      </div>
-                    </div>
-                    {onOpenStudyAccess && (
-                      <button
-                        onClick={onOpenStudyAccess}
-                        className="px-3 py-1.5 bg-[#ba0c2f] hover:bg-[#9d0a27] text-white font-bold rounded-lg text-xs transition-colors shrink-0 flex items-center space-x-1"
-                      >
-                        <span>Manage / Request Access</span>
-                        <span>➔</span>
-                      </button>
-                    )}
-                  </div>
                 </div>
               )}
             </div>
@@ -462,22 +439,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="border-t border-gray-200 p-6 bg-white">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Accounts Links</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 text-[13px] text-gray-800">
-                {onOpenStudyAccess && (
-                  <button
-                    onClick={onOpenStudyAccess}
-                    className="flex items-center space-x-2.5 text-left hover:text-[#ba0c2f] group cursor-pointer"
-                  >
-                    <div className="w-5 h-5 rounded-full border border-[#ba0c2f] text-[#ba0c2f] flex items-center justify-center shrink-0 group-hover:bg-[#ba0c2f] group-hover:text-white transition-colors">
-                      <LinkIcon className="w-2.5 h-2.5" />
-                    </div>
-                    <span className="font-semibold text-gray-900 group-hover:underline">
-                      After-Hours Study Building Access (BuckID)
-                    </span>
-                    <span className="bg-[#ba0c2f]/10 text-[#ba0c2f] text-[10px] font-bold px-1.5 py-0.2 rounded shrink-0">
-                      80 Buildings
-                    </span>
-                  </button>
-                )}
                 <a href="#payer" className="flex items-center space-x-2.5 hover:text-[#006699] hover:underline">
                   <div className="w-5 h-5 rounded-full border border-gray-400 text-gray-600 flex items-center justify-center shrink-0">
                     <LinkIcon className="w-2.5 h-2.5" />
@@ -788,17 +749,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div>
                 <a href="#it-service" className="hover:underline">IT Self-Service</a>
               </div>
-              {onOpenStudyAccess && (
-                <div className="pt-1 border-t border-gray-100">
-                  <button
-                    onClick={onOpenStudyAccess}
-                    className="hover:underline font-semibold text-[#ba0c2f] flex items-center space-x-1.5 text-left cursor-pointer"
-                  >
-                    <span>After-Hours Study Access (BuckID)</span>
-                    <span className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0.2 rounded font-bold">New</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="flex justify-end pt-3 border-t border-gray-100">
