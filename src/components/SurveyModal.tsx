@@ -71,7 +71,7 @@ export const SurveyModal: React.FC<SurveyModalProps> = ({ isOpen, onClose }) => 
             </div>
             <ul className="list-disc list-inside space-y-1 text-emerald-800 text-xs">
               <li><strong>Native BuckeyeLink Entry:</strong> Floating Chat button in lower right corner + instant hold resolution link.</li>
-              <li><strong>Live Gemini Reasoning:</strong> Grounded in official OSU Bulletins & DARS rules with transparent source citations.</li>
+              <li><strong>Live Claude Reasoning:</strong> Grounded in official OSU Bulletins & DARS rules with transparent source citations.</li>
               <li><strong>Uncertainty Honesty:</strong> Flags when department policy requires human advisor sign-off.</li>
               <li><strong>Dynamic 4-Year Roadmap:</strong> Rebalances credit hours and prevents triple weed-out overload.</li>
               <li><strong>Mutual Availability Matcher:</strong> Scans student class lectures vs advisor open hours to book instantly without email tag.</li>

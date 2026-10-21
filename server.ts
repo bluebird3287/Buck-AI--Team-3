@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 
 dotenv.config();
 
@@ -29,15 +29,36 @@ const PORT = resolvePort();
 
 app.use(express.json());
 
-// Initialize Google Gen AI with required telemetry header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+// Claude client (reads ANTHROPIC_API_KEY from the environment)
+const anthropic = new Anthropic({ timeout: 45_000, maxRetries: 1 });
+const CLAUDE_MODEL = 'claude-opus-5-5';
+
+// Ask Claude for a JSON reply and return the raw JSON text.
+// Low effort keeps latency down for interactive advising; on a safety refusal the
+// server-side fallback re-runs the request on a suitable model automatically.
+async function generateJson(prompt: string, system?: string): Promise<string> {
+  const response = await anthropic.beta.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 16000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'low' },
+    ...(system ? { system } : {}),
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  if (response.stop_reason === 'refusal') {
+    throw new Error(`Claude declined the request (${response.stop_details?.category ?? 'unspecified'})`);
+  }
+
+  const text = response.content
+    .filter((block): block is Anthropic.Beta.BetaTextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+
+  // Strip a Markdown code fence if Claude wrapped the JSON in one
+  return text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim() || '{}';
+}
 
 const OSU_ADVISING_SYSTEM_INSTRUCTION = `
 You are the Ohio State University (OSU) Native BuckeyeLink AI Academic Advising Assistant.
@@ -133,22 +154,10 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 `;
 
     let responseText = '{}';
-    if (process.env.GEMINI_API_KEY) {
-      const generatePromise = ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: promptText,
-        config: {
-          systemInstruction: OSU_ADVISING_SYSTEM_INSTRUCTION,
-          responseMimeType: 'application/json',
-        },
-      });
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini API timeout')), 3500)
-      );
-      const response: any = await Promise.race([generatePromise, timeoutPromise]);
-      responseText = response?.text || '{}';
+    if (process.env.ANTHROPIC_API_KEY) {
+      responseText = await generateJson(promptText, OSU_ADVISING_SYSTEM_INSTRUCTION);
     } else {
-      throw new Error('GEMINI_API_KEY not configured, using grounded curriculum fallback');
+      throw new Error('ANTHROPIC_API_KEY not configured, using grounded curriculum fallback');
     }
     let parsed;
     try {
@@ -208,7 +217,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 
     res.json(parsed);
   } catch (error: any) {
-    console.warn('Gemini API temporary spike, providing grounded curriculum fallback:', error?.message);
+    console.warn('Claude API unavailable, providing grounded curriculum fallback:', error?.message);
     const textLower = (req.body?.message || '').toLowerCase();
     const isHold = textLower.includes('hold') || textLower.includes('lock');
     const isMarcSmith = textLower.includes('marc smith') || textLower.includes('smith') || textLower.includes('evaluat') || (textLower.includes('accounting') && (textLower.includes('work') || textLower.includes('class') || textLower.includes('hard') || textLower.includes('recommend')));
@@ -482,21 +491,10 @@ Return ONLY valid JSON.
 `;
 
     let parsed;
-    if (process.env.GEMINI_API_KEY) {
-      const generatePromise = ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: requestPrompt,
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini API timeout')), 3500)
-      );
-      const response: any = await Promise.race([generatePromise, timeoutPromise]);
-      parsed = JSON.parse(response?.text || '{}');
+    if (process.env.ANTHROPIC_API_KEY) {
+      parsed = JSON.parse(await generateJson(requestPrompt));
     } else {
-      throw new Error('GEMINI_API_KEY not configured, using balanced roadmap fallback');
+      throw new Error('ANTHROPIC_API_KEY not configured, using balanced roadmap fallback');
     }
     res.json(parsed);
   } catch (error: any) {

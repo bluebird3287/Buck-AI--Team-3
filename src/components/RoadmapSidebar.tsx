@@ -176,7 +176,7 @@ export const RoadmapSidebar: React.FC<RoadmapSidebarProps> = ({
             <div className="mt-3 p-3 bg-red-50/70 border border-red-200 rounded-lg text-xs space-y-1.5">
               <div className="flex items-center space-x-1.5 font-bold text-[#ba0c2f]">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>AI Roadmap Rebalancing Applied via Gemini</span>
+                <span>AI Roadmap Rebalancing Applied via Claude</span>
               </div>
               <p className="text-gray-700">{lastAdjustmentSummary}</p>
               {lastCitation && (

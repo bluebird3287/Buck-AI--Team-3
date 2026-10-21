@@ -42,7 +42,7 @@ export default function App() {
   const [bookedFormat, setBookedFormat] = useState<string>('In-Person');
   const [bookedNotes, setBookedNotes] = useState<string>('');
 
-  // Handle Live Gemini AI Chat
+  // Handle Live Claude AI Chat
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -175,7 +175,7 @@ export default function App() {
     }
   };
 
-  // Handle Dynamic Roadmap updates via Gemini
+  // Handle Dynamic Roadmap updates via Claude
   const handleUpdateRoadmap = async (promptText: string) => {
     setIsRoadmapUpdating(true);
     try {

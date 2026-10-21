@@ -1,8 +1,8 @@
 {
   "name": "BuckeyeLink AI Advising Assistant",
-  "description": "Native Ohio State BuckeyeLink academic advising assistant featuring live Gemini 4-year roadmap planning, course prerequisite audits, and mutual human advisor availability matching.",
+  "description": "Native Ohio State BuckeyeLink academic advising assistant featuring live Claude 4-year roadmap planning, course prerequisite audits, and mutual human advisor availability matching.",
   "requestFramePermissions": [],
   "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+    "MAJOR_CAPABILITY_SERVER_SIDE_CLAUDE_API"
   ]
 }
