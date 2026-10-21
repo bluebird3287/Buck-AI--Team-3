@@ -543,4 +543,9 @@ async function startServer() {
   });
 }
 
-startServer();
+// On Vercel, api/index.ts serves this app as a serverless function and the built assets are served statically
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
