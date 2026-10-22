@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0}
+body{background:#f4f3ee;padding:20px;width:1040px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cell{background:#eceae3;border-radius:12px;padding:12px}
+.cap{font-size:12px;color:#8a897f;margin-bottom:8px}
+.scr{background:#fff;border:1px solid #e3e1d8;border-radius:8px;overflow:hidden}
+.bar{height:6px;background:#ba0c2f}
+.p{padding:14px}
+.row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.b{font-weight:600}
+.pill{font-size:11px;background:#faeeda;color:#854f0b;padding:2px 8px;border-radius:999px}
+.h{font-size:15px;font-weight:600;margin-bottom:4px}
+.s{font-size:13px;color:#5f5e5a;margin-bottom:14px}
+.lab{font-size:12px;color:#5f5e5a;margin-bottom:4px}
+.box{border:1px solid #c9c7bd;border-radius:8px;padding:9px 10px;font-size:13px;color:#9a988f;margin-bottom:12px}
+.btn{background:#ba0c2f;color:#fff;text-align:center;border-radius:8px;padding:9px;font-size:13px;font-weight:600}
+.ghost{border:1px solid #c9c7bd;border-radius:8px;padding:9px;text-align:center;font-size:13px;color:#2c2c2a;margin-bottom:10px}
+.ctr{text-align:center}
+.ic{font-size:30px;color:#5f5e5a}
+.links{border-top:1px solid #e3e1d8;padding-top:10px;display:flex;justify-content:center;gap:16px;font-size:12px;color:#185fa5}
+.top{padding:10px 14px;border-bottom:1px solid #e3e1d8;display:flex;align-items:center;justify-content:space-between}
+.who{font-size:12px;color:#5f5e5a}
+.lnk{color:#185fa5}
+.item{border:1px solid #e3e1d8;border-radius:8px;padding:9px 10px;font-size:13px;margin-bottom:8px}
+.note{font-size:12px;color:#8a897f;border-top:1px solid #e3e1d8;padding-top:10px}
+.mut{color:#9a988f}
+</style></head><body>
+<div class="grid">
+<div class="cell"><div class="cap">Screen 1 · Sign in</div><div class="scr"><div class="bar"></div><div class="p">
+<div class="row"><span class="b">BuckeyeLink</span><span class="pill">Prototype</span></div>
+<div class="h">Sign in</div><div class="s">No password. We'll email you a secure link.</div>
+<div class="lab">Ohio State email</div><div class="box">name.#@osu.edu</div>
+<div class="btn">Email me a sign-in link</div></div></div></div>
+
+<div class="cell"><div class="cap">Screen 2 · Check your email</div><div class="scr"><div class="bar"></div><div class="p ctr">
+<div class="ic">✉</div><div class="h" style="margin-top:8px">Check your email</div>
+<div class="s">We sent a sign-in link to <span style="color:#2c2c2a">rezabek.14@osu.edu</span>. Open it to finish signing in.</div>
+<div class="links"><span>Resend link</span><span>Use a different email</span></div></div></div></div>
+
+<div class="cell"><div class="cap">Screen 3 · Signed in</div><div class="scr"><div class="bar"></div>
+<div class="top"><span class="b">BuckeyeLink</span><span class="who">rezabek.14 · Student <span class="lnk">· Sign out</span></span></div>
+<div class="p"><div class="lab">Each role sees its own screen:</div>
+<div class="item"><b>Student</b> → their dashboard, holds, roadmap, chat</div>
+<div class="item" style="margin-bottom:0"><b>Advisor</b> → the student requests routed to them</div></div></div></div>
+
+<div class="cell"><div class="cap">Screen 4 · Not allowed</div><div class="scr"><div class="bar"></div><div class="p">
+<div class="ic">🔒</div><div class="h" style="margin-top:8px">You don't have access</div>
+<div class="s">This page is for advisors, and you're signed in as a student.</div>
+<div class="ghost">Go to my dashboard</div>
+<div class="note">If signed out instead: the page sends you to Screen 1.</div></div></div></div>
+</div>
+</body></html>
