@@ -3,8 +3,12 @@ import { ChevronLeft, ChevronRight, Check, BookOpen, Briefcase, Ban, CalendarChe
 import { buildWeek, describeSlot, MatchSlot, SlotStatus, useAdvisingState } from '../../lib/advising';
 
 // One availability grid for both parties. Students pick a mutually free time; advisors
-// open or close their own times and see who is booked. Status is always shown as text
-// and an icon as well as color, so it reads without color vision or a screen.
+// open or close their own times and see who is booked. Times when either party is busy
+// (class, meetings) or that have passed are left blank so only usable times stand out.
+// Shown statuses use text and an icon as well as color, so they read without color vision.
+
+// Statuses left as blank cells in the grid.
+const HIDDEN: SlotStatus[] = ['student_busy', 'advisor_busy', 'past'];
 
 type Mode = 'student' | 'advisor';
 
@@ -45,12 +49,14 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
   const days = useMemo(() => {
     const week = buildWeek(weekOffset, state);
     if (mode === 'advisor') return week;
-    // Students never see who else booked their advisor, or why a time was closed.
+    // Students never see who else booked their advisor.
     return week.map((d) => ({
       ...d,
       slots: d.slots.map((s): MatchSlot =>
-        s.status === 'booked' || s.status === 'advisor_closed' || s.status === 'advisor_busy'
-          ? { ...s, status: 'advisor_busy', reason: 'Advisor unavailable', bookedBy: undefined }
+        s.status === 'booked'
+          ? { ...s, reason: 'Already booked', bookedBy: undefined }
+          : s.status === 'advisor_closed'
+          ? { ...s, reason: 'Advisor unavailable' }
           : s,
       ),
     }));
@@ -69,8 +75,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
     else onToggleAvailability?.(s);
   };
 
-  const legend: SlotStatus[] =
-    mode === 'advisor' ? ['open', 'student_busy', 'advisor_busy', 'advisor_closed', 'booked'] : ['open', 'student_busy', 'advisor_busy'];
+  const legend: SlotStatus[] = ['open', 'advisor_closed', 'booked'];
 
   return (
     <section aria-labelledby="matcher-heading" className="space-y-4">
@@ -81,8 +86,8 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
           </h3>
           <p className="text-sm text-gray-600">
             {mode === 'student'
-              ? 'Your class schedule and your advisor’s calendar are compared automatically.'
-              : 'Select an open time to close it, or a closed time to reopen it. Class times come from the student’s schedule.'}
+              ? 'Only times when you and your advisor are both free are shown.'
+              : 'Only times when you and the student are both free are shown. Select an open time to close it, or a closed time to reopen it.'}
           </p>
         </div>
         <div className="flex items-center gap-2" role="group" aria-label="Change week">
@@ -154,7 +159,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
               <span className={`inline-flex items-center justify-center w-5 h-5 rounded border ${ui.cell}`}>
                 {Icon && <Icon className="w-3 h-3" aria-hidden />}
               </span>
-              {s === 'open' ? 'Both free' : s === 'student_busy' ? 'Student in class' : ui.short(mode)}
+              {s === 'open' ? 'Both free' : ui.short(mode)}
             </li>
           );
         })}
@@ -162,7 +167,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
 
       {/* Grid */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-        <table className="w-full min-w-[640px] border-collapse text-sm">
+        <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
           <caption className="sr-only">
             Availability for the week of {rangeLabel}. Rows are times, columns are days.
           </caption>
@@ -187,6 +192,15 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
                 </th>
                 {days.map((d) => {
                   const s = d.slots[row];
+                  if (HIDDEN.includes(s.status)) {
+                    return (
+                      <td key={s.key} className="p-0.5">
+                        <span className="sr-only">
+                          {d.weekdayLong} {d.dateLabel}, {s.timeLabel}: not available
+                        </span>
+                      </td>
+                    );
+                  }
                   const ui = STATUS_UI[s.status];
                   const Icon = ui.icon;
                   const selected = selectedKey === s.key;
