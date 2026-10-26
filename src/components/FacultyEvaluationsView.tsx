@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import fisherData from '../data/fisherFaculty.json';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 type Faculty = (typeof fisherData.faculty)[number];
 type Course = (typeof fisherData.courses)[number];
@@ -57,6 +58,49 @@ const HOURS_OPTIONS = [
 ];
 const GRADE_OPTIONS = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'E', 'S', 'U', 'W'];
 const TERM_OPTIONS = [...fisherData.terms, 'Summer 2026', 'Spring 2026', 'Autumn 2025', 'Earlier'];
+
+// Reviews live in the Supabase faculty_reviews table (supabase/migrations). user_id is never
+// readable, so these are all the columns a client can select.
+const REVIEW_COLUMNS =
+  'id, faculty_id, course_id, term, overall, difficulty, hours_per_week, would_take_again, grade, tip, created_at';
+
+interface FacultyReviewRow {
+  id: string;
+  faculty_id: string;
+  course_id: string;
+  term: string;
+  overall: number;
+  difficulty: number;
+  hours_per_week: number;
+  would_take_again: boolean;
+  grade: string | null;
+  tip: string | null;
+  created_at: string;
+}
+
+const fromRow = (row: FacultyReviewRow): FacultyReview => ({
+  id: row.id,
+  facultyId: row.faculty_id,
+  courseId: row.course_id,
+  term: row.term,
+  overall: row.overall,
+  difficulty: row.difficulty,
+  hoursPerWeek: row.hours_per_week,
+  wouldTakeAgain: row.would_take_again,
+  grade: row.grade,
+  tip: row.tip,
+  createdAt: row.created_at,
+});
+
+const CONTACT_DETAILS = /@|\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/;
+
+// Turn database errors into something a student can act on
+function reviewErrorMessage(error: { code?: string; message: string }): string {
+  if (error.code === '23505') return "You've already reviewed this course with this instructor for that term.";
+  if (error.code === '42501') return 'Only signed-in students can add reviews.';
+  if (error.code === '23514') return 'Some answers were not accepted. Check the tip has no email addresses or phone numbers.';
+  return error.message;
+}
 
 function summarize(reviews: FacultyReview[]): ReviewSummary | null {
   if (reviews.length === 0) return null;
@@ -182,22 +226,34 @@ const ReviewForm: React.FC<{
     facultyId && courseId && term && overall && difficulty && hoursPerWeek !== null && wouldTakeAgain !== null && attested && !isSaving;
 
   const submit = async () => {
+    const cleanTip = tip.trim();
+    if (CONTACT_DETAILS.test(cleanTip)) {
+      setError('Please leave email addresses and phone numbers out of your tip.');
+      return;
+    }
     setError(null);
     setIsSaving(true);
-    try {
-      const res = await fetch('/api/faculty-reviews', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facultyId, courseId, term, overall, difficulty, hoursPerWeek, wouldTakeAgain, grade: grade || null, tip }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Server status ${res.status}`);
-      onSaved(data.review);
-    } catch (err: any) {
-      setError(err?.message ?? 'Could not save your review');
-    } finally {
-      setIsSaving(false);
+    const { data, error: insertError } = await supabase
+      .from('faculty_reviews')
+      .insert({
+        faculty_id: facultyId,
+        course_id: courseId,
+        term,
+        overall,
+        difficulty,
+        hours_per_week: hoursPerWeek,
+        would_take_again: wouldTakeAgain,
+        grade: grade || null,
+        tip: cleanTip || null,
+      })
+      .select(REVIEW_COLUMNS)
+      .single();
+    setIsSaving(false);
+    if (insertError) {
+      setError(reviewErrorMessage(insertError));
+      return;
     }
+    onSaved(fromRow(data as FacultyReviewRow));
   };
 
   const labelClass = 'block text-xs font-bold text-neutral-800 mb-1.5';
@@ -350,18 +406,24 @@ export const FacultyEvaluationsView: React.FC = () => {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<FacultyReview[]>([]);
-  const [storageEnabled, setStorageEnabled] = useState(true);
+  const [storageEnabled, setStorageEnabled] = useState(isSupabaseConfigured);
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/faculty-reviews')
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((data) => {
-        setReviews(data.reviews ?? []);
-        setStorageEnabled(data.storageEnabled !== false);
-      })
-      .catch(() => setStorageEnabled(false));
+    if (!isSupabaseConfigured) return;
+    supabase
+      .from('faculty_reviews')
+      .select(REVIEW_COLUMNS)
+      .order('created_at')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load faculty reviews:', error);
+          setStorageEnabled(false);
+          return;
+        }
+        setReviews((data as FacultyReviewRow[]).map(fromRow));
+      });
   }, []);
 
   useEffect(() => {
@@ -440,7 +502,7 @@ export const FacultyEvaluationsView: React.FC = () => {
       )}
       {!storageEnabled && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
-          Reviews can't be saved on this deployment yet. Browsing courses and instructors still works.
+          Student reviews aren't available right now. Browsing courses and instructors still works.
         </div>
       )}
 

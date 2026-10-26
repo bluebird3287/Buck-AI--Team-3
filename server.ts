@@ -5,7 +5,6 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
-import fisherData from './src/data/fisherFaculty.json' with { type: 'json' };
 
 dotenv.config();
 
@@ -538,90 +537,6 @@ Return ONLY valid JSON.
   } catch (error: any) {
     console.error('Error generating roadmap:', error);
     res.status(500).json({ error: 'Failed to generate roadmap', message: error?.message });
-  }
-});
-
-// Faculty & course reviews submitted by students through the Faculty Evaluations tab.
-// Stored in a local JSON file; Vercel's filesystem is read-only, so a database is needed before reviews can be saved there.
-const REVIEWS_FILE = path.join(__dirname, 'data', 'faculty-reviews.json');
-const REVIEW_GRADES = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'E', 'S', 'U', 'W'];
-const facultyById = new Map(fisherData.faculty.map((f) => [f.id, f]));
-
-interface FacultyReview {
-  id: string;
-  facultyId: string;
-  courseId: string;
-  term: string;
-  overall: number;
-  difficulty: number;
-  hoursPerWeek: number;
-  wouldTakeAgain: boolean;
-  grade: string | null;
-  tip: string | null;
-  createdAt: string;
-}
-
-function readReviews(): FacultyReview[] {
-  if (!fs.existsSync(REVIEWS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(REVIEWS_FILE, 'utf8'));
-}
-
-app.get('/api/faculty-reviews', (_req, res) => {
-  try {
-    res.json({ reviews: readReviews(), storageEnabled: !process.env.VERCEL });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to load reviews', message: error?.message });
-  }
-});
-
-app.post('/api/faculty-reviews', (req, res) => {
-  if (process.env.VERCEL) {
-    return res.status(501).json({ error: 'Review storage is not set up on this deployment yet' });
-  }
-
-  const { facultyId, courseId, term, overall, difficulty, hoursPerWeek, wouldTakeAgain, grade, tip } = req.body ?? {};
-  const instructor = facultyById.get(facultyId);
-  const isRating = (n: unknown) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 5;
-  const cleanTip = typeof tip === 'string' ? tip.trim().slice(0, 400) : '';
-
-  if (!instructor || !instructor.courseIds.includes(courseId)) {
-    return res.status(400).json({ error: 'Unknown instructor or course' });
-  }
-  if (typeof term !== 'string' || !term.trim() || !isRating(overall) || !isRating(difficulty)) {
-    return res.status(400).json({ error: 'Term, overall rating and difficulty (1-5) are required' });
-  }
-  if (typeof hoursPerWeek !== 'number' || hoursPerWeek < 0 || hoursPerWeek > 40 || typeof wouldTakeAgain !== 'boolean') {
-    return res.status(400).json({ error: 'Hours per week (0-40) and would-take-again are required' });
-  }
-  if (grade != null && !REVIEW_GRADES.includes(grade)) {
-    return res.status(400).json({ error: 'Unknown grade' });
-  }
-  // Keep tips about the course, not contact details
-  if (/@|\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(cleanTip)) {
-    return res.status(400).json({ error: 'Please leave email addresses and phone numbers out of your tip' });
-  }
-
-  try {
-    const review: FacultyReview = {
-      id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      facultyId,
-      courseId,
-      term: term.trim().slice(0, 40),
-      overall,
-      difficulty,
-      hoursPerWeek,
-      wouldTakeAgain,
-      grade: grade ?? null,
-      tip: cleanTip || null,
-      createdAt: new Date().toISOString(),
-    };
-    const reviews = readReviews();
-    reviews.push(review);
-    fs.mkdirSync(path.dirname(REVIEWS_FILE), { recursive: true });
-    fs.writeFileSync(REVIEWS_FILE, JSON.stringify(reviews, null, 2) + '\n');
-    res.json({ review });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to save review', message: error?.message });
   }
 });
 
