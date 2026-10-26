@@ -348,12 +348,12 @@ export default function App() {
         <button
           onClick={() => handleOpenChat('chat')}
           className="fixed bottom-6 right-6 z-40 bg-[#ba0c2f] hover:bg-[#9d0a27] text-white px-5 py-3 rounded-full shadow-2xl flex items-center space-x-2.5 transition-transform hover:scale-105 active:scale-95 border-2 border-white/20"
-          title="Open BuckeyeLink Advising AI"
+          title="Open BuckAI"
         >
           <svg className="w-5 h-5 fill-white shrink-0" viewBox="0 0 24 24">
             <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h10v2H7zm0-3h10v2H7z" />
           </svg>
-          <span className="font-bold text-sm tracking-wide font-sans">Advising AI</span>
+          <span className="font-bold text-sm tracking-wide font-sans">BuckAI</span>
         </button>
       )}
 
@@ -380,47 +380,6 @@ export default function App() {
         isOpen={isSurveyModalOpen}
         onClose={() => setIsSurveyModalOpen(false)}
       />
-
-      {/* Discrete Bottom Walkthrough Controller for Flow Testing */}
-      <div className="fixed bottom-4 left-6 z-30 bg-white/95 backdrop-blur-xs border border-gray-300 rounded-full py-1.5 px-4 shadow-md flex items-center space-x-3 text-xs">
-        <span className="font-medium text-gray-600">
-          Flow: Step {currentStep} of 5
-        </span>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setCurrentStep((p) => Math.max(1, p - 1))}
-          disabled={currentStep === 1}
-          className="text-gray-600 hover:text-black disabled:opacity-30 font-semibold"
-        >
-          Back
-        </button>
-        <button
-          onClick={() => setCurrentStep((p) => Math.min(5, p + 1))}
-          disabled={currentStep === 5}
-          className="text-[#ba0c2f] hover:underline disabled:opacity-30 font-bold"
-        >
-          Next Step ➔
-        </button>
-        {currentStep > 1 && (
-          <button
-            onClick={() => setCurrentStep(1)}
-            className="text-gray-400 hover:text-gray-700"
-            title="Reset"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-        )}
-        <span className="text-gray-300">|</span>
-        <a
-          href="/api/download-zip"
-          download="buckeyelink-advising-ai.zip"
-          className="text-gray-700 hover:text-[#ba0c2f] font-semibold flex items-center space-x-1 transition-colors"
-          title="Download Project ZIP"
-        >
-          <Download className="w-3.5 h-3.5 text-[#ba0c2f]" />
-          <span>ZIP</span>
-        </a>
-      </div>
 
       {/* Clean Footer */}
       <footer className="bg-white border-t border-gray-200 py-3.5 px-6 text-xs text-gray-500">
