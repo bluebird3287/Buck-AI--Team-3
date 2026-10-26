@@ -97,7 +97,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <CalendarDays className="w-5 h-5 text-[#bb0000]" />
-                <h2 className="font-semibold text-gray-900">Tyler Rez · mutual availability</h2>
+                <h2 className="font-semibold text-gray-900">Student · mutual availability</h2>
               </div>
               <div className="flex items-center gap-3 text-[11px]">
                 {(['free', 'conflict', 'advisor-busy'] as Status[]).map((s) => (
@@ -204,7 +204,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
                   </p>
                   {proposed === selected.slot.id ? (
                     <p className="mt-4 flex items-center gap-1.5 text-emerald-700 font-medium text-xs">
-                      <Check className="w-4 h-4" /> Proposed to Tyler
+                      <Check className="w-4 h-4" /> Proposed to student
                     </p>
                   ) : (
                     <button

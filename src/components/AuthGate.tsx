@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { Loader2, LogOut } from 'lucide-react';
+import { Loader2, LogOut, BookOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getRole } from '../lib/roles';
 import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
+import { MyClassesEditor } from './MyClassesEditor';
+import { StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
+import { Semester } from '../data/sampleData';
 import App from '../App';
 
 // Gates the whole app behind email-link sign-in and routes by role:
@@ -31,7 +34,45 @@ export const AuthGate: React.FC = () => {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (loading) {
+  const email = session?.user.email ?? '';
+  const userId = session?.user.id ?? '';
+  const role = getRole(email);
+
+  // Each student's own profile and classes, read through row-level security.
+  const [record, setRecord] = useState<StudentRecord | null>(null);
+  // Which user's record has finished loading, so the setup screen never flashes before it arrives.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  // Bumped after the student edits their classes so the app reloads with the new data.
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    setRecord(null);
+    setEditing(false);
+    if (!userId || role !== 'student') return;
+    setRecordError(null);
+    loadStudentRecord()
+      .then(setRecord)
+      .catch((err) => setRecordError(err?.message || 'Could not load your profile.'))
+      .finally(() => setLoadedFor(userId));
+  }, [userId, role]);
+
+  const handleSaveRecord = async (next: StudentRecord) => {
+    await saveStudentRecord(userId, next);
+    setRecord({ ...next, semesters: normalizeSemesters(next.semesters.filter((s) => s.courses.length > 0)) });
+    setEditing(false);
+    setVersion((v) => v + 1);
+  };
+
+  const handleRoadmapChange = (semesters: Semester[]) => {
+    if (!record) return;
+    const next = { ...record, semesters };
+    setRecord(next);
+    saveStudentRecord(userId, next).catch((err) => console.warn('Could not save roadmap:', err));
+  };
+
+  if (loading || (session && role === 'student' && loadedFor !== userId)) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-[#ba0c2f] animate-spin" />
@@ -52,8 +93,23 @@ export const AuthGate: React.FC = () => {
 
   if (!session) return <SignIn />;
 
-  const email = session.user.email ?? '';
-  const role = getRole(email);
+  if (role === 'student' && recordError) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6 text-sm text-gray-700">
+        {recordError}
+      </div>
+    );
+  }
+
+  if (role === 'student' && (!record || editing)) {
+    return (
+      <MyClassesEditor
+        initial={record}
+        onSave={handleSaveRecord}
+        onCancel={record ? () => setEditing(false) : () => supabase.auth.signOut()}
+      />
+    );
+  }
 
   return (
     <div>
@@ -61,14 +117,33 @@ export const AuthGate: React.FC = () => {
         <span className="opacity-90">
           Signed in as {email} · <span className="capitalize">{role}</span>
         </span>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="flex items-center gap-1 hover:text-gray-200 transition-colors"
-        >
-          <LogOut className="w-3.5 h-3.5" /> Sign out
-        </button>
+        <div className="flex items-center gap-4">
+          {role === 'student' && (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+            >
+              <BookOpen className="w-3.5 h-3.5" /> My classes
+            </button>
+          )}
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Sign out
+          </button>
+        </div>
       </div>
-      {role === 'advisor' ? <AdvisorView email={email} /> : <App />}
+      {role === 'advisor' ? (
+        <AdvisorView email={email} />
+      ) : (
+        <App
+          key={`${userId}-${version}`}
+          profile={toStudentProfile(record!, email)}
+          initialRoadmap={normalizeSemesters(record!.semesters)}
+          onRoadmapChange={handleRoadmapChange}
+        />
+      )}
     </div>
   );
 };

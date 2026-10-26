@@ -39,6 +39,7 @@ export const SummaryConfirmationView: React.FC<SummaryConfirmationViewProps> = (
   onRestartWalkthrough,
   onReturnToDashboard
 }) => {
+  const nextTerm = roadmap.find((s) => s.status === 'planned' && s.courses.length > 0);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
 
   const slot = bookedSlot || {
@@ -103,7 +104,7 @@ export const SummaryConfirmationView: React.FC<SummaryConfirmationViewProps> = (
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                  Registration Hold Pre-Clearance Approved
+                  Appointment Booked
                 </span>
                 <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                   Prototype: sample data
@@ -113,7 +114,7 @@ export const SummaryConfirmationView: React.FC<SummaryConfirmationViewProps> = (
                 Advising Session Confirmed & 4-Year Plan Synced!
               </h1>
               <p className="text-xs text-gray-600 mt-1 max-w-2xl leading-relaxed">
-                Your mutual appointment with <strong>{profile.advisorName}</strong> has been logged into OnCourse and BuckeyeLink. Your AI-balanced 4-year degree roadmap and Spring 2027 enrollment cart have been saved to your student file.
+                Your mutual appointment with <strong>{profile.advisorName}</strong> has been logged into OnCourse and BuckeyeLink. Your 4-year degree roadmap has been saved to your BuckAI profile.
               </p>
             </div>
           </div>
@@ -167,69 +168,46 @@ export const SummaryConfirmationView: React.FC<SummaryConfirmationViewProps> = (
               <span className="font-bold text-gray-900">{format} ({profile.advisorOffice})</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-gray-200/60">
-              <span className="text-gray-500 font-medium">Registration Lock Hold:</span>
-              <span className="font-bold text-emerald-700 flex items-center space-x-1">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Pre-Authorized (Lifts Upon Meeting Check-in)</span>
-              </span>
+              <span className="text-gray-500 font-medium">Holds:</span>
+              <span className="font-bold text-gray-900">{profile.holds.length ? profile.holds.join(', ') : 'None reported'}</span>
             </div>
             <div className="pt-1">
               <span className="text-gray-500 font-medium block mb-1">Pre-Brief Notes Attached:</span>
               <p className="text-[11px] bg-white p-2.5 rounded border border-gray-200 italic text-gray-600">
-                &ldquo;{notes || 'Review draft 4-year roadmap and clear 2nd-Year Registration Lock hold for Spring 2027 enrollment.'}&rdquo;
+                &ldquo;{notes || 'Review my 4-year roadmap and next term’s classes.'}&rdquo;
               </p>
             </div>
           </div>
         </div>
 
-        {/* Saved Spring 2027 Registration Cart */}
+        {/* Next planned term from the student's roadmap */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <h2 className="font-bold text-base text-gray-900 flex items-center space-x-2">
               <BookOpen className="w-4 h-4 text-[#ba0c2f]" />
-              <span>Spring 2027 Balanced Cart (Ready for Lock Release)</span>
+              <span>{nextTerm ? `${nextTerm.name} Planned Classes` : 'Next Term Plan'}</span>
             </h2>
-            <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-              Balanced: 14 Credits
-            </span>
+            {nextTerm && (
+              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
+                {nextTerm.workloadRating}: {nextTerm.totalCredits} Credits
+              </span>
+            )}
           </div>
 
           <div className="space-y-2 text-xs">
-            <div className="p-2.5 bg-gray-50 rounded border border-gray-100 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-gray-900">BUSFIN 3220</span>
-                <span className="text-gray-600 ml-2">Business Finance (3 cr)</span>
+            {!nextTerm && (
+              <div className="p-2.5 bg-gray-50 rounded border border-gray-100 text-gray-600">
+                No planned classes yet. Ask BuckAI to build your roadmap, or add them under My classes.
               </div>
-              <span className="text-emerald-700 text-[11px] font-medium">Prereqs Verified</span>
-            </div>
-            <div className="p-2.5 bg-gray-50 rounded border border-gray-100 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-gray-900">CSE 2231</span>
-                <span className="text-gray-600 ml-2">Software II: Development (4 cr)</span>
+            )}
+            {nextTerm?.courses.map((c) => (
+              <div key={c.code} className="p-2.5 bg-gray-50 rounded border border-gray-100 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-gray-900">{c.code}</span>
+                  <span className="text-gray-600 ml-2">{c.name !== c.code ? `${c.name} ` : ''}({c.credits} cr)</span>
+                </div>
               </div>
-              <span className="text-emerald-700 text-[11px] font-medium">Prereqs Verified</span>
-            </div>
-            <div className="p-2.5 bg-gray-50 rounded border border-gray-100 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-gray-900">BUSOBA 2320</span>
-                <span className="text-gray-600 ml-2">Decision Sciences (3 cr)</span>
-              </div>
-              <span className="text-emerald-700 text-[11px] font-medium">Prereqs Verified</span>
-            </div>
-            <div className="p-2.5 bg-gray-50 rounded border border-gray-100 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-gray-900">GE-THEME-1</span>
-                <span className="text-gray-600 ml-2">Citizenship for Diverse & Just World (4 cr)</span>
-              </div>
-              <span className="text-emerald-700 text-[11px] font-medium">GE Foundation Met</span>
-            </div>
-          </div>
-
-          <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 text-xs text-emerald-900 flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-            <span>
-              <strong>Workload Audit Passed:</strong> Zero weed-out overload. Projected semester difficulty: 3.2 / 5.0 (Optimal for high GPA maintenance).
-            </span>
+            ))}
           </div>
         </div>
       </div>

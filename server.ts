@@ -61,14 +61,36 @@ async function generateJson(prompt: string, system?: string): Promise<string> {
   return text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim() || '{}';
 }
 
+// Describes the signed-in student from the profile and classes they entered themselves.
+function describeStudent(profile: any, roadmap: any[] | undefined): string {
+  const terms = Array.isArray(roadmap) ? roadmap : [];
+  const list = (status: string) =>
+    terms
+      .filter((t) => t?.status === status && Array.isArray(t.courses) && t.courses.length)
+      .map((t) => `  - ${t.name}: ${t.courses.map((c: any) => `${c.code}${c.name && c.name !== c.code ? ` (${c.name})` : ''}${c.notes ? ` [${c.notes}]` : ''}`).join(', ')}`)
+      .join('\n') || '  - none entered';
+  return [
+    `- Name: ${profile?.name || 'Not provided'}`,
+    `- Class standing: ${profile?.rank || 'Not provided'}`,
+    `- College: ${profile?.college || 'Not provided'}`,
+    `- Major: ${profile?.major || 'Not provided'}`,
+    `- Minor: ${profile?.minor || 'None'}`,
+    `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
+    `- Holds: ${profile?.holds?.length ? profile.holds.join(', ') : 'None reported (not connected to BuckeyeLink)'}`,
+    `- Completed credits: ${profile?.earnedCredits ?? 0} / ${profile?.totalRequiredCredits ?? 120}`,
+    `- Completed classes:\n${list('completed')}`,
+    `- Current term classes:\n${list('in-progress')}`,
+    `- Planned classes:\n${list('planned')}`,
+  ].join('\n');
+}
+
 const OSU_ADVISING_SYSTEM_INSTRUCTION = `
 You are the Ohio State University (OSU) Native BuckeyeLink AI Academic Advising Assistant.
 Your audience is undergraduate students navigating BuckeyeLink, course registration, prerequisite chains, 4-year degree planning, and advisor scheduling.
 
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (CSE).
-- Student in prototype: Tyler, Sophomore (2nd year), Business Information Systems & Finance double-interest, currently enrolled in ACCTMIS 2300, CSE 2221, MATH 1152, BUSMHR 2292.
-- Holds: Tyler currently has a "Registration Lock" hold in BuckeyeLink requiring a Second-Year Academic Plan Review check-in before Spring registration opens.
+- Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
   - When students inquire about Marc Smith or accounting evaluations, explicitly provide peer recommendations:
@@ -118,7 +140,7 @@ IMPORTANT: When a student asks to make a big decision like dropping a class (e.g
 - Keep the response clear, direct, and concise (not overly verbose).
 - You MUST set "highStakesDecision.isHighStakes" to true.
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
-- Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor (Sarah Jenkins).
+- Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
 
 Do not wrap the JSON in extra text outside the JSON object.
 `;
@@ -161,7 +183,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
-    const { message, history, studentProfile } = req.body;
+    const { message, history, studentProfile, roadmap } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -173,13 +195,8 @@ app.post('/api/advising-chat', async (req, res) => {
       .join('\n');
 
     const promptText = `
-Student Profile:
-- Name: ${studentProfile?.name || 'Tyler'}
-- Status: ${studentProfile?.rank || 'Sophomore'}
-- Major: ${studentProfile?.major || 'Finance & Information Systems'}
-- Current Holds: ${studentProfile?.holds?.join(', ') || 'Registration Lock (Academic Advising Check-in)'}
-- Current Enrolled: ACCTMIS 2300 (Intro to Accounting 2), CSE 2221 (Software 1), MATH 1152 (Calculus 2), BUSMHR 2292 (Business Communication)
-- Completed Credits: 45 / 121
+Student Profile (entered by the student):
+${describeStudent(studentProfile, roadmap)}
 
 Conversation History:
 ${conversationContext}
@@ -262,7 +279,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isDrop = textLower.includes('drop') || textLower.includes('withdraw');
     const isMinor = textLower.includes('minor') || textLower.includes('analytics');
 
-    let answer = `As a Sophomore in Finance with a 3.68 GPA, you are on track for Spring 2029 graduation. For Spring 2027, you satisfy all prerequisites for BUSFIN 3220 and CSE 2231.`;
+    let answer = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
     let sourceCitation = 'Fisher College of Business Curriculum Sheet 2026-2027';
     let escalationSuggested = false;
     let escalationReason: string | null = null;
@@ -298,13 +315,13 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
         `• 🏢 **Accounting Learning Center (ALC):** Use free drop-in peer tutoring in Mason Hall during the first month rather than waiting for exam week.`;
       sourceCitation = 'OSU Student Course Evaluations (SEI) & r/OSU Community Academic Consensus 2026-2027';
     } else if (isHold) {
-      answer = `Your **Registration Lock** hold is the mandatory Second-Year Academic Plan Review. It prevents adding Spring 2027 classes until verified. A quick 10-minute check-in with your assigned advisor **Sarah Jenkins** will lift this hold immediately. You can choose a mutual free time right now!`;
+      answer = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink; if you have one, your advisor can tell you what's needed to clear it, and you can pick a mutual free time in the Advisor tab.`;
       sourceCitation = 'Office of the University Registrar & Fisher Advising Policy § 2.4';
       escalationSuggested = true;
       escalationReason = 'Registration lock removal requires advisor sign-off.';
     } else if (isPrereq) {
-      answer = `Yes! You can take **CSE 2231 (Software 2)** and **ACCTMIS 2300 (Accounting 2)** together. CSE 2231 requires passing CSE 2221 with a C- or better, which you are taking now. To keep your semester balanced, pair them with a lighter GE Theme course like Citizenship for a Diverse World.`;
-      sourceCitation = 'OSU Course Bulletin 2026-2027 § CSE 2231 & ACCTMIS 2300 Course Profiles';
+      answer = `Prerequisites are listed for each course in the OSU Course Bulletin. Make sure the classes you've already taken are added under **My classes** so I can check them against what you want to take next.`;
+      sourceCitation = 'OSU Course Bulletin 2026-2027';
     } else if (isMinor) {
       const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
       answer = `⚠️ **SERIOUS WARNING: Official Curriculum Declaration Requested**\n\nYou asked to officially declare the **${minorName}** as your real academic credential in BuckeyeLink.\n\nWhile the Degree Planner provides instant simulations, declaring a minor permanently binds 15-16 credit hours to your graduation audit and must be formally filed through OnCourse SIS. You can escalate directly to your advisor **Sarah Jenkins**, or if you confirm your choice below, your declaration will be transmitted straight to her desk for official processing.`;
@@ -317,7 +334,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
         decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
         warningSummary: `You are requesting to officially declare ${minorName} on your student master record. University policy prohibits AI agents from filing permanent curriculum declarations without human advisor validation.`,
         consequences: [
-          'Credit Load & Overlap Limit: Fisher College allows a maximum of 6 credit hours to overlap between your Finance major and any declared minor.',
+          'Credit Load & Overlap Limit: Only a limited number of credit hours can overlap between your major and a declared minor.',
           'Inter-College Approval: Engineering and Arts & Sciences minors require college committee review and minimum 2.50 cumulative CPHR verification.',
           'Graduation Requirement: Declared minors must be fully satisfied or formally dropped prior to degree conferral.'
         ],
@@ -333,7 +350,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       escalationSuggested,
       escalationReason,
       highStakesDecision,
-      suggestedActions: ['Check 4-Year Roadmap', 'Match Availability with Sarah Jenkins', 'Review Degree Audit']
+      suggestedActions: ['Check 4-Year Roadmap', 'Match Availability with My Advisor', 'Review Degree Audit']
     });
   }
 });
@@ -342,9 +359,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 app.post('/api/escalate-decision', async (req, res) => {
   try {
     const {
-      studentName = 'Tyler Rez',
-      osuId = '#03847291',
-      nameDotNum = 'rez.24@osu.edu',
+      studentName = 'Student',
+      nameDotNum = '',
       decisionType,
       decisionTitle,
       userConfirmed,
@@ -388,7 +404,8 @@ app.post('/api/roadmap-generate', async (req, res) => {
 
     const requestPrompt = `
 You are the OSU Degree Audit & Academic Planning Engine.
-Student Profile: ${JSON.stringify(studentProfile || { name: 'Tyler', major: 'Finance with Business Analytics Minor', rank: 'Sophomore' })}
+Student Profile (entered by the student):
+${describeStudent(studentProfile, currentRoadmap)}
 Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
 
 Current Roadmap Plan:
@@ -400,129 +417,27 @@ Return a JSON with:
   "workloadBalanced": true,
   "confidence": "high" | "moderate" | "uncertain",
   "sourceCitation": "Fisher College of Business / Arts & Sciences 4-Year Curriculum Guide 2026",
-  "confidenceExplanation": "Audited with DARS prerequisite validator (MATH 1151 -> CSE 2221 -> CSE 2231 / ACCTMIS 2200 -> ACCTMIS 2300 -> BUSFIN 3220).",
+  "confidenceExplanation": "string (honest reason for the confidence level)",
   "semesters": [
     {
-      "id": "sem-1",
-      "name": "Autumn 2025 (Year 1)",
-      "status": "completed",
+      "id": "autumn-2027",
+      "name": "Autumn 2027",
+      "status": "planned",
       "courses": [
-        { "code": "MATH 1151", "name": "Calculus 1", "credits": 5, "type": "GE Foundation", "difficulty": 4, "prereqMet": true },
-        { "code": "ECON 2001.01", "name": "Principles of Microeconomics", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true },
-        { "code": "ENGLISH 1110.01", "name": "First-Year English Comp", "credits": 3, "type": "GE Foundation", "difficulty": 1, "prereqMet": true },
-        { "code": "ARTSSCI 1100.01", "name": "University Survey", "credits": 1, "type": "General", "difficulty": 1, "prereqMet": true },
-        { "code": "GE-SBS", "name": "Social & Behavioral Science Elective", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true }
+        { "code": "DEPT 1234", "name": "Course title", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true, "prereqInfo": "optional note" }
       ],
       "totalCredits": 15,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-2",
-      "name": "Spring 2026 (Year 1)",
-      "status": "completed",
-      "courses": [
-        { "code": "ECON 2002.01", "name": "Principles of Macroeconomics", "credits": 3, "type": "Major Prereq", "difficulty": 2, "prereqMet": true },
-        { "code": "ACCTMIS 2200", "name": "Intro to Accounting 1", "credits": 3, "type": "Major Prereq", "difficulty": 3, "prereqMet": true },
-        { "code": "STAT 1430.01", "name": "Statistics for Business", "credits": 4, "type": "GE Foundation", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-NAT", "name": "Natural Science with Lab", "credits": 4, "type": "GE Foundation", "difficulty": 3, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-3",
-      "name": "Autumn 2026 (Year 2 - In Progress)",
-      "status": "in-progress",
-      "courses": [
-        { "code": "ACCTMIS 2300", "name": "Intro to Accounting 2", "credits": 3, "type": "Major Core", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2221", "name": "Software I: Components", "credits": 4, "type": "Minor/Technical", "difficulty": 4, "prereqMet": true },
-        { "code": "MATH 1152", "name": "Calculus 2", "credits": 5, "type": "Major/Math", "difficulty": 5, "prereqMet": true },
-        { "code": "BUSMHR 2292", "name": "Business Communication", "credits": 3, "type": "Major Core", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Heavy"
-    },
-    {
-      "id": "sem-4",
-      "name": "Spring 2027 (Year 2 - Planning)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 3220", "name": "Business Finance", "credits": 3, "type": "Major Core", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2231", "name": "Software II: Development", "credits": 4, "type": "Minor/Technical", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSOBA 2320", "name": "Decision Sciences", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-THEME-1", "name": "Citizenship for Diverse & Just World", "credits": 4, "type": "GE Theme", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-5",
-      "name": "Autumn 2027 (Year 3)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4211", "name": "Corporate Finance", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2321", "name": "Foundations I: Discrete Structures", "credits": 3, "type": "Minor Core", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSMGT 3230", "name": "Operations Management", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true },
-        { "code": "BUSML 3250", "name": "Principles of Marketing", "credits": 3, "type": "Major Core", "difficulty": 2, "prereqMet": true },
-        { "code": "GE-CULT", "name": "Historical & Cultural Studies", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-6",
-      "name": "Spring 2028 (Year 3)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4221", "name": "Investments", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSFIN 4230", "name": "Advanced Corporate Finance", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 3241", "name": "Intro to Database Systems", "credits": 3, "type": "Minor Elective", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-THEME-2", "name": "Theme Elective: Health & Well-being", "credits": 4, "type": "GE Theme", "difficulty": 2, "prereqMet": true },
-        { "code": "EXP-3990", "name": "Internship Prep Seminar", "credits": 1, "type": "Experiential", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-summer",
-      "name": "Summer 2028 (Internship)",
-      "status": "planned",
-      "courses": [
-        { "code": "INTERN 4191", "name": "Summer Industry Internship", "credits": 1, "type": "Experiential", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 1,
-      "workloadRating": "Light"
-    },
-    {
-      "id": "sem-7",
-      "name": "Autumn 2028 (Year 4)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4250", "name": "International Finance", "credits": 3, "type": "Major Specialization", "difficulty": 3, "prereqMet": true },
-        { "code": "BUSMHR 4490", "name": "Strategic Management (Capstone)", "credits": 3, "type": "Major Capstone", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 3461", "name": "Computer Networking / Cloud", "credits": 3, "type": "Minor Elective", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-LIT", "name": "Literary & Visual Arts", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true },
-        { "code": "FREE-ELEC", "name": "General Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-8",
-      "name": "Spring 2029 (Year 4 - Graduation)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4260", "name": "Financial Modeling & Valuation", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSOBA 4240", "name": "Business Analytics & Predictive Modeling", "credits": 3, "type": "Minor Capstone", "difficulty": 3, "prereqMet": true },
-        { "code": "GRAD-101", "name": "Senior Transition & Career Launch", "credits": 1, "type": "Career", "difficulty": 1, "prereqMet": true },
-        { "code": "FREE-ELEC-2", "name": "Free Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true },
-        { "code": "FREE-ELEC-3", "name": "Free Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 13,
-      "workloadRating": "Balanced"
+      "workloadRating": "Light" | "Moderate" | "Balanced" | "Heavy" | "Overload"
     }
   ]
 }
+
+Rules for "semesters":
+- Return ONLY planned future terms, after the student's current term. Their completed and in-progress classes are kept as they entered them.
+- Use ids of the form "autumn-2027", "spring-2028", "summer-2028".
+- Never plan a course they've already taken. Respect prerequisites against the classes they entered.
+- "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
+- Plan through graduation at about 120 total credits.
 
 Return ONLY valid JSON.
 `;

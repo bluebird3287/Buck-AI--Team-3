@@ -23,8 +23,11 @@ import {
   Clock
 } from 'lucide-react';
 import { OhioStateLogo } from './OhioStateLogo';
+import { Semester, StudentProfile } from '../data/sampleData';
 
 interface DashboardViewProps {
+  profile: StudentProfile;
+  roadmap: Semester[];
   onOpenChat: () => void;
   onOpenChatWithPrompt: (prompt: string) => void;
   onOpenRoadmap: () => void;
@@ -35,6 +38,8 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
+  profile,
+  roadmap,
   onOpenChat,
   onOpenChatWithPrompt,
   onOpenRoadmap,
@@ -56,6 +61,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [timesheetOpen, setTimesheetOpen] = useState(false);
   const [officeOpen, setOfficeOpen] = useState(false);
   const [resourceTab, setResourceTab] = useState<'Wellness' | 'Social'>('Wellness');
+
+  const currentCourses = roadmap.find((s) => s.status === 'in-progress')?.courses ?? [];
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,14 +93,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 2. Main 2-Column Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* ========================================================= */}
-        {/* LEFT COLUMN: Hi Tyler, Learning, Accounts, Work, Resources */}
+        {/* LEFT COLUMN: Greeting, Learning, Accounts, Work, Resources */}
         {/* ========================================================= */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* CARD 1: Hi, Tyler! (Holds + To-Do List) */}
+          {/* CARD 1: Greeting (Holds + To-Do List) */}
           <div className="bg-white rounded-lg shadow-2xs border border-gray-200 overflow-hidden">
             <div className="p-6">
-              <h2 className="text-3xl font-medium text-gray-900 tracking-tight">Hi, Tyler!</h2>
+              <h2 className="text-3xl font-medium text-gray-900 tracking-tight">Hi, {profile.name}!</h2>
             </div>
 
             {/* Row 1: Holds */}
@@ -108,7 +115,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <span className="text-base text-gray-900 font-normal">Holds</span>
                   <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
-                    Registration Lock
+                    {profile.holds.length ? profile.holds.join(', ') : 'None'}
                   </span>
                 </div>
                 <div className="text-gray-600">
@@ -119,23 +126,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* Holds Dropdown Details */}
               {holdsOpen && (
                 <div className="px-6 pb-5 pt-2 bg-gray-50 border-t border-gray-100 text-xs space-y-3">
-                  <div className="p-3 bg-white rounded border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-gray-900 text-sm">Hold: Registration Lock</div>
-                      <div className="text-gray-600 mt-0.5">
-                        Reason: Mandatory 2nd-Year Advising Plan Review before Spring 2027 enrollment.
-                      </div>
-                      <div className="text-gray-500 mt-0.5">Amount: $0.00 • Originator: Fisher Undergraduate Advising</div>
+                  {profile.holds.length === 0 && (
+                    <div className="p-3 bg-white rounded border border-gray-200 text-gray-600">
+                      BuckAI isn&apos;t connected to BuckeyeLink, so it can&apos;t see your holds. Check BuckeyeLink for any holds on your account.
                     </div>
-                    <div className="flex items-center space-x-2 shrink-0">
+                  )}
+                  {profile.holds.map((hold) => (
+                    <div key={hold} className="p-3 bg-white rounded border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="font-semibold text-gray-900 text-sm">Hold: {hold}</div>
                       <button
                         onClick={onOpenScheduling}
-                        className="bg-[#990000] hover:bg-[#800000] text-white px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                        className="bg-[#990000] hover:bg-[#800000] text-white px-3 py-1.5 rounded text-xs font-medium transition-colors shrink-0"
                       >
                         Match Advisor Schedule
                       </button>
                     </div>
-                  </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -152,7 +158,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <span className="text-base text-gray-900 font-normal">To-Do List</span>
                   <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
-                    Incomplete: 4
+                    Incomplete: {profile.toDos.length}
                   </span>
                 </div>
                 <div className="text-gray-600">
@@ -163,17 +169,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* To-Do Dropdown Details */}
               {todoOpen && (
                 <div className="px-6 pb-5 pt-2 bg-gray-50 border-t border-gray-100 text-xs space-y-2">
-                  {[
-                    { task: 'Financial Responsibility Statement', due: 'Autumn 2026', dept: 'Bursar' },
-                    { task: 'Direct Deposit Authorization Verification', due: 'Immediate', dept: 'Payroll' },
-                    { task: 'Selective Service Registration Verification', due: 'Autumn 2026', dept: 'Registrar' },
-                    { task: 'Update Emergency Contact Information', due: 'Annual', dept: 'Student Life' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="p-2.5 bg-white rounded border border-gray-200 flex justify-between items-center">
-                      <div>
-                        <span className="font-semibold text-gray-900">{item.task}</span>
-                        <div className="text-gray-500 text-[11px]">Due: {item.due} • {item.dept}</div>
-                      </div>
+                  {profile.toDos.length === 0 && (
+                    <div className="p-2.5 bg-white rounded border border-gray-200 text-gray-600">Nothing on your to-do list.</div>
+                  )}
+                  {profile.toDos.map((task) => (
+                    <div key={task} className="p-2.5 bg-white rounded border border-gray-200 flex justify-between items-center">
+                      <span className="font-semibold text-gray-900">{task}</span>
                       <span className="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-medium">
                         Pending
                       </span>
@@ -202,7 +203,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <span className="text-base text-gray-900 font-normal">Carmen Assignments</span>
                   <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
-                    Due Today: 1
+                    Due Today: 0
                   </span>
                 </div>
                 <div className="text-gray-600">
@@ -211,12 +212,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               {carmenOpen && (
                 <div className="px-6 pb-4 pt-1 bg-gray-50 border-t border-gray-100 text-xs space-y-2">
-                  <div className="p-2.5 bg-white rounded border border-gray-200 flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold text-gray-900">ACCTMIS 2300 - Chapter 6 Quiz</div>
-                      <div className="text-gray-500">Due tonight at 11:59 PM • 20 points</div>
-                    </div>
-                    <span className="bg-red-50 text-red-700 font-semibold px-2 py-0.5 rounded text-[11px]">Due Today</span>
+                  <div className="p-2.5 bg-white rounded border border-gray-200 text-gray-600">
+                    No assignments due today.
                   </div>
                 </div>
               )}
@@ -234,10 +231,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <span className="text-base text-gray-900 font-normal">Class Calendar</span>
                   <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
-                    Today: 2 Classes
-                  </span>
-                  <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
-                    Up Next: BUSADM 2801 - TechInnovation1
+                    This term: {currentCourses.length} {currentCourses.length === 1 ? 'Class' : 'Classes'}
                   </span>
                 </div>
                 <div className="text-gray-600">
@@ -246,20 +240,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               {calendarOpen && (
                 <div className="px-6 pb-4 pt-1 bg-gray-50 border-t border-gray-100 text-xs space-y-2">
-                  <div className="p-2.5 bg-white rounded border border-gray-200 flex justify-between">
-                    <div>
-                      <div className="font-semibold text-gray-900">BUSADM 2801: TechInnovation1</div>
-                      <div className="text-gray-500">1:00 PM - 2:15 PM • Gerlach Hall 265</div>
+                  {currentCourses.length === 0 && (
+                    <div className="p-2.5 bg-white rounded border border-gray-200 text-gray-600">
+                      No classes added for this term. Use My classes at the top of the page to add them.
                     </div>
-                    <span className="text-emerald-700 font-semibold">In 45 Mins</span>
-                  </div>
-                  <div className="p-2.5 bg-white rounded border border-gray-200 flex justify-between">
-                    <div>
-                      <div className="font-semibold text-gray-900">CSE 2221: Software Components Lab</div>
-                      <div className="text-gray-500">3:55 PM - 5:15 PM • Caldwell Lab 112</div>
+                  )}
+                  {currentCourses.map((c) => (
+                    <div key={c.code} className="p-2.5 bg-white rounded border border-gray-200 flex justify-between">
+                      <div className="font-semibold text-gray-900">
+                        {c.code}{c.name !== c.code ? `: ${c.name}` : ''}
+                      </div>
+                      <span className="text-gray-500">{c.credits} cr</span>
                     </div>
-                    <span className="text-gray-500">Upcoming</span>
-                  </div>
+                  ))}
                 </div>
               )}
             </div>

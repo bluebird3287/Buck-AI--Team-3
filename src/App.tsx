@@ -12,18 +12,39 @@ import { AiChatWidget, ChatMessage } from './components/AiChatWidget';
 import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
+import { normalizeSemesters } from './lib/studentProfile';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
-import {
-  INITIAL_STUDENT_PROFILE,
-  INITIAL_ROADMAP,
-  INITIAL_AI_CONVERSATION,
-  AdvisorSlot,
-  Semester
-} from './data/sampleData';
+import { AdvisorSlot, Semester, StudentProfile } from './data/sampleData';
 
-export default function App() {
+interface AppProps {
+  profile: StudentProfile;
+  initialRoadmap: Semester[];
+  onRoadmapChange: (semesters: Semester[]) => void;
+}
+
+// The opening chat message, written for whoever is signed in.
+function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage {
+  const current = roadmap.find((s) => s.status === 'in-progress');
+  const program = [profile.rank, profile.major && `pursuing ${profile.major}`, profile.minor && `with a ${profile.minor} minor`]
+    .filter(Boolean)
+    .join(' ');
+  const enrolled = current?.courses.length
+    ? `\n\nThis term you're taking ${current.courses.map((c) => c.code).join(', ')}.`
+    : "\n\nYou haven't added any classes for this term yet. Use **My classes** at the top of the page to add them.";
+  return {
+    id: 'msg-1',
+    role: 'assistant',
+    text: `Hello ${profile.name}! I'm your BuckeyeLink Advising Assistant.${program ? ` I see you're ${program}.` : ''}${enrolled}\n\nI can help you check prerequisites, plan your next terms, and set up time with your advisor.`,
+    sourceCitation: 'Classes you entered in BuckAI',
+    confidence: 'high',
+    confidenceExplanation: 'Based on the profile and classes you added. BuckAI is not connected to BuckeyeLink yet.',
+    escalationSuggested: false,
+  };
+}
+
+export default function App({ profile, initialRoadmap, onRoadmapChange }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
@@ -32,9 +53,8 @@ export default function App() {
   const [isSeatDropBannerOpen, setIsSeatDropBannerOpen] = useState<boolean>(false);
 
   // Student Profile & Data
-  const [profile] = useState(INITIAL_STUDENT_PROFILE);
-  const [roadmap, setRoadmap] = useState<Semester[]>(INITIAL_ROADMAP);
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_AI_CONVERSATION);
+  const [roadmap, setRoadmap] = useState<Semester[]>(initialRoadmap);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [isRoadmapUpdating, setIsRoadmapUpdating] = useState<boolean>(false);
 
@@ -62,6 +82,7 @@ export default function App() {
           message: text,
           history: messages.map((m) => ({ role: m.role, text: m.text })),
           studentProfile: profile,
+          roadmap,
         }),
       });
 
@@ -72,7 +93,7 @@ export default function App() {
       const lower = text.toLowerCase();
       if (!highStakesDecision && (lower.includes('drop') || lower.includes('withdraw') || (lower.includes('minor') && (lower.includes('add') || lower.includes('pick up') || lower.includes('declare') || lower.includes('real choice'))))) {
         const isDrop = lower.includes('drop') || lower.includes('withdraw');
-        const course = lower.includes('acctmis') ? 'ACCTMIS 2300' : lower.includes('math') ? 'MATH 1152' : lower.includes('cse') ? 'CSE 2221' : 'ACCTMIS 2300';
+        const course = currentCourseMentioned(lower) ?? 'this class';
         const minorName = lower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
         highStakesDecision = {
           isHighStakes: true,
@@ -109,13 +130,13 @@ export default function App() {
       const isDrop = textLower.includes('drop') || textLower.includes('withdraw');
       const isMinor = textLower.includes('minor') && (textLower.includes('add') || textLower.includes('pick up') || textLower.includes('declare') || textLower.includes('real choice'));
 
-      let fallbackText = `As a Sophomore Finance major with a 3.68 GPA, you are on track for Spring 2029 graduation. For Spring 2027, you meet all prerequisites for BUSFIN 3220 and CSE 2231.`;
+      let fallbackText = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
       let fallbackEscalation = false;
-      let fallbackCitation = 'Fisher College Curriculum Sheet 2026-2027';
+      let fallbackCitation = 'OSU Course Bulletin 2026-2027';
       let fallbackHighStakes: HighStakesDecisionData | null = null;
 
       if (isDrop) {
-        const course = textLower.includes('acctmis') ? 'ACCTMIS 2300' : textLower.includes('math') ? 'MATH 1152' : textLower.includes('cse') ? 'CSE 2221' : 'ACCTMIS 2300';
+        const course = currentCourseMentioned(textLower) ?? 'this class';
         fallbackText = `⚠️ Academic Record Guardrail: You requested to drop ${course} as a real academic choice.\n\nPer university policy, AI assistants cannot unilaterally alter transcripts. Dropping below 12 credit hours terminates full-time status (risking FAFSA & scholarships) and delays your prerequisite chain.\n\nPlease review the impacts below. You can escalate directly to Sarah Jenkins or submit for expedited advisor sign-off.`;
         fallbackCitation = 'OSU Faculty Rule 3335-8-32 & Fisher Undergraduate Handbook';
         fallbackEscalation = true;
@@ -142,14 +163,14 @@ export default function App() {
           decisionTitle: `Declare ${minorName} on Degree Audit`,
           warningSummary: `You are requesting to officially declare ${minorName}. University policy prohibits AI agents from filing permanent curriculum declarations without human advisor validation.`,
           consequences: [
-            'Overlap Limit: Maximum 6 credit hours can overlap between your Finance major and declared minor.',
+            'Overlap Limit: Only a limited number of credit hours can overlap between your major and a declared minor.',
             'College Approval: Engineering and Arts & Sciences minors require college review and 2.50+ CPHR verification.',
             'Graduation Audit: Declared minors must be fully completed or formally removed prior to graduation.'
           ],
           escalateRecommended: true
         };
       } else if (isHold) {
-        fallbackText = `Your Registration Lock hold is the mandatory Second-Year Academic Plan Review. It prevents adding Spring 2027 classes until cleared. Meeting with your advisor Sarah Jenkins for 10 minutes will lift this hold immediately.`;
+        fallbackText = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink, and if you have one, your advisor can tell you what's needed to clear it.`;
         fallbackEscalation = true;
         fallbackCitation = 'University Registrar Registration Hold Policy & Fisher Milestone Guidelines';
       } else if (textLower.includes('building') || textLower.includes('access') || textLower.includes('after-hour') || textLower.includes('study') || textLower.includes('buckid') || textLower.includes('dreese') || textLower.includes('library')) {
@@ -193,22 +214,28 @@ export default function App() {
       if (!response.ok) throw new Error('Roadmap API error');
       const data = await response.json();
       if (data.semesters && Array.isArray(data.semesters)) {
-        setRoadmap(data.semesters);
+        // Keep the classes the student entered for past and current terms; only planned terms change.
+        const locked = roadmap.filter((s) => s.status !== 'planned');
+        const lockedIds = new Set(locked.map((s) => s.id));
+        const next = normalizeSemesters([
+          ...locked,
+          ...data.semesters.filter((s: Semester) => !lockedIds.has(s.id)).map((s: Semester) => ({ ...s, status: 'planned' as const })),
+        ]);
+        setRoadmap(next);
+        onRoadmapChange(next);
       }
-    } catch {
-      // Clean adjustment simulation
-      setRoadmap((prev) =>
-        prev.map((sem) => {
-          if (sem.id === 'sem-4') {
-            return { ...sem, workloadRating: 'Balanced', totalCredits: 14 };
-          }
-          return sem;
-        })
-      );
+    } catch (err) {
+      console.warn('Roadmap update failed:', err);
     } finally {
       setIsRoadmapUpdating(false);
     }
   };
+
+  // A class code from this term's schedule that the student mentioned, if any.
+  function currentCourseMentioned(textLower: string): string | undefined {
+    const current = roadmap.find((s) => s.status === 'in-progress');
+    return current?.courses.find((c) => textLower.includes(c.code.toLowerCase()))?.code;
+  }
 
   const handleConfirmBooking = (slot: AdvisorSlot, format: string, notes: string) => {
     setBookedSlot(slot);
@@ -238,6 +265,7 @@ export default function App() {
 
   const handleTriggerSeatDropAlert = (course?: WatchedCourse) => {
     const target = course || INITIAL_WATCHED_COURSES[0];
+    if (!target) return;
     setAlertCourse(target);
     setIsSeatDropBannerOpen(true);
   };
@@ -271,6 +299,8 @@ export default function App() {
       <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 md:p-8">
         {currentStep === 1 && (
           <DashboardView
+            profile={profile}
+            roadmap={roadmap}
             onOpenChat={() => handleOpenChat('chat')}
             onOpenChatWithPrompt={handleOpenChatWithPrompt}
             onOpenRoadmap={() => handleOpenChat('roadmap')}
@@ -301,6 +331,8 @@ export default function App() {
               </div>
             </div>
             <DashboardView
+              profile={profile}
+              roadmap={roadmap}
               onOpenChat={() => setIsChatOpen(true)}
               onOpenChatWithPrompt={handleOpenChatWithPrompt}
               onOpenRoadmap={() => setIsChatOpen(true)}
@@ -312,6 +344,7 @@ export default function App() {
         {currentStep === 4 && (
           <AdvisorSchedulingView
             profile={profile}
+            roadmap={roadmap}
             onConfirmBooking={(slot, fmt, notes) => {
               handleConfirmBooking(slot, fmt, notes);
               setCurrentStep(5);

@@ -1037,7 +1037,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
           <div className="text-xs bg-gray-50 border border-gray-200 px-3 py-2 rounded-lg shrink-0">
             <span className="text-gray-500">Cardholder:</span>{' '}
             <strong className="text-gray-900">{profile.name}</strong> •{' '}
-            <span className="font-mono text-gray-600">ID #{profile.osuId}</span>
+            <span className="font-mono text-gray-600">{profile.nameDotNum}</span>
           </div>
         </div>
 

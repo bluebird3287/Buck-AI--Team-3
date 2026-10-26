@@ -15,10 +15,11 @@ import {
   Check,
   Info
 } from 'lucide-react';
-import { AdvisorSlot, StudentProfile, MUTUAL_ADVISOR_SLOTS } from '../data/sampleData';
+import { AdvisorSlot, StudentProfile, Semester, MUTUAL_ADVISOR_SLOTS } from '../data/sampleData';
 
 interface AdvisorSchedulingViewProps {
   profile: StudentProfile;
+  roadmap: Semester[];
   onConfirmBooking: (slot: AdvisorSlot, format: string, notes: string) => void;
   onBackToRoadmap: () => void;
   onNextStep: () => void;
@@ -28,6 +29,7 @@ interface AdvisorSchedulingViewProps {
 
 export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
   profile,
+  roadmap,
   onConfirmBooking,
   onBackToRoadmap,
   onNextStep,
@@ -37,8 +39,10 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
   const [selectedSlotId, setSelectedSlotId] = useState<string>('slot-1');
   const [selectedFormat, setSelectedFormat] = useState<'In-Person' | 'Zoom Virtual' | 'Phone'>('In-Person');
   const [studentNotes, setStudentNotes] = useState(
-    'Meeting to review draft 4-year roadmap and clear 2nd-Year Registration Lock hold for Spring 2027 enrollment.'
+    'Meeting to review my 4-year roadmap and next term’s classes.'
   );
+  const currentCourses = roadmap.find((s) => s.status === 'in-progress')?.courses ?? [];
+  const advisorInitials = profile.advisorName.split(/[\s,]+/).filter((w) => /^[A-Z]/.test(w)).slice(0, 2).map((w) => w[0]).join('');
 
   const selectedSlot = MUTUAL_ADVISOR_SLOTS.find((s) => s.id === selectedSlotId) || MUTUAL_ADVISOR_SLOTS[0];
 
@@ -87,14 +91,14 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
                   Advising Escalation Active
                 </span>
                 <span className="text-xs text-gray-500 font-medium">
-                  SIS Mandatory 2nd-Year Review
+                  Advisor Check-in
                 </span>
               </div>
               <h2 className="text-base sm:text-lg font-bold text-gray-900 mt-1">
                 Mutual Availability Scheduling with {profile.advisorName}
               </h2>
               <p className="text-xs text-gray-600 mt-1 max-w-3xl leading-relaxed">
-                Because Tyler has an active <strong>Registration Lock hold</strong>, Ohio State policy requires human advising verification. This tool compares your enrolled lecture and lab schedule directly against Advisor Sarah Jenkins&apos; open advising calendar to display mutual open time windows.
+                Holds, waivers, and big decisions need a human advisor. This tool compares your class schedule against {profile.advisorName}&apos;s open advising calendar to show times that work for both of you.
               </p>
             </div>
           </div>
@@ -109,7 +113,7 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
           <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-xs space-y-4">
             <div className="flex items-start space-x-3">
               <div className="w-12 h-12 rounded-full bg-red-100 border border-red-200 flex items-center justify-center text-lg font-bold text-[#ba0c2f] shrink-0">
-                SJ
+                {advisorInitials}
               </div>
               <div>
                 <h3 className="font-bold text-base text-gray-900">{profile.advisorName}</h3>
@@ -129,7 +133,7 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
               </div>
               <div className="flex items-center space-x-2 text-gray-700">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Authorized to lift Registration Lock holds</span>
+                <span>Authorized to lift advising holds</span>
               </div>
             </div>
 
@@ -140,39 +144,32 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
                 <span>OnCourse Student Dossier Pre-Loaded</span>
               </div>
               <p className="text-gray-600 text-[11px] leading-relaxed">
-                Tyler&apos;s current GPA (3.68), in-progress coursework (ACCTMIS 2300, CSE 2221), and proposed Spring 2027 balanced cart are pre-loaded for Sarah Jenkins before the advising session begins.
+                Your GPA{profile.gpa ? ` (${profile.gpa.toFixed(2)})` : ''}, current classes{currentCourses.length ? ` (${currentCourses.map((c) => c.code).join(', ')})` : ''}, and 4-year roadmap are shared with {profile.advisorName} before the session.
               </p>
             </div>
           </div>
 
-          {/* Tyler's Active Class Commitments */}
+          {/* Student's Active Class Commitments */}
           <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-xs space-y-3">
             <h3 className="font-bold text-sm text-gray-900 flex items-center justify-between">
-              <span>Tyler&apos;s Class Schedule Filter</span>
+              <span>Your Class Schedule Filter</span>
               <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">
                 Auto-Synced
               </span>
             </h3>
             <p className="text-xs text-gray-500">
-              Times when Tyler has lectures/labs are automatically blocked out:
+              Your classes this term (meeting times aren&apos;t synced from BuckeyeLink yet):
             </p>
             <div className="space-y-1.5 text-xs text-gray-700">
-              <div className="p-2 bg-gray-50 rounded border border-gray-100 flex justify-between">
-                <span>MWF 8:00 AM - 8:55 AM</span>
-                <span className="font-semibold text-gray-800">ACCTMIS 2300</span>
-              </div>
-              <div className="p-2 bg-gray-50 rounded border border-gray-100 flex justify-between">
-                <span>TR 9:35 AM - 10:55 AM</span>
-                <span className="font-semibold text-gray-800">CSE 2221</span>
-              </div>
-              <div className="p-2 bg-gray-50 rounded border border-gray-100 flex justify-between">
-                <span>MWF 11:30 AM - 12:45 PM</span>
-                <span className="font-semibold text-gray-800">MATH 1152</span>
-              </div>
-              <div className="p-2 bg-gray-50 rounded border border-gray-100 flex justify-between">
-                <span>W 2:15 PM - 3:35 PM</span>
-                <span className="font-semibold text-gray-800">BUSMHR 2292</span>
-              </div>
+              {currentCourses.length === 0 && (
+                <div className="p-2 bg-gray-50 rounded border border-gray-100 text-gray-500">No classes added for this term.</div>
+              )}
+              {currentCourses.map((c) => (
+                <div key={c.code} className="p-2 bg-gray-50 rounded border border-gray-100 flex justify-between">
+                  <span>{c.name !== c.code ? c.name : ''}</span>
+                  <span className="font-semibold text-gray-800">{c.code}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -186,7 +183,7 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
                   Select a Mutually Free Appointment Window
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Green indicates zero class overlap for you and an open slot for Sarah Jenkins.
+                  Green indicates zero class overlap for you and an open slot for {profile.advisorName}.
                 </p>
               </div>
               <div className="flex items-center space-x-3 text-xs">

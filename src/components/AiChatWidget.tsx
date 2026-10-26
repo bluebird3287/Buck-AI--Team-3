@@ -82,8 +82,8 @@ const MINOR_OPTIONS: MinorOption[] = [
     totalCredits: 15,
     creditsCompleted: 7,
     alreadyTaken: [
-      { code: 'STAT 1430.01', name: 'Statistics for Business (GE Foundation)', credits: 4 },
-      { code: 'CSE 2221', name: 'Software I: Software Components (Taking Now)', credits: 3 }
+      { code: 'STAT 1430.01', name: 'Statistics for Business', credits: 4 },
+      { code: 'CSE 2221', name: 'Software I: Software Components', credits: 3 }
     ],
     remainingNeeded: [
       { code: 'BUSOBA 2320', name: 'Decision Sciences', term: 'Spring 2027', credits: 3 },
@@ -91,9 +91,9 @@ const MINOR_OPTIONS: MinorOption[] = [
       { code: 'BUSOBA 4240', name: 'Applied Predictive Analytics & AI', term: 'Spring 2029', credits: 3 }
     ],
     graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: '98% Overlap Synergy with Finance Major',
+    synergyScore: 'Pairs well with business and data-focused majors',
     careerMatch: 'Financial Data Analyst, Quantitative Trader, FinTech Consultant',
-    description: 'Combines data analytics with programming. 40% of the minor is already completed through your existing business statistics and CSE courses.'
+    description: 'Combines data analytics with programming. Business statistics and intro CSE courses count toward it.'
   },
   {
     id: 'cse',
@@ -102,8 +102,8 @@ const MINOR_OPTIONS: MinorOption[] = [
     totalCredits: 16,
     creditsCompleted: 8,
     alreadyTaken: [
-      { code: 'MATH 1151', name: 'Calculus I (Completed)', credits: 5 },
-      { code: 'CSE 2221', name: 'Software I: Software Components (Taking Now)', credits: 3 }
+      { code: 'MATH 1151', name: 'Calculus I', credits: 5 },
+      { code: 'CSE 2221', name: 'Software I: Software Components', credits: 3 }
     ],
     remainingNeeded: [
       { code: 'CSE 2231', name: 'Software II: Development & Components', term: 'Spring 2027', credits: 4 },
@@ -112,7 +112,7 @@ const MINOR_OPTIONS: MinorOption[] = [
       { code: 'CSE 3000+', name: 'Advanced CSE Technical Elective', term: 'Autumn 2028', credits: 3 }
     ],
     graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: '92% Technical Synergy',
+    synergyScore: 'Strong fit for technical and quantitative majors',
     careerMatch: 'Algorithmic Trading, Financial Software Engineer, Systems Analyst',
     description: 'Deep technical foundation in algorithms and software systems. Calculus 1 and Software 1 count toward the prerequisite baseline.'
   },
@@ -123,18 +123,18 @@ const MINOR_OPTIONS: MinorOption[] = [
     totalCredits: 15,
     creditsCompleted: 10,
     alreadyTaken: [
-      { code: 'ECON 2001.01', name: 'Principles of Microeconomics (Completed)', credits: 3 },
-      { code: 'ECON 2002.01', name: 'Principles of Macroeconomics (Completed)', credits: 3 },
-      { code: 'STAT 1430.01', name: 'Statistics for Business (Completed)', credits: 4 }
+      { code: 'ECON 2001.01', name: 'Principles of Microeconomics', credits: 3 },
+      { code: 'ECON 2002.01', name: 'Principles of Macroeconomics', credits: 3 },
+      { code: 'STAT 1430.01', name: 'Statistics for Business', credits: 4 }
     ],
     remainingNeeded: [
       { code: 'ECON 4001.01', name: 'Intermediate Microeconomic Theory', term: 'Autumn 2027', credits: 3 },
       { code: 'ECON 4400', name: 'Money & Banking', term: 'Spring 2028', credits: 3 }
     ],
     graduationDelay: '0 Months (Fastest Minor: Only 2 classes left)',
-    synergyScore: '95% Finance Core Synergy',
+    synergyScore: 'Shares intro courses with most business majors',
     careerMatch: 'Economic Forecaster, Central Banking, Investment Research',
-    description: 'The fastest minor to complete: 10 credits already satisfied from your core Finance pre-major requirements. You only need 2 upper-division economics courses.'
+    description: 'Intro micro/macroeconomics and statistics count toward it, so it is often quick to finish.'
   },
   {
     id: 'realestate',
@@ -143,7 +143,7 @@ const MINOR_OPTIONS: MinorOption[] = [
     totalCredits: 12,
     creditsCompleted: 3,
     alreadyTaken: [
-      { code: 'ECON 2001.01', name: 'Principles of Microeconomics (Completed)', credits: 3 }
+      { code: 'ECON 2001.01', name: 'Principles of Microeconomics', credits: 3 }
     ],
     remainingNeeded: [
       { code: 'BUSFIN 3400', name: 'Introduction to Real Estate', term: 'Autumn 2027', credits: 3 },
@@ -151,11 +151,26 @@ const MINOR_OPTIONS: MinorOption[] = [
       { code: 'BUSFIN 4412', name: 'Real Estate Valuation & Property Markets', term: 'Autumn 2028', credits: 3 }
     ],
     graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: '90% Asset Management Synergy',
+    synergyScore: 'Pairs well with finance and business majors',
     careerMatch: 'Commercial Real Estate Brokerage, REIT Analyst, Property Portfolio Manager',
-    description: 'Specializes in property valuation and commercial real estate finance. Taught by Fisher Finance faculty.'
+    description: 'Specializes in property valuation and commercial real estate finance. Taught by Fisher faculty.'
   }
 ];
+
+// Re-sorts a minor's courses into "already have" and "still needed" using the classes
+// this student entered, so nobody sees another student's record.
+function personalizeMinor(m: MinorOption, takenCodes: Set<string>): MinorOption {
+  const all = [
+    ...m.alreadyTaken.map((c) => ({ ...c, term: 'TBD' })),
+    ...m.remainingNeeded,
+  ];
+  const has = (code: string) => takenCodes.has(code.toUpperCase());
+  const alreadyTaken = all.filter((c) => has(c.code)).map(({ term: _term, ...c }) => c);
+  const remainingNeeded = all.filter((c) => !has(c.code)).map((c) => ({ ...c, term: c.term === 'TBD' ? 'Not yet planned' : `Suggested ${c.term}` }));
+  const creditsCompleted = alreadyTaken.reduce((sum, c) => sum + c.credits, 0);
+  const left = Math.max(m.totalCredits - creditsCompleted, 0);
+  return { ...m, alreadyTaken, remainingNeeded, creditsCompleted, graduationDelay: `${left} credits left` };
+}
 
 interface ProfessorReview {
   id: string;
@@ -415,7 +430,13 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   }, [initialTab]);
   const [inputText, setInputText] = useState('');
   const [roadmapPrompt, setRoadmapPrompt] = useState('');
-  const [expandedYear, setExpandedYear] = useState<number>(2); // Year 2 expanded by default
+  // Open the year the student is in now
+  const [expandedYear, setExpandedYear] = useState<number>(
+    () => roadmap.find((s) => s.status === 'in-progress')?.year ?? roadmap[roadmap.length - 1]?.year ?? 1,
+  );
+  const takenCodes = new Set(roadmap.filter((sem) => sem.status !== 'planned').flatMap((sem) => sem.courses.map((c) => c.code.toUpperCase())));
+  const currentCourseToDrop = roadmap.find((sem) => sem.status === 'in-progress')?.courses[0]?.code;
+  const minorOptions = MINOR_OPTIONS.map((m) => personalizeMinor(m, takenCodes));
   const [selectedMinorId, setSelectedMinorId] = useState<string>('analytics');
   const [appliedMinorId, setAppliedMinorId] = useState<string>('analytics');
   const [appliedFeedback, setAppliedFeedback] = useState<string | null>(null);
@@ -453,7 +474,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
       if (onUpdateDecision) {
         onUpdateDecision(messageId, updated);
       }
-      // Also open the advisor tab so Tyler can match available appointment times immediately
+      // Also open the advisor tab so the student can match available appointment times immediately
       setActiveTab('advisor');
     } catch (e) {
       console.error('Failed to escalate to advisor:', e);
@@ -531,39 +552,25 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const handleBookSlot = (slot: AdvisorSlot) => {
     onConfirmBooking(
       slot,
-      'In-Person (Mason Hall 120)',
-      'Meeting to review 4-year degree roadmap and remove Registration Lock hold.'
+      `In-Person (${profile.advisorOffice})`,
+      'Meeting to review my 4-year degree roadmap.'
     );
-    onSendMessage(`I just booked an advising appointment with Sarah Jenkins on ${slot.day}, ${slot.date} at ${slot.time} to clear my Registration Lock hold.`);
+    onSendMessage(`I just booked an advising appointment with ${profile.advisorName} on ${slot.day}, ${slot.date} at ${slot.time}.`);
   };
 
   // Group semesters by academic year for clean, spacious display
-  const years = [
-    {
-      yearNumber: 1,
-      title: 'Year 1 (Freshman)',
-      status: 'Completed',
-      semesters: roadmap.filter((s) => s.id === 'sem-1' || s.id === 'sem-2')
-    },
-    {
-      yearNumber: 2,
-      title: 'Year 2 (Sophomore - Current Year)',
-      status: 'In Progress',
-      semesters: roadmap.filter((s) => s.id === 'sem-3' || s.id === 'sem-4')
-    },
-    {
-      yearNumber: 3,
-      title: 'Year 3 (Junior)',
-      status: 'Planned',
-      semesters: roadmap.filter((s) => s.id === 'sem-5' || s.id === 'sem-6' || s.id === 'sem-summer')
-    },
-    {
-      yearNumber: 4,
-      title: 'Year 4 (Senior - Graduation)',
-      status: 'Planned',
-      semesters: roadmap.filter((s) => s.id === 'sem-7' || s.id === 'sem-8')
-    }
-  ];
+  const progressPct = Math.min(100, Math.round((profile.earnedCredits / profile.totalRequiredCredits) * 100));
+  const YEAR_TITLES = ['Freshman', 'Sophomore', 'Junior', 'Senior'];
+  const yearNumbers = [...new Set(roadmap.map((s) => s.year ?? 1))].sort((a, b) => a - b);
+  const years = yearNumbers.map((n) => {
+    const semesters = roadmap.filter((s) => (s.year ?? 1) === n);
+    const status = semesters.every((s) => s.status === 'completed')
+      ? 'Completed'
+      : semesters.some((s) => s.status !== 'planned')
+      ? 'In Progress'
+      : 'Planned';
+    return { yearNumber: n, title: `Year ${n}${YEAR_TITLES[n - 1] ? ` (${YEAR_TITLES[n - 1]})` : ''}`, status, semesters };
+  });
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
@@ -580,7 +587,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
               </span>
             </div>
             <p className="text-xs text-white/90 mt-0.5">
-              Tyler Rez (rez.14) • BSBA in Finance • Advisor: Sarah Jenkins
+              {profile.name} ({profile.nameDotNum}) • {profile.major} • Advisor: {profile.advisorName}
             </p>
           </div>
 
@@ -693,11 +700,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         {activeTab === 'chat' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-white">
             {/* Active Hold Alert Banner */}
+            {profile.holds.length > 0 && (
             <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between text-xs sm:text-sm text-red-900 shrink-0">
               <div className="flex items-center space-x-2">
                 <AlertCircle className="w-4 h-4 text-[#ba0c2f] shrink-0" />
                 <span>
-                  <strong>Action Required:</strong> Registration Lock hold requires brief advising check-in before Spring 2027 enrollment.
+                  <strong>Action Required:</strong> {profile.holds.join(', ')} hold needs an advising check-in.
                 </span>
               </div>
               <button
@@ -707,6 +715,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 Clear Hold ➔
               </button>
             </div>
+            )}
 
             {/* Chat Messages Stream */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-[#f8fafc]">
@@ -716,7 +725,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                   className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
                 >
                   <div className="text-[11px] text-gray-500 mb-1 font-medium px-1">
-                    {msg.role === 'user' ? 'Tyler Rez (You)' : 'BuckeyeLink Advising Service'}
+                    {msg.role === 'user' ? `${profile.name} (You)` : 'BuckeyeLink Advising Service'}
                   </div>
 
                   <div
@@ -837,16 +846,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 title="View Live Waitlist & Instant Seat Drop Alerts"
               >
                 <BellRing className="w-3.5 h-3.5 text-emerald-700 animate-pulse" />
-                <span>Instant Seat Drop Alerts (1 Open)</span>
+                <span>Instant Seat Drop Alerts</span>
               </button>
+              {currentCourseToDrop && (
               <button
-                onClick={() => onSendMessage('I want to make the real choice to drop ACCTMIS 2300 right now.')}
+                onClick={() => onSendMessage(`I want to make the real choice to drop ${currentCourseToDrop} right now.`)}
                 className="bg-red-50 border border-red-300 hover:bg-red-100 text-red-900 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
                 title="Test High-Stakes Class Drop Warning & Advisor Escalation"
               >
                 <AlertCircle className="w-3.5 h-3.5 text-red-700" />
-                <span>Drop ACCTMIS 2300 (Real Choice)</span>
+                <span>Drop {currentCourseToDrop} (Real Choice)</span>
               </button>
+              )}
               <button
                 onClick={() => onSendMessage('I want the AI to declare the Computer Science (CSE) Minor as my real choice.')}
                 className="bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
@@ -871,10 +882,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 <span>Faculty Workload Directory</span>
               </button>
               <button
-                onClick={() => onSendMessage('How do I clear my Registration Lock hold?')}
+                onClick={() => onSendMessage('How do I find and clear a hold on my account?')}
                 className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors"
               >
-                Clear Registration Lock
+                Clear a Hold
               </button>
               <button
                 onClick={() => setActiveTab('roadmap')}
@@ -927,17 +938,17 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-gray-900">4-Year Degree Completion Roadmap</h3>
                 <p className="text-xs text-gray-600 mt-0.5">
-                  BSBA in Finance • Specialization in Corporate Finance • Anticipated May 2029
+                  {[profile.major, profile.minor && `${profile.minor} minor`].filter(Boolean).join(' • ')}
                 </p>
               </div>
 
               <div className="flex items-center space-x-4">
                 <div className="text-right">
                   <div className="text-[11px] text-gray-500 font-medium">Degree Credit Progress</div>
-                  <div className="text-sm font-bold text-gray-900">45 / 121 Credits Completed (37%)</div>
+                  <div className="text-sm font-bold text-gray-900">{profile.earnedCredits} / {profile.totalRequiredCredits} Credits Completed ({progressPct}%)</div>
                 </div>
                 <div className="w-28 bg-gray-200 h-2 rounded-full overflow-hidden">
-                  <div className="bg-[#ba0c2f] h-full w-[37%] rounded-full" />
+                  <div className="bg-[#ba0c2f] h-full rounded-full" style={{ width: `${progressPct}%` }} />
                 </div>
               </div>
             </div>
@@ -1058,7 +1069,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                     <span>What-If Academic Minor Simulator</span>
                   </h3>
                   <p className="text-xs text-gray-600 mt-1 max-w-2xl leading-relaxed">
-                    Test how adding an academic minor integrates with your current Finance BSBA requirements. The audit engine cross-checks completed coursework, prerequisite dependencies, and graduation timeline under official Ohio State curriculum guidelines.
+                    Test how adding an academic minor fits with your ${profile.major} requirements. The audit engine cross-checks completed coursework, prerequisite dependencies, and graduation timeline under official Ohio State curriculum guidelines.
                   </p>
                 </div>
                 {appliedFeedback && (
@@ -1076,7 +1087,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 Select Minor Program:
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {MINOR_OPTIONS.map((m) => {
+                {minorOptions.map((m) => {
                   const isSelected = selectedMinorId === m.id;
                   const isApplied = appliedMinorId === m.id;
 
@@ -1115,7 +1126,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
             {/* Selected Minor Detailed Audit Card */}
             {(() => {
-              const currentMinor = MINOR_OPTIONS.find((m) => m.id === selectedMinorId) || MINOR_OPTIONS[0];
+              const currentMinor = minorOptions.find((m) => m.id === selectedMinorId) || minorOptions[0];
 
               return (
                 <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs space-y-5">
@@ -1137,7 +1148,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                           onUpdateRoadmap(`Applied ${currentMinor.name} to 4-year degree plan.`);
                           setAppliedFeedback(`Simulated: ${currentMinor.name}`);
                           setTimeout(() => setAppliedFeedback(null), 4000);
-                          onSendMessage(`I applied the ${currentMinor.name} to my 4-year roadmap simulation. How does this complement my Finance career objectives?`);
+                          onSendMessage(`I applied the ${currentMinor.name} to my 4-year roadmap simulation. How does this complement my ${profile.major} major and career goals?`);
                         }}
                         className="bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-semibold px-3.5 py-2 rounded transition-colors shadow-2xs"
                         title="Simulate adding this minor on your 4-year degree roadmap"
@@ -1164,7 +1175,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                     <div className="sm:px-3">
                       <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Graduation Timeline</div>
                       <div className="text-xs sm:text-sm font-bold text-gray-900 mt-1">{currentMinor.graduationDelay}</div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">Fits within 121 credit budget</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">Based on the classes you entered</div>
                     </div>
 
                     <div className="sm:px-3">
@@ -1579,7 +1590,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-gray-900">{profile.advisorName}</h3>
                   <p className="text-xs text-gray-600">Senior Academic Advisor • Fisher College of Business</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Office: Mason Hall 120 • jenkins.892@osu.edu</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Office: {profile.advisorOffice} • {profile.advisorEmail}</p>
                 </div>
               </div>
 
@@ -1587,12 +1598,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2 rounded text-xs font-semibold">
                   <div>Appointment Confirmed: {bookedSlot.day}, {bookedSlot.time}</div>
                   <div className="text-[11px] text-emerald-700 font-normal mt-0.5">
-                    Registration Lock will clear during advising check-in.
+                    Bring your questions and your roadmap to the meeting.
                   </div>
                 </div>
               ) : (
                 <div className="bg-red-50 border border-red-200 text-red-900 px-4 py-2 rounded text-xs">
-                  <strong>Hold Status:</strong> Registration Lock
+                  <strong>Hold Status:</strong> {profile.holds.length ? profile.holds.join(', ') : 'None reported'}
                   <div className="text-[11px] text-red-700 mt-0.5">Select a mutually open appointment window below.</div>
                 </div>
               )}
@@ -1655,11 +1666,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                       <div className="mt-3 pt-2 border-t border-gray-100 text-xs">
                         {isFree ? (
                           <span className="text-emerald-800 font-medium">
-                            Both Tyler and Sarah Jenkins are free
+                            Both you and {profile.advisorName} are free
                           </span>
                         ) : (
                           <span className="text-gray-600">
-                            Class Conflict: BUSMHR 2292 lecture
+                            Class conflict
                           </span>
                         )}
                       </div>
