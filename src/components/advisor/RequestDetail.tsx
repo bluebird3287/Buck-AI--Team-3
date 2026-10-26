@@ -1,0 +1,306 @@
+import React, { useEffect, useId, useState } from 'react';
+import {
+  Sparkles,
+  ShieldCheck,
+  CheckCircle2,
+  AlertTriangle,
+  ListChecks,
+  Target,
+  CalendarClock,
+  Quote,
+  GraduationCap,
+  UserCheck,
+  Loader2,
+} from 'lucide-react';
+import {
+  AdvisingRequest,
+  ADVISOR,
+  CATEGORY_LABELS,
+  decideRequest,
+  describeSlot,
+  relativeTime,
+} from '../../lib/advising';
+import { AiVerdictBadge, RequestStatusBadge, initials } from './AdvisorBadges';
+
+// One request, top to bottom in the order an advisor works it:
+// who and what -> AI summary -> AI verification (step 1) -> advisor decision (step 2).
+
+interface RequestDetailProps {
+  request: AdvisingRequest;
+  onDecided: (message: string) => void;
+}
+
+const sectionTitle = 'flex items-center gap-2 text-sm font-bold text-gray-900';
+
+export const RequestDetail: React.FC<RequestDetailProps> = ({ request, onDecided }) => {
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const noteId = useId();
+  const errorId = useId();
+  const review = request.aiReview;
+  const s = request.student;
+  const decided = request.status === 'approved' || request.status === 'denied';
+
+  useEffect(() => {
+    setNote('');
+    setError(null);
+  }, [request.id]);
+
+  const decide = (status: 'approved' | 'denied' | 'needs_info') => {
+    if (status !== 'approved' && !note.trim()) {
+      setError(status === 'denied' ? 'Add a note explaining the denial to the student.' : 'Add a note saying what information you need.');
+      return;
+    }
+    decideRequest(request.id, status, note.trim(), ADVISOR.name);
+    const verb = status === 'approved' ? 'approved' : status === 'denied' ? 'denied' : 'sent back for more information';
+    onDecided(`${request.title} for ${s.name} ${verb}.`);
+  };
+
+  return (
+    <article aria-labelledby={`req-title-${request.id}`} className="space-y-5">
+      {/* Who and what */}
+      <header className="rounded-lg border border-gray-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div
+              className="w-11 h-11 rounded-full bg-[#ba0c2f] text-white flex items-center justify-center font-bold shrink-0"
+              aria-hidden
+            >
+              {initials(s.name)}
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                {CATEGORY_LABELS[request.category]} · {request.ticketId}
+              </p>
+              <h2 id={`req-title-${request.id}`} className="text-lg font-bold text-gray-900 leading-snug">
+                {request.title}
+              </h2>
+              <p className="text-sm text-gray-700">
+                {s.name} · {s.email} · submitted {relativeTime(request.submittedAt)}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <AiVerdictBadge review={review} />
+            <RequestStatusBadge status={request.status} />
+          </div>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          {[
+            ['Program', s.major],
+            ['Class standing', s.rank],
+            ['Cumulative GPA', s.gpa.toFixed(2)],
+            ['Credits (earned / this term)', `${s.earnedCredits} / ${s.enrolledCredits}`],
+          ].map(([k, v]) => (
+            <div key={k} className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+              <dt className="text-xs text-gray-600">{k}</dt>
+              <dd className="font-semibold text-gray-900">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        {s.holds.length > 0 && (
+          <p className="mt-3 text-sm text-[#8a0a23] flex items-start gap-1.5">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+            <span>
+              <span className="font-semibold">Active hold:</span> {s.holds.join('; ')}
+            </span>
+          </p>
+        )}
+        {request.appointment && (
+          <p className="mt-2 text-sm text-gray-800 flex items-center gap-1.5">
+            <CalendarClock className="w-4 h-4 text-gray-600" aria-hidden />
+            <span>
+              <span className="font-semibold">Requested time:</span> {describeSlot(request.appointment.slotKey)} ·{' '}
+              {request.appointment.format}
+            </span>
+          </p>
+        )}
+      </header>
+
+      {/* AI summary */}
+      <section aria-labelledby={`sum-${request.id}`} className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 id={`sum-${request.id}`} className={sectionTitle}>
+            <Sparkles className="w-4 h-4 text-[#ba0c2f]" aria-hidden /> AI summary
+          </h3>
+          {review && (
+            <span className="text-xs text-gray-600">
+              {review.source === 'claude' ? 'Generated by Claude' : 'Generated by BuckAI rules'} · confidence: {review.confidence}
+            </span>
+          )}
+        </div>
+
+        {!review ? (
+          <p className="flex items-center gap-2 text-sm text-gray-700" role="status">
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> BuckAI is reviewing this request…
+          </p>
+        ) : (
+          <>
+            <p className="text-[15px] leading-relaxed text-gray-900">{review.summary}</p>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  <Target className="w-4 h-4 text-gray-600" aria-hidden /> Reason for appointment
+                </h4>
+                <p className="mt-1 text-sm text-gray-800">{review.reasonForAppointment}</p>
+                <h4 className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  <GraduationCap className="w-4 h-4 text-gray-600" aria-hidden /> What the student needs
+                </h4>
+                <ul className="mt-1 list-disc pl-5 text-sm text-gray-800 space-y-0.5">
+                  {review.studentNeeds.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" aria-hidden /> Risk flags
+                </h4>
+                {review.riskFlags.length ? (
+                  <ul className="mt-1 space-y-1">
+                    {review.riskFlags.map((f) => (
+                      <li key={f} className="text-sm text-amber-950 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-sm text-gray-700">None found.</p>
+                )}
+                <h4 className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  <ListChecks className="w-4 h-4 text-gray-600" aria-hidden /> Suggested agenda
+                </h4>
+                <ol className="mt-1 list-decimal pl-5 text-sm text-gray-800 space-y-0.5">
+                  {review.suggestedAgenda.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </>
+        )}
+
+        <figure className="rounded-md border-l-4 border-gray-300 bg-gray-50 px-4 py-3">
+          <figcaption className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+            <Quote className="w-3.5 h-3.5" aria-hidden /> In the student’s words
+          </figcaption>
+          <blockquote className="mt-1 text-sm text-gray-900">{request.studentMessage}</blockquote>
+        </figure>
+      </section>
+
+      {/* Step 1: AI verification */}
+      <section aria-labelledby={`ver-${request.id}`} className="rounded-lg border border-gray-200 bg-white p-5">
+        <h3 id={`ver-${request.id}`} className={sectionTitle}>
+          <ShieldCheck className="w-4 h-4 text-[#ba0c2f]" aria-hidden />
+          <span>
+            Step 1 of 2 · AI verification
+          </span>
+        </h3>
+        {review ? (
+          <>
+            <ul className="mt-3 divide-y divide-gray-100 border border-gray-100 rounded-md">
+              {review.checks.map((c) => (
+                <li key={c.label} className="flex items-start gap-3 px-3 py-2.5">
+                  {c.passed ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" aria-hidden />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0" aria-hidden />
+                  )}
+                  <div className="text-sm">
+                    <p className="font-semibold text-gray-900">
+                      {c.label} <span className="sr-only">{c.passed ? '(passed)' : '(needs attention)'}</span>
+                    </p>
+                    <p className="text-gray-700">{c.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm text-gray-900">
+              <span className="font-semibold">AI recommendation:</span> {review.recommendation}
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+              The AI does not change student records. Your decision below is final.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-gray-700">Waiting for the AI check to finish.</p>
+        )}
+      </section>
+
+      {/* Step 2: Advisor decision */}
+      <section aria-labelledby={`dec-${request.id}`} className="rounded-lg border-2 border-[#ba0c2f]/20 bg-white p-5">
+        <h3 id={`dec-${request.id}`} className={sectionTitle}>
+          <UserCheck className="w-4 h-4 text-[#ba0c2f]" aria-hidden /> Step 2 of 2 · Your decision
+        </h3>
+
+        {decided && request.decision ? (
+          <div className="mt-3 rounded-md bg-gray-50 border border-gray-200 p-3 text-sm">
+            <p className="font-semibold text-gray-900">
+              {request.status === 'approved' ? 'Approved' : 'Denied'} by {request.decision.by} ·{' '}
+              {relativeTime(request.decision.at)}
+            </p>
+            {request.decision.note && <p className="mt-1 text-gray-800">{request.decision.note}</p>}
+          </div>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {request.status === 'needs_info' && request.decision && (
+              <p className="text-sm rounded-md bg-blue-50 border border-blue-200 text-blue-900 p-2.5">
+                You asked for more information {relativeTime(request.decision.at)}: “{request.decision.note}”
+              </p>
+            )}
+            <div>
+              <label htmlFor={noteId} className="block text-sm font-semibold text-gray-900">
+                Note to student <span className="font-normal text-gray-600">(required to deny or request info)</span>
+              </label>
+              <textarea
+                id={noteId}
+                value={note}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  if (error) setError(null);
+                }}
+                rows={3}
+                aria-invalid={!!error}
+                aria-describedby={error ? errorId : undefined}
+                className="mt-1 w-full rounded-md border border-gray-400 p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ba0c2f] focus:border-[#ba0c2f]"
+                placeholder="e.g. Approved — I’ll lift the hold at the end of our meeting."
+              />
+              {error && (
+                <p id={errorId} role="alert" className="mt-1 text-sm font-medium text-[#8a0a23]">
+                  {error}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => decide('approved')}
+                disabled={request.status === 'ai_review'}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[#ba0c2f] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#8a0a23] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]"
+              >
+                <CheckCircle2 className="w-4 h-4" aria-hidden /> Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => decide('needs_info')}
+                disabled={request.status === 'ai_review'}
+                className="rounded-md border border-gray-400 bg-white px-4 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]"
+              >
+                Request more info
+              </button>
+              <button
+                type="button"
+                onClick={() => decide('denied')}
+                disabled={request.status === 'ai_review'}
+                className="rounded-md border border-gray-400 bg-white px-4 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]"
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </article>
+  );
+};
