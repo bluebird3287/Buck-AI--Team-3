@@ -50,3 +50,20 @@ Notes:
 
 Email magic links via Supabase Auth. No passwords, ever. Collect only an email,
 never an OSU password or student ID. Sketch: `docs/wireframes/sign-in.png`.
+
+## Fisher curriculum data
+
+The pilot is Fisher College of Business only. Degree requirements live in Supabase
+(`programs`, `requirement_groups`, `requirement_courses`; public read-only) and come from
+Fisher's published BSBA curriculum for students who entered Spring 2027 or earlier:
+Business Foundation, Advanced Writing, Business Core, General Education, and each
+specialization's major core (https://fisher.osu.edu/undergraduate/academics/curriculum-requirements).
+
+- Edit `scripts/fisher_requirements.py`, regenerate the seed SQL in `supabase/migrations/`,
+  and apply it. Don't hand-edit the generated SQL.
+- `src/lib/requirements.ts` checks a student's classes against those requirements (grades,
+  "choose N" and credit-hour electives, prerequisites) and feeds the result to the AI.
+- GE Foundations/Themes that are student choice are shown as "confirm with advisor"; they
+  can't be checked from course codes alone.
+- Fisher's Autumn 2027 redesigned curriculum isn't published yet; add it as new programs
+  when it is.

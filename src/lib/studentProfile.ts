@@ -11,6 +11,7 @@ export interface StudentRecord {
   class_standing: string | null;
   gpa: number | null;
   semesters: Semester[];
+  specialization_id?: string | null;
   // From the advising report, when the student uploaded one
   earned_credits?: number | null;
   advisor_name?: string | null;
@@ -107,6 +108,7 @@ export function newCourse(code: string, name: string, credits: number, grade?: s
     type: 'General',
     difficulty: 3,
     prereqMet: true,
+    grade: grade || undefined,
     notes: grade ? `Grade: ${grade}` : undefined,
   };
 }
@@ -124,6 +126,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
     rank: record.class_standing || '',
     college: record.college || '',
     major: record.major,
+    specializationId: record.specialization_id ?? null,
     minor: record.minor || '',
     gpa: Number(record.gpa ?? 0),
     // The report's earned hours include exam and transfer credit, so prefer them.
@@ -140,7 +143,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
   const { data, error } = await supabase
     .from('student_profiles')
-    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at')
+    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, specialization_id')
     .maybeSingle();
   if (error) throw error;
   return data as StudentRecord | null;

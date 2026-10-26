@@ -24,10 +24,13 @@ import {
 } from 'lucide-react';
 import { OhioStateLogo } from './OhioStateLogo';
 import { Semester, StudentProfile } from '../data/sampleData';
+import { DegreeAudit } from '../lib/requirements';
 
 interface DashboardViewProps {
   profile: StudentProfile;
   roadmap: Semester[];
+  audit?: DegreeAudit | null;
+  onOpenRequirements?: () => void;
   onOpenChat: () => void;
   onOpenChatWithPrompt: (prompt: string) => void;
   onOpenRoadmap: () => void;
@@ -40,6 +43,8 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   profile,
   roadmap,
+  audit,
+  onOpenRequirements,
   onOpenChat,
   onOpenChatWithPrompt,
   onOpenRoadmap,
@@ -63,6 +68,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [resourceTab, setResourceTab] = useState<'Wellness' | 'Social'>('Wellness');
 
   const currentCourses = roadmap.find((s) => s.status === 'in-progress')?.courses ?? [];
+  const trackedGroups = audit
+    ? [...audit.degree.groups, ...(audit.specialization?.groups ?? [])].filter((g) => g.state !== 'manual')
+    : [];
+  const groupsMet = trackedGroups.filter((g) => g.state === 'done').length;
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +154,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Row: Fisher degree requirements */}
+            {audit && (
+              <div className="border-t border-gray-200">
+                <div
+                  onClick={onOpenRequirements}
+                  className="px-6 py-4 flex items-center justify-between hover:bg-gray-50/70 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
+                    <div className="w-8 h-8 rounded-full bg-[#1b4d3e] text-white flex items-center justify-center shrink-0">
+                      <CheckSquare className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="text-base text-gray-900 font-normal">Degree Requirements</span>
+                    <span className="px-3 py-0.5 rounded-full border border-gray-300 text-xs text-gray-700 bg-white">
+                      {groupsMet} of {trackedGroups.length} complete
+                    </span>
+                    {audit.prereqWarnings.length > 0 && (
+                      <span className="px-3 py-0.5 rounded-full border border-red-300 text-xs text-[#990000] bg-red-50">
+                        {audit.prereqWarnings.length} prerequisite {audit.prereqWarnings.length === 1 ? 'issue' : 'issues'}
+                      </span>
+                    )}
+                    {!audit.specialization && (
+                      <span className="px-3 py-0.5 rounded-full border border-amber-300 text-xs text-amber-800 bg-amber-50">
+                        Choose a specialization
+                      </span>
+                    )}
+                  </div>
+                  <ChevronDown className="w-5 h-5 text-gray-600 -rotate-90" />
+                </div>
+              </div>
+            )}
 
             {/* Row 2: To-Do List */}
             <div className="border-t border-gray-200">

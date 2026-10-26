@@ -14,6 +14,7 @@ import {
   ParsedAdvisingReport,
   semestersFromReport,
 } from '../lib/studentProfile';
+import { Curriculum, guessSpecialization } from '../lib/requirements';
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
@@ -45,6 +46,7 @@ const STANDINGS = ['Freshman (Year 1)', 'Sophomore (Year 2)', 'Junior (Year 3)',
 const YEARS = Array.from({ length: 9 }, (_, i) => CURRENT_TERM.year - 5 + i);
 
 interface MyClassesEditorProps {
+  curriculum: Curriculum | null;
   initial: StudentRecord | null;
   onSave: (record: StudentRecord) => Promise<void>;
   onCancel?: () => void;
@@ -52,11 +54,13 @@ interface MyClassesEditorProps {
 
 // First-run setup and the "My classes" editor. Students type in the classes they
 // already have, since the prototype isn't connected to BuckeyeLink.
-export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSave, onCancel }) => {
+export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, initial, onSave, onCancel }) => {
   const [fullName, setFullName] = useState(initial?.full_name ?? '');
   const [major, setMajor] = useState(initial?.major ?? '');
   const [minor, setMinor] = useState(initial?.minor ?? '');
-  const [college, setCollege] = useState(initial?.college ?? '');
+  // The pilot is Fisher-only, so everyone is a Fisher BSBA student with a specialization.
+  const [college, setCollege] = useState(initial?.college ?? 'Fisher College of Business');
+  const [specializationId, setSpecializationId] = useState<string>(initial?.specialization_id ?? '');
   const [standing, setStanding] = useState(initial?.class_standing ?? '');
   const [gpa, setGpa] = useState(initial?.gpa != null ? String(initial.gpa) : '');
   const [semesters, setSemesters] = useState<Semester[]>(
@@ -76,6 +80,11 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSav
   const [error, setError] = useState<string | null>(null);
 
   const isFirstRun = !initial;
+
+  const specializationName = (id: string) => {
+    const name = curriculum?.specializations.find((p) => p.id === id)?.name;
+    return name ? `${name} (BSBA)` : '';
+  };
 
   // Reads the advising report on the server and fills in the form for the student to review.
   const importReport = async (file: File) => {
@@ -100,7 +109,11 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSav
       if (!res.ok) throw new Error(data.error || "Couldn't read that report.");
       const report = data as ParsedAdvisingReport;
       if (report.fullName) setFullName(report.fullName);
-      if (report.major) setMajor(report.major);
+      if (report.major) {
+        setMajor(report.major);
+        const guess = curriculum && guessSpecialization(curriculum, report.major);
+        if (guess) setSpecializationId(guess);
+      }
       setMinor(report.minor ?? '');
       if (report.college) setCollege(COLLEGES.includes(report.college) ? report.college : 'Other');
       if (report.classStanding) setStanding(report.classStanding);
@@ -153,8 +166,8 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSav
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!fullName.trim() || !major.trim()) {
-      setError('Please enter your name and major.');
+    if (!fullName.trim() || !specializationId) {
+      setError('Please enter your name and choose your Fisher specialization.');
       return;
     }
     const gpaNum = gpa.trim() ? Number(gpa) : null;
@@ -166,7 +179,8 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSav
     try {
       await onSave({
         full_name: fullName.trim(),
-        major: major.trim(),
+        major: major.trim() || specializationName(specializationId),
+        specialization_id: specializationId || null,
         minor: minor.trim() || null,
         college: college || null,
         class_standing: standing || null,
@@ -279,8 +293,20 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ initial, onSav
               <input className={inputCls} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Alex" />
             </label>
             <label className="text-xs font-semibold text-gray-700 space-y-1">
-              <span>Major *</span>
-              <input className={inputCls} value={major} onChange={(e) => setMajor(e.target.value)} placeholder="e.g. Finance (BSBA)" />
+              <span>Fisher specialization *</span>
+              <select
+                className={inputCls}
+                value={specializationId}
+                onChange={(e) => {
+                  setSpecializationId(e.target.value);
+                  setMajor(specializationName(e.target.value));
+                }}
+              >
+                <option value="">{curriculum ? 'Select…' : 'Loading…'}</option>
+                {curriculum?.specializations.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </label>
             <label className="text-xs font-semibold text-gray-700 space-y-1">
               <span>Minor</span>

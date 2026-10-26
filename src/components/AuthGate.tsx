@@ -9,6 +9,7 @@ import { AdvisorView } from './AdvisorView';
 import { MyClassesEditor } from './MyClassesEditor';
 import { StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
 import { Semester } from '../data/sampleData';
+import { Curriculum, loadCurriculum } from '../lib/requirements';
 import App from '../App';
 
 // Gates the whole app behind email-link sign-in and routes by role:
@@ -44,6 +45,12 @@ export const AuthGate: React.FC = () => {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // Fisher curriculum (public reference data), loaded once
+  const [curriculum, setCurriculum] = useState<Curriculum | null>(null);
+  useEffect(() => {
+    loadCurriculum().then(setCurriculum).catch((err) => console.warn('Could not load curriculum:', err));
+  }, []);
+
   // Bumped after the student edits their classes so the app reloads with the new data.
   const [version, setVersion] = useState(0);
 
@@ -104,6 +111,7 @@ export const AuthGate: React.FC = () => {
   if (role === 'student' && (!record || editing)) {
     return (
       <MyClassesEditor
+        curriculum={curriculum}
         initial={record}
         onSave={handleSaveRecord}
         onCancel={record ? () => setEditing(false) : () => supabase.auth.signOut()}
@@ -142,6 +150,7 @@ export const AuthGate: React.FC = () => {
           profile={toStudentProfile(record!, email)}
           initialRoadmap={normalizeSemesters(record!.semesters)}
           onRoadmapChange={handleRoadmapChange}
+          curriculum={curriculum}
         />
       )}
     </div>

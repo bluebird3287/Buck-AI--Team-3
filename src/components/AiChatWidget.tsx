@@ -23,12 +23,15 @@ import {
   Zap,
   Lock,
   Building2,
-  CreditCard
+  CreditCard,
+  CheckCircle2
 } from 'lucide-react';
 import { StudentProfile, Semester, AdvisorSlot, MUTUAL_ADVISOR_SLOTS } from '../data/sampleData';
 import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDecisionCard';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
+import { DegreeRequirementsView } from './DegreeRequirementsView';
+import { DegreeAudit } from '../lib/requirements';
 
 export interface ChatMessage {
   id: string;
@@ -56,8 +59,9 @@ interface AiChatWidgetProps {
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
   onNextStep?: () => void;
-  initialTab?: 'chat' | 'roadmap' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess';
+  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
+  audit: DegreeAudit | null;
 }
 
 interface MinorOption {
@@ -419,9 +423,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   onConfirmBooking,
   onUpdateDecision,
   initialTab,
-  onSimulateSeatDrop
+  onSimulateSeatDrop,
+  audit
 }) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
 
   useEffect(() => {
     if (initialTab) {
@@ -624,6 +629,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <BookOpen className="w-4 h-4" />
             <span>4-Year Degree Plan</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('requirements')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'requirements'
+                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Degree Requirements</span>
           </button>
 
           <button
@@ -931,6 +948,16 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
 
         {/* TAB 2: 4-YEAR DEGREE PLAN */}
+        {activeTab === 'requirements' && (
+          <DegreeRequirementsView
+            audit={audit}
+            onAskForPlan={() => {
+              setActiveTab('roadmap');
+              onUpdateRoadmap('Plan every remaining Fisher requirement through graduation, respecting prerequisites and balancing workload.');
+            }}
+          />
+        )}
+
         {activeTab === 'roadmap' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-[#f8fafc]">
             {/* Top Roadmap Summary Bar */}

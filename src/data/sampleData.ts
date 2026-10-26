@@ -7,6 +7,7 @@ export interface Course {
   prereqMet: boolean;
   prereqInfo?: string;
   notes?: string;
+  grade?: string;
 }
 
 export interface Semester {
@@ -26,6 +27,7 @@ export interface StudentProfile {
   rank: string;
   college: string;
   major: string;
+  specializationId: string | null;
   minor: string;
   gpa: number;
   earnedCredits: number;

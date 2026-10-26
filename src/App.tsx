@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   MessageSquare,
   ArrowRight,
@@ -13,6 +13,7 @@ import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
 import { normalizeSemesters } from './lib/studentProfile';
+import { Curriculum, auditDegree, describeAudit, guessSpecialization, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -22,6 +23,7 @@ interface AppProps {
   profile: StudentProfile;
   initialRoadmap: Semester[];
   onRoadmapChange: (semesters: Semester[]) => void;
+  curriculum: Curriculum | null;
 }
 
 // The opening chat message, written for whoever is signed in.
@@ -44,16 +46,24 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
   };
 }
 
-export default function App({ profile, initialRoadmap, onRoadmapChange }: AppProps) {
+export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
-  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
+  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
   const [isSurveyModalOpen, setIsSurveyModalOpen] = useState<boolean>(false);
   const [alertCourse, setAlertCourse] = useState<WatchedCourse | null>(null);
   const [isSeatDropBannerOpen, setIsSeatDropBannerOpen] = useState<boolean>(false);
 
   // Student Profile & Data
   const [roadmap, setRoadmap] = useState<Semester[]>(initialRoadmap);
+
+  // Fisher requirements check, recomputed whenever the plan changes
+  const specializationId = curriculum ? profile.specializationId ?? guessSpecialization(curriculum, profile.major) : null;
+  const audit = useMemo(
+    () => (curriculum ? auditDegree(curriculum, specializationId, roadmap, profile.earnedCredits) : null),
+    [curriculum, specializationId, roadmap, profile.earnedCredits],
+  );
+  const requirementsSummary = audit ? describeAudit(audit) : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [isRoadmapUpdating, setIsRoadmapUpdating] = useState<boolean>(false);
@@ -83,6 +93,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange }: AppPro
           history: messages.map((m) => ({ role: m.role, text: m.text })),
           studentProfile: profile,
           roadmap,
+          requirementsSummary,
         }),
       });
 
@@ -198,31 +209,58 @@ export default function App({ profile, initialRoadmap, onRoadmapChange }: AppPro
   };
 
   // Handle Dynamic Roadmap updates via Claude
+  // Asks Claude for a plan, then checks it against Fisher's requirements and sends any gaps back
+  // to be fixed (up to two rounds), so the saved plan covers every requirement BuckAI can track.
   const handleUpdateRoadmap = async (promptText: string) => {
     setIsRoadmapUpdating(true);
     try {
-      const response = await fetch('/api/roadmap-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptText,
-          studentProfile: profile,
-          currentRoadmap: roadmap,
-        }),
-      });
+      const locked = roadmap.filter((s) => s.status !== 'planned');
+      const lockedIds = new Set(locked.map((s) => s.id));
+      let plan = roadmap;
+      let prompt = promptText;
+      let gaps: string[] = [];
 
-      if (!response.ok) throw new Error('Roadmap API error');
-      const data = await response.json();
-      if (data.semesters && Array.isArray(data.semesters)) {
+      for (let round = 0; round < 3; round++) {
+        const summary = curriculum
+          ? describeAudit(auditDegree(curriculum, specializationId, plan, profile.earnedCredits))
+          : requirementsSummary;
+        const response = await fetch('/api/roadmap-generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, studentProfile: profile, currentRoadmap: plan, requirementsSummary: summary }),
+        });
+        if (!response.ok) throw new Error('Roadmap API error');
+        const data = await response.json();
+        if (!Array.isArray(data.semesters)) break;
+
         // Keep the classes the student entered for past and current terms; only planned terms change.
-        const locked = roadmap.filter((s) => s.status !== 'planned');
-        const lockedIds = new Set(locked.map((s) => s.id));
-        const next = normalizeSemesters([
+        plan = normalizeSemesters([
           ...locked,
           ...data.semesters.filter((s: Semester) => !lockedIds.has(s.id)).map((s: Semester) => ({ ...s, status: 'planned' as const })),
         ]);
-        setRoadmap(next);
-        onRoadmapChange(next);
+        if (!curriculum) break;
+        gaps = planGaps(auditDegree(curriculum, specializationId, plan, profile.earnedCredits));
+        if (!gaps.length) break;
+        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}`;
+      }
+
+      if (plan !== roadmap) {
+        setRoadmap(plan);
+        onRoadmapChange(plan);
+      }
+      if (gaps.length) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            role: 'assistant',
+            text: `I updated your plan, but it still doesn't cover everything:\n\n- ${gaps.join('\n- ')}\n\nCheck the Degree Requirements tab, or bring this to your advisor.`,
+            sourceCitation: 'Fisher BSBA curriculum requirements',
+            confidence: 'moderate',
+            confidenceExplanation: 'Checked against Fisher\'s published requirements for students who entered before Autumn 2027.',
+            escalationSuggested: true,
+          },
+        ]);
       }
     } catch (err) {
       console.warn('Roadmap update failed:', err);
@@ -301,6 +339,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange }: AppPro
           <DashboardView
             profile={profile}
             roadmap={roadmap}
+            audit={audit}
+            onOpenRequirements={() => handleOpenChat('requirements')}
             onOpenChat={() => handleOpenChat('chat')}
             onOpenChatWithPrompt={handleOpenChatWithPrompt}
             onOpenRoadmap={() => handleOpenChat('roadmap')}
@@ -406,6 +446,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange }: AppPro
         onUpdateDecision={handleUpdateDecision}
         initialTab={chatTab}
         onSimulateSeatDrop={handleTriggerSeatDropAlert}
+        audit={audit}
       />
 
       {/* Survey Insights Modal */}

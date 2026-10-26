@@ -96,6 +96,7 @@ Your audience is undergraduate students navigating BuckeyeLink, course registrat
 
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (CSE).
+- Pilot scope: Fisher College of Business students in the BSBA. Each request includes a requirements check computed from Fisher's published Business Foundation, Business Core, General Education, and specialization (major core) requirements. Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. Fisher's published requirements and the student's advisor have the final say.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
@@ -189,7 +190,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
-    const { message, history, studentProfile, roadmap } = req.body;
+    const { message, history, studentProfile, roadmap, requirementsSummary } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -203,6 +204,9 @@ app.post('/api/advising-chat', async (req, res) => {
     const promptText = `
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, roadmap)}
+
+Fisher degree requirements check (computed by BuckAI from Fisher's published BSBA and specialization requirements):
+${requirementsSummary || 'Not available.'}
 
 Conversation History:
 ${conversationContext}
@@ -494,12 +498,15 @@ app.post('/api/parse-advising-report', async (req, res) => {
 // Endpoint to dynamically recalculate or balance the 4-year roadmap
 app.post('/api/roadmap-generate', async (req, res) => {
   try {
-    const { prompt, studentProfile, currentRoadmap } = req.body;
+    const { prompt, studentProfile, currentRoadmap, requirementsSummary } = req.body;
 
     const requestPrompt = `
 You are the OSU Degree Audit & Academic Planning Engine.
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, currentRoadmap)}
+
+Fisher degree requirements check (what is complete, in progress, planned, and still unmet):
+${requirementsSummary || 'Not available.'}
 Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
 
 Current Roadmap Plan:
@@ -531,7 +538,11 @@ Rules for "semesters":
 - Use ids of the form "autumn-2027", "spring-2028", "summer-2028".
 - Never plan a course they've already taken. Respect prerequisites against the classes they entered.
 - "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
-- Plan through graduation at about 120 total credits.
+- Plan through graduation at 121 total credits (Fisher's BSBA minimum).
+- Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options.
+- Place every course after its prerequisites (in an earlier term), and respect "Autumn only" / "Spring only" notes.
+- Leave room for the GE categories that are not tracked automatically (Arts, Historical & Cultural, Natural Science, Diversity, two Themes) if the student has not covered them, using generic placeholders like "GE-THEME-CITIZENSHIP".
+- BUSMHR 4490 Strategic Management requires senior standing, so it belongs in the final year.
 
 Return ONLY valid JSON.
 `;
