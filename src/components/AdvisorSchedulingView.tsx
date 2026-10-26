@@ -15,9 +15,7 @@ import {
   Check,
   Info
 } from 'lucide-react';
-import { AdvisorSlot, StudentProfile } from '../data/sampleData';
-import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot } from '../lib/advising';
-import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
+import { AdvisorSlot, StudentProfile, MUTUAL_ADVISOR_SLOTS } from '../data/sampleData';
 
 interface AdvisorSchedulingViewProps {
   profile: StudentProfile;
@@ -36,23 +34,16 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
   isBooked,
   bookedSlot
 }) => {
-  const [selectedSlot, setSelectedSlot] = useState<MatchSlot | null>(null);
+  const [selectedSlotId, setSelectedSlotId] = useState<string>('slot-1');
   const [selectedFormat, setSelectedFormat] = useState<'In-Person' | 'Zoom Virtual' | 'Phone'>('In-Person');
   const [studentNotes, setStudentNotes] = useState(
     'Meeting to review draft 4-year roadmap and clear 2nd-Year Registration Lock hold for Spring 2027 enrollment.'
   );
 
-  // Booking sends the request to the advisor's approval queue (BuckAI checks it first).
+  const selectedSlot = MUTUAL_ADVISOR_SLOTS.find((s) => s.id === selectedSlotId) || MUTUAL_ADVISOR_SLOTS[0];
+
   const handleBooking = () => {
-    if (!selectedSlot) return;
-    submitRequest({
-      category: 'appointment',
-      title: 'Advising appointment: Registration Lock check-in',
-      studentMessage: studentNotes,
-      student: studentFromProfile(profile),
-      appointment: { slotKey: selectedSlot.key, format: selectedFormat === 'Zoom Virtual' ? 'Zoom' : selectedFormat },
-    });
-    onConfirmBooking(toAdvisorSlot(selectedSlot), selectedFormat, studentNotes);
+    onConfirmBooking(selectedSlot, selectedFormat, studentNotes);
   };
 
   return (
@@ -189,12 +180,95 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
         {/* Right Column (2 cols): Mutual Calendar Slot Selector */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-xs space-y-4">
-            <ScheduleMatcher
-              mode="student"
-              studentName={profile.name}
-              selectedKey={selectedSlot?.key ?? null}
-              onSelect={setSelectedSlot}
-            />
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-gray-900">
+                  Select a Mutually Free Appointment Window
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Green indicates zero class overlap for you and an open slot for Sarah Jenkins.
+                </p>
+              </div>
+              <div className="flex items-center space-x-3 text-xs">
+                <span className="flex items-center space-x-1 text-emerald-800 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span>Mutual Match</span>
+                </span>
+                <span className="flex items-center space-x-1 text-red-700 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                  <span>Class Conflict</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Slots Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {MUTUAL_ADVISOR_SLOTS.map((slot) => {
+                const isSelected = selectedSlotId === slot.id;
+                const isMutual = slot.mutualMatch;
+
+                return (
+                  <div
+                    key={slot.id}
+                    onClick={() => {
+                      if (isMutual) setSelectedSlotId(slot.id);
+                    }}
+                    className={`p-4 rounded-xl border transition-all text-left ${
+                      !isMutual
+                        ? 'bg-red-50/40 border-red-200 opacity-75 cursor-not-allowed'
+                        : isSelected
+                        ? 'bg-red-50 border-[#ba0c2f] ring-2 ring-red-300 shadow-xs cursor-pointer'
+                        : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50/50 cursor-pointer shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-sm text-gray-900">{slot.day}</span>
+                          <span className="text-xs text-gray-500">({slot.date})</span>
+                        </div>
+                        <div className="text-sm font-semibold text-gray-800 mt-1 flex items-center space-x-1">
+                          <Clock className="w-3.5 h-3.5 text-gray-500" />
+                          <span>{slot.time}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        {isMutual ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                            Mutual Free
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
+                            <AlertCircle className="w-3 h-3 mr-1 text-red-600" />
+                            Class Conflict
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-gray-100 text-xs">
+                      {isMutual ? (
+                        <div className="text-emerald-800 flex items-center justify-between">
+                          <span>Both schedules free</span>
+                          {isSelected && (
+                            <span className="font-bold text-[#ba0c2f] flex items-center space-x-1">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Selected</span>
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-red-700 text-[11px]">
+                          Conflict: You have <strong>BUSMHR 2292 lecture</strong> at this time.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Meeting Format Selector */}
             <div className="pt-4 border-t border-gray-100 space-y-3">
@@ -244,20 +318,16 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
 
             {/* Confirmation Action Button */}
             <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
-              <div className="text-sm text-gray-700" aria-live="polite">
+              <div className="text-xs text-gray-600">
                 <span className="font-semibold text-gray-900">Summary: </span>
-                {selectedSlot ? `${describeSlot(selectedSlot.key)} (${selectedFormat})` : 'Choose an available time above.'}
-                <p className="text-xs text-gray-600 mt-0.5">
-                  BuckAI checks your request first, then {profile.advisorName} gives final approval.
-                </p>
+                {selectedSlot.day}, {selectedSlot.date} at {selectedSlot.time} ({selectedFormat})
               </div>
               <button
                 onClick={handleBooking}
-                disabled={!selectedSlot}
-                className="w-full sm:w-auto bg-[#ba0c2f] hover:bg-[#9d0a27] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold py-2.5 px-6 rounded-lg shadow-sm transition-all flex items-center justify-center space-x-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]"
+                className="w-full sm:w-auto bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-bold py-2.5 px-6 rounded-lg shadow-sm transition-all flex items-center justify-center space-x-2"
               >
-                <CheckCircle2 className="w-4 h-4" aria-hidden />
-                <span>Request This Appointment</span>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Confirm Mutual Slot & Clear Hold</span>
               </button>
             </div>
           </div>

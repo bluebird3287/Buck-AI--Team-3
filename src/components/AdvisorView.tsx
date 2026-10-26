@@ -1,377 +1,235 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Inbox, CalendarDays, CalendarClock, Sparkles, AlertTriangle, CheckCircle2, RotateCcw, Users } from 'lucide-react';
-import {
-  AdvisingRequest,
-  ADVISOR,
-  CATEGORY_LABELS,
-  describeSlot,
-  relativeTime,
-  resetAdvisingData,
-  toggleAdvisorSlot,
-  useAdvisingState,
-} from '../lib/advising';
-import { RequestDetail } from './advisor/RequestDetail';
-import { AiVerdictBadge, RequestStatusBadge, initials } from './advisor/AdvisorBadges';
-import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
+import React, { useMemo, useState } from 'react';
+import { ShieldCheck, Clock, MapPin, Check, CalendarDays } from 'lucide-react';
+import { MUTUAL_ADVISOR_SLOTS, AdvisorSlot } from '../data/sampleData';
 
-// Advisor Center: where advisors land after signing in. Students' requests arrive here
-// after BuckAI has checked them (step 1); the advisor makes the final call (step 2).
-// Tabs: Approvals (request queue + AI summary), Appointments (booked meetings with an
-// AI pre-meeting brief), Availability (the shared mutual-availability matcher).
+// Advisor's calendar view: a Google Calendar-style week grid showing the same mutual
+// availability the student sees in their scheduler, from the advisor's side. Green =
+// both free (bookable), red = the student has class, gray = advisor is busy.
 
-type Tab = 'approvals' | 'appointments' | 'availability';
-type Filter = 'pending' | 'needs_info' | 'decided' | 'all';
+type Status = 'free' | 'conflict' | 'advisor-busy';
 
-const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'approvals', label: 'Approval requests', icon: Inbox },
-  { id: 'appointments', label: 'Appointments', icon: CalendarClock },
-  { id: 'availability', label: 'Availability', icon: CalendarDays },
-];
-
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'pending', label: 'Awaiting approval' },
-  { id: 'needs_info', label: 'Info requested' },
-  { id: 'decided', label: 'Decided' },
-  { id: 'all', label: 'All' },
-];
-
-const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]';
-
-function matchesFilter(r: AdvisingRequest, f: Filter) {
-  if (f === 'all') return true;
-  if (f === 'pending') return r.status === 'pending_advisor' || r.status === 'ai_review';
-  if (f === 'needs_info') return r.status === 'needs_info';
-  return r.status === 'approved' || r.status === 'denied';
+interface CalEvent {
+  slot: AdvisorSlot;
+  dateKey: string;
+  startMin: number;
+  endMin: number;
+  status: Status;
+  conflictNote?: string;
 }
 
+const GRID_START = 9 * 60; // 9:00 AM
+const GRID_END = 15 * 60; // 3:00 PM
+const HOUR_PX = 64;
+
+function parseMinutes(t: string): number {
+  const m = t.trim().match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return GRID_START;
+  let h = parseInt(m[1], 10) % 12;
+  if (/PM/i.test(m[3])) h += 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+
+function statusFor(slot: AdvisorSlot): Status {
+  if (!slot.studentFree) return 'conflict';
+  if (!slot.advisorAvailable) return 'advisor-busy';
+  return 'free';
+}
+
+const STYLES: Record<Status, { box: string; bar: string; label: string }> = {
+  free: { box: 'bg-emerald-50 text-emerald-900', bar: 'bg-emerald-500', label: 'Both free' },
+  conflict: { box: 'bg-red-50 text-red-900', bar: 'bg-red-500', label: 'Student in class' },
+  'advisor-busy': { box: 'bg-gray-100 text-gray-600', bar: 'bg-gray-400', label: 'Advisor busy' },
+};
+
 export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
-  const { requests } = useAdvisingState();
-  const [tab, setTab] = useState<Tab>('approvals');
-  const [filter, setFilter] = useState<Filter>('pending');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState('');
-  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ approvals: null, appointments: null, availability: null });
+  const [proposed, setProposed] = useState<string | null>(null);
 
-  const pending = requests.filter((r) => matchesFilter(r, 'pending'));
-  const flagged = pending.filter((r) => r.aiReview && r.aiReview.verdict !== 'supported');
-  const appointments = useMemo(
-    () =>
-      requests
-        .filter((r) => r.appointment && r.status !== 'denied')
-        .sort((a, b) => a.appointment!.slotKey.localeCompare(b.appointment!.slotKey)),
-    [requests],
-  );
-  const decidedRecently = requests.filter(
-    (r) => r.decision && (r.status === 'approved' || r.status === 'denied') && Date.now() - new Date(r.decision.at).getTime() < 7 * 86_400_000,
-  );
+  // Build the ordered list of day columns and the events within them.
+  const { days, events } = useMemo(() => {
+    const dayOrder: string[] = [];
+    const evs: CalEvent[] = [];
+    for (const slot of MUTUAL_ADVISOR_SLOTS) {
+      const [startStr, endStr] = slot.time.split(' - ');
+      const dateKey = `${slot.day} ${slot.date}`;
+      if (!dayOrder.includes(dateKey)) dayOrder.push(dateKey);
+      evs.push({
+        slot,
+        dateKey,
+        startMin: parseMinutes(startStr),
+        endMin: parseMinutes(endStr),
+        status: statusFor(slot),
+        conflictNote: !slot.studentFree ? 'BUSMHR 2292 lecture' : undefined,
+      });
+    }
+    return { days: dayOrder, events: evs };
+  }, []);
 
-  const visible = requests
-    .filter((r) => matchesFilter(r, filter))
-    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-  const selected = visible.find((r) => r.id === selectedId) ?? visible[0] ?? null;
-
-  const openRequest = (id: string) => {
-    setFilter('all');
-    setSelectedId(id);
-    setTab('approvals');
-    tabRefs.current.approvals?.focus();
+  const selected = events.find((e) => e.slot.id === selectedId) || null;
+  const hours = Array.from({ length: (GRID_END - GRID_START) / 60 }, (_, i) => GRID_START + i * 60);
+  const fmtHour = (min: number) => {
+    const h = Math.floor(min / 60);
+    const am = h < 12;
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12} ${am ? 'AM' : 'PM'}`;
   };
-
-  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
-  const onTabKey = (e: React.KeyboardEvent, index: number) => {
-    let next = index;
-    if (e.key === 'ArrowRight') next = (index + 1) % TABS.length;
-    else if (e.key === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = TABS.length - 1;
-    else return;
-    e.preventDefault();
-    setTab(TABS[next].id);
-    tabRefs.current[TABS[next].id]?.focus();
-  };
-
-  const stats = [
-    { label: 'Awaiting your approval', value: pending.length, icon: Inbox, tone: 'text-[#ba0c2f]' },
-    { label: 'Flagged by AI', value: flagged.length, icon: AlertTriangle, tone: 'text-amber-700' },
-    { label: 'Upcoming appointments', value: appointments.length, icon: CalendarClock, tone: 'text-blue-800' },
-    { label: 'Decided this week', value: decidedRecently.length, icon: CheckCircle2, tone: 'text-emerald-700' },
-  ];
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] text-gray-900">
-      <a
-        href="#advisor-main"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold"
-      >
-        Skip to main content
-      </a>
-
-      {/* Ohio State header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="h-1.5 bg-[#ba0c2f]" />
-        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#ba0c2f]">The Ohio State University</p>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">BuckeyeLink Advisor Center</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm font-semibold text-gray-900">{ADVISOR.name}</p>
-              <p className="text-xs text-gray-600">
-                {ADVISOR.title} · {ADVISOR.office}
-              </p>
-              <p className="text-xs text-gray-500">Signed in as {email}</p>
+    <div className="min-h-screen bg-gray-100">
+      <div className="max-w-[1200px] mx-auto p-4 sm:p-6">
+        {/* Header */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
+          <div className="h-1.5 bg-[#bb0000]" />
+          <div className="p-5 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-red-50 text-[#bb0000] flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5" />
             </div>
-            <div className="w-10 h-10 rounded-full bg-[#ba0c2f] text-white font-bold flex items-center justify-center" aria-hidden>
-              {initials(ADVISOR.name)}
+            <div>
+              <h1 className="text-lg font-bold text-gray-900">Advisor schedule</h1>
+              <p className="text-xs text-gray-600">Signed in as {email} · Advisor</p>
             </div>
           </div>
         </div>
-      </header>
 
-      <main id="advisor-main" className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Summary stats */}
-        <section aria-label="Caseload summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {stats.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.label} className="rounded-lg border border-gray-200 bg-white p-4">
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <Icon className={`w-4 h-4 ${s.tone}`} aria-hidden /> {s.label}
-                </div>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{s.value}</p>
+        <div className="grid lg:grid-cols-[1fr_300px] gap-5">
+          {/* Calendar */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="w-5 h-5 text-[#bb0000]" />
+                <h2 className="font-semibold text-gray-900">Tyler Rez · mutual availability</h2>
               </div>
-            );
-          })}
-        </section>
-
-        {/* Tabs */}
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-300">
-          <div role="tablist" aria-label="Advisor tools" className="flex gap-1 overflow-x-auto">
-            {TABS.map((t, i) => {
-              const Icon = t.icon;
-              const active = tab === t.id;
-              const count = t.id === 'approvals' ? pending.length : t.id === 'appointments' ? appointments.length : null;
-              return (
-                <button
-                  key={t.id}
-                  ref={(el) => {
-                    tabRefs.current[t.id] = el;
-                  }}
-                  role="tab"
-                  id={`tab-${t.id}`}
-                  aria-selected={active}
-                  aria-controls={`panel-${t.id}`}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => setTab(t.id)}
-                  onKeyDown={(e) => onTabKey(e, i)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-[3px] -mb-px whitespace-nowrap ${focusRing} ${
-                    active ? 'border-[#ba0c2f] text-[#ba0c2f]' : 'border-transparent text-gray-700 hover:text-gray-900 hover:border-gray-300'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" aria-hidden />
-                  {t.label}
-                  {count !== null && (
-                    <span
-                      className={`ml-0.5 rounded-full px-2 py-0.5 text-xs ${active ? 'bg-[#ba0c2f] text-white' : 'bg-gray-200 text-gray-800'}`}
-                    >
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              resetAdvisingData();
-              setSelectedId(null);
-              setAnnouncement('Sample data restored.');
-            }}
-            className={`mb-2 inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-gray-900 rounded px-2 py-1 ${focusRing}`}
-          >
-            <RotateCcw className="w-4 h-4" aria-hidden /> Reset sample data
-          </button>
-        </div>
-
-        <p role="status" aria-live="polite" className="sr-only">
-          {announcement}
-        </p>
-
-        {/* Approvals */}
-        {tab === 'approvals' && (
-          <section id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter requests">
-              {FILTERS.map((f) => {
-                const n = requests.filter((r) => matchesFilter(r, f.id)).length;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    aria-pressed={filter === f.id}
-                    onClick={() => {
-                      setFilter(f.id);
-                      setSelectedId(null);
-                    }}
-                    className={`rounded-full border px-3 py-1.5 text-sm font-medium ${focusRing} ${
-                      filter === f.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
-                    }`}
-                  >
-                    {f.label} ({n})
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="grid lg:grid-cols-[360px_1fr] gap-5 items-start">
-              <nav aria-label="Requests" className="rounded-lg border border-gray-200 bg-white">
-                {visible.length === 0 ? (
-                  <p className="p-5 text-sm text-gray-700">No requests here. You’re all caught up.</p>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {visible.map((r) => {
-                      const active = selected?.id === r.id;
-                      return (
-                        <li key={r.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedId(r.id)}
-                            aria-current={active ? 'true' : undefined}
-                            className={`w-full text-left p-4 flex gap-3 ${focusRing} ${
-                              active ? 'bg-red-50/70 border-l-4 border-[#ba0c2f] pl-3' : 'hover:bg-gray-50 border-l-4 border-transparent pl-3'
-                            }`}
-                          >
-                            <span
-                              className="w-9 h-9 rounded-full bg-gray-200 text-gray-800 text-sm font-bold flex items-center justify-center shrink-0"
-                              aria-hidden
-                            >
-                              {initials(r.student.name)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-gray-900 truncate">{r.student.name}</span>
-                                <span className="text-xs text-gray-600 shrink-0">{relativeTime(r.submittedAt)}</span>
-                              </span>
-                              <span className="block text-sm text-gray-800 truncate">{r.title}</span>
-                              <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                <span className="text-xs text-gray-600">{CATEGORY_LABELS[r.category]}</span>
-                              </span>
-                              <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                <AiVerdictBadge review={r.aiReview} />
-                                {filter === 'all' || filter === 'decided' ? <RequestStatusBadge status={r.status} /> : null}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </nav>
-
-              <div>
-                {selected ? (
-                  <RequestDetail request={selected} onDecided={setAnnouncement} />
-                ) : (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-700">
-                    Select a request to see the AI summary and make a decision.
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Appointments */}
-        {tab === 'appointments' && (
-          <section id="panel-appointments" role="tabpanel" aria-labelledby="tab-appointments" className="space-y-3">
-            <p className="text-sm text-gray-700">
-              Booked meetings with BuckAI’s pre-meeting brief, so you know why each student is coming before they arrive.
-            </p>
-            {appointments.length === 0 ? (
-              <p className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-700">No appointments booked yet.</p>
-            ) : (
-              <ul className="space-y-3">
-                {appointments.map((r) => (
-                  <li key={r.id} className="rounded-lg border border-gray-200 bg-white p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-bold text-[#ba0c2f]">{describeSlot(r.appointment!.slotKey)}</p>
-                        <h3 className="text-base font-bold text-gray-900">
-                          {r.student.name} · {r.title}
-                        </h3>
-                        <p className="text-sm text-gray-700">
-                          {r.appointment!.format} · {r.student.major} · {r.student.rank}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <AiVerdictBadge review={r.aiReview} />
-                        <RequestStatusBadge status={r.status} />
-                      </div>
-                    </div>
-                    {r.aiReview && (
-                      <div className="mt-3 grid md:grid-cols-2 gap-4 rounded-md bg-gray-50 border border-gray-100 p-3">
-                        <div>
-                          <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-                            <Sparkles className="w-4 h-4 text-[#ba0c2f]" aria-hidden /> Why they’re coming
-                          </h4>
-                          <p className="mt-1 text-sm text-gray-800">{r.aiReview.reasonForAppointment}</p>
-                          <ul className="mt-1 list-disc pl-5 text-sm text-gray-800">
-                            {r.aiReview.studentNeeds.map((n) => (
-                              <li key={n}>{n}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-semibold text-gray-900">Suggested agenda</h4>
-                          <ol className="mt-1 list-decimal pl-5 text-sm text-gray-800">
-                            {r.aiReview.suggestedAgenda.map((a) => (
-                              <li key={a}>{a}</li>
-                            ))}
-                          </ol>
-                        </div>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => openRequest(r.id)}
-                      className={`mt-3 text-sm font-semibold text-[#ba0c2f] hover:underline rounded ${focusRing}`}
-                    >
-                      Open full request
-                    </button>
-                  </li>
+              <div className="flex items-center gap-3 text-[11px]">
+                {(['free', 'conflict', 'advisor-busy'] as Status[]).map((s) => (
+                  <span key={s} className="flex items-center gap-1.5 text-gray-600">
+                    <span className={`w-2.5 h-2.5 rounded-sm ${STYLES[s].bar}`} />
+                    {STYLES[s].label}
+                  </span>
                 ))}
-              </ul>
-            )}
-          </section>
-        )}
+              </div>
+            </div>
 
-        {/* Availability */}
-        {tab === 'availability' && (
-          <section
-            id="panel-availability"
-            role="tabpanel"
-            aria-labelledby="tab-availability"
-            className="rounded-lg border border-gray-200 bg-white p-5 space-y-3"
-          >
-            <p className="flex items-center gap-2 text-sm text-gray-700">
-              <Users className="w-4 h-4 text-gray-600" aria-hidden />
-              Prototype: showing Tyler Rez’s class schedule against your calendar. Students see the same openings when they book.
-            </p>
-            <ScheduleMatcher
-              mode="advisor"
-              studentName="Tyler Rez"
-              onToggleAvailability={(slot) => {
-                toggleAdvisorSlot(slot.key);
-                setAnnouncement(
-                  `${describeSlot(slot.key)} ${slot.status === 'open' ? 'marked unavailable' : 'reopened'}.`,
-                );
-              }}
-            />
-          </section>
-        )}
-      </main>
+            <div className="overflow-x-auto">
+              <div className="min-w-[640px]">
+                {/* Day headers */}
+                <div className="grid" style={{ gridTemplateColumns: `56px repeat(${days.length}, 1fr)` }}>
+                  <div />
+                  {days.map((d) => {
+                    const [wd, ...rest] = d.split(' ');
+                    const dateNum = rest.join(' ').match(/\d+/)?.[0] ?? '';
+                    return (
+                      <div key={d} className="text-center pb-2 border-b border-gray-200">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          {wd.slice(0, 3)}
+                        </div>
+                        <div className="text-xl font-medium text-gray-900 leading-tight">{dateNum}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Time grid */}
+                <div className="grid" style={{ gridTemplateColumns: `56px repeat(${days.length}, 1fr)` }}>
+                  {/* Time gutter */}
+                  <div className="relative" style={{ height: hours.length * HOUR_PX }}>
+                    {hours.map((h) => (
+                      <div
+                        key={h}
+                        className="absolute right-2 -translate-y-1/2 text-[11px] text-gray-400"
+                        style={{ top: ((h - GRID_START) / 60) * HOUR_PX }}
+                      >
+                        {fmtHour(h)}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Day columns */}
+                  {days.map((d) => (
+                    <div
+                      key={d}
+                      className="relative border-l border-gray-100"
+                      style={{ height: hours.length * HOUR_PX }}
+                    >
+                      {hours.map((h) => (
+                        <div
+                          key={h}
+                          className="absolute left-0 right-0 border-t border-gray-100"
+                          style={{ top: ((h - GRID_START) / 60) * HOUR_PX }}
+                        />
+                      ))}
+                      {events
+                        .filter((e) => e.dateKey === d)
+                        .map((e) => {
+                          const top = ((e.startMin - GRID_START) / 60) * HOUR_PX;
+                          const height = Math.max(26, ((e.endMin - e.startMin) / 60) * HOUR_PX);
+                          const st = STYLES[e.status];
+                          const isSel = e.slot.id === selectedId;
+                          const clickable = e.status === 'free';
+                          return (
+                            <button
+                              key={e.slot.id}
+                              onClick={() => clickable && setSelectedId(e.slot.id)}
+                              className={`absolute left-1 right-1 rounded-md pl-2 pr-1 py-1 text-left overflow-hidden ${st.box} ${
+                                clickable ? 'cursor-pointer hover:brightness-95' : 'cursor-default'
+                              } ${isSel ? 'ring-2 ring-[#bb0000]' : ''}`}
+                              style={{ top, height }}
+                            >
+                              <span className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${st.bar}`} />
+                              <div className="text-[11px] font-semibold leading-tight truncate">{e.slot.time.split(' - ')[0]}</div>
+                              <div className="text-[10px] leading-tight truncate">
+                                {e.conflictNote ?? st.label}
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Side panel */}
+          <aside className="space-y-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-gray-800 mb-3">Appointment</h2>
+              {selected ? (
+                <div className="text-sm">
+                  <p className="font-semibold text-gray-900">{selected.dateKey}</p>
+                  <p className="flex items-center gap-1.5 text-gray-600 mt-1.5">
+                    <Clock className="w-4 h-4" /> {selected.slot.time}
+                  </p>
+                  <p className="flex items-center gap-1.5 text-gray-600 mt-1">
+                    <MapPin className="w-4 h-4" /> {selected.slot.formatOptions.join(', ')}
+                  </p>
+                  {proposed === selected.slot.id ? (
+                    <p className="mt-4 flex items-center gap-1.5 text-emerald-700 font-medium text-xs">
+                      <Check className="w-4 h-4" /> Proposed to Tyler
+                    </p>
+                  ) : (
+                    <button
+                      onClick={() => setProposed(selected.slot.id)}
+                      className="mt-4 w-full bg-[#bb0000] hover:bg-[#990000] text-white text-sm font-semibold py-2 rounded-lg"
+                    >
+                      Propose this time
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Select a green time on the calendar to propose it to the student.</p>
+              )}
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-gray-800 mb-1">Routed requests</h2>
+              <p className="text-xs text-gray-500">
+                None yet. Student hold clearances and escalations will appear here once requests are saved (Session 4).
+                You only see your own advisees, per the roles table in CLAUDE.md.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </div>
     </div>
   );
 };
