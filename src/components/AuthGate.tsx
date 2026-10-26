@@ -4,6 +4,7 @@ import { Loader2, LogOut } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getRole } from '../lib/roles';
 import { SignIn } from './SignIn';
+import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
 import App from '../App';
 
@@ -12,13 +13,19 @@ import App from '../App';
 export const AuthGate: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  // True while the user is coming back from a password-reset link, so we show the
+  // "set a new password" screen instead of the app even though a session exists.
+  const [recovering, setRecovering] = useState<boolean>(
+    typeof window !== 'undefined' && window.location.hash.includes('type=recovery'),
+  );
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
       setSession(nextSession);
     });
     return () => sub.subscription.unsubscribe();
@@ -29,6 +36,17 @@ export const AuthGate: React.FC = () => {
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-[#ba0c2f] animate-spin" />
       </div>
+    );
+  }
+
+  if (recovering) {
+    return (
+      <SetNewPassword
+        onDone={() => {
+          setRecovering(false);
+          window.history.replaceState(null, '', window.location.pathname);
+        }}
+      />
     );
   }
 
