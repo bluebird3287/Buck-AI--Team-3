@@ -11,6 +11,36 @@ export interface StudentRecord {
   class_standing: string | null;
   gpa: number | null;
   semesters: Semester[];
+  // From the advising report, when the student uploaded one
+  earned_credits?: number | null;
+  advisor_name?: string | null;
+  report_imported_at?: string | null;
+}
+
+// What /api/parse-advising-report returns.
+export interface ParsedAdvisingReport {
+  fullName: string | null;
+  major: string | null;
+  minor: string | null;
+  college: string | null;
+  classStanding: string | null;
+  gpa: number | null;
+  earnedCredits: number | null;
+  advisorName: string | null;
+  terms: { season: Season; year: number; courses: { code: string; name: string | null; credits: number; grade: string | null }[] }[];
+}
+
+export function semestersFromReport(report: ParsedAdvisingReport): Semester[] {
+  return normalizeSemesters(
+    report.terms.map((t) => ({
+      id: termId(t.season, t.year),
+      name: `${t.season} ${t.year}`,
+      status: termStatus(t.season, t.year),
+      courses: t.courses.map((c) => newCourse(c.code, c.name ?? '', c.credits, c.grade === 'EM' ? 'Credit by exam' : c.grade ?? undefined)),
+      totalCredits: 0,
+      workloadRating: 'Light',
+    })),
+  );
 }
 
 export const SEASONS = ['Autumn', 'Spring', 'Summer'] as const;
@@ -84,7 +114,7 @@ export function newCourse(code: string, name: string, credits: number, grade?: s
 // Builds the profile the rest of the app reads from the student's saved record.
 export function toStudentProfile(record: StudentRecord, email: string): StudentProfile {
   const semesters = normalizeSemesters(record.semesters);
-  const earnedCredits = semesters
+  const enteredCredits = semesters
     .filter((s) => s.status === 'completed')
     .reduce((sum, s) => sum + s.totalCredits, 0);
   return {
@@ -95,10 +125,13 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
     college: record.college || '',
     major: record.major,
     minor: record.minor || '',
-    gpa: record.gpa ?? 0,
-    earnedCredits,
+    gpa: Number(record.gpa ?? 0),
+    // The report's earned hours include exam and transfer credit, so prefer them.
+    earnedCredits: Number(record.earned_credits ?? enteredCredits),
     totalRequiredCredits: 120,
-    ...DEFAULT_ADVISOR,
+    ...(record.advisor_name
+      ? { advisorName: record.advisor_name, advisorEmail: '', advisorTitle: 'Academic Advisor', advisorOffice: 'See OnCourse' }
+      : DEFAULT_ADVISOR),
     holds: [],
     toDos: [],
   };
@@ -107,7 +140,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
   const { data, error } = await supabase
     .from('student_profiles')
-    .select('full_name, major, minor, college, class_standing, gpa, semesters')
+    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at')
     .maybeSingle();
   if (error) throw error;
   return data as StudentRecord | null;

@@ -28,7 +28,8 @@ function resolvePort(): number {
 }
 const PORT = resolvePort();
 
-app.use(express.json());
+// Raised so students can upload an advising report (Vercel caps request bodies at 4.5 MB)
+app.use(express.json({ limit: '4.5mb' }));
 
 // Claude client (reads ANTHROPIC_API_KEY from the environment)
 const anthropic = new Anthropic({ timeout: 45_000, maxRetries: 1 });
@@ -37,7 +38,11 @@ const CLAUDE_MODEL = 'claude-opus-5-5';
 // Ask Claude for a JSON reply and return the raw JSON text.
 // Low effort keeps latency down for interactive advising; on a safety refusal the
 // server-side fallback re-runs the request on a suitable model automatically.
-async function generateJson(prompt: string, system?: string): Promise<string> {
+async function generateJson(
+  prompt: string | Anthropic.Beta.BetaContentBlockParam[],
+  system?: string,
+  timeoutMs?: number,
+): Promise<string> {
   const response = await anthropic.beta.messages.create({
     model: CLAUDE_MODEL,
     max_tokens: 16000,
@@ -46,7 +51,7 @@ async function generateJson(prompt: string, system?: string): Promise<string> {
     output_config: { effort: 'low' },
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content: prompt }],
-  });
+  }, timeoutMs ? { timeout: timeoutMs } : undefined);
 
   if (response.stop_reason === 'refusal') {
     throw new Error(`Claude declined the request (${response.stop_details?.category ?? 'unspecified'})`);
@@ -76,6 +81,7 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
     `- Major: ${profile?.major || 'Not provided'}`,
     `- Minor: ${profile?.minor || 'None'}`,
     `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
+    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}`,
     `- Holds: ${profile?.holds?.length ? profile.holds.join(', ') : 'None reported (not connected to BuckeyeLink)'}`,
     `- Completed credits: ${profile?.earnedCredits ?? 0} / ${profile?.totalRequiredCredits ?? 120}`,
     `- Completed classes:\n${list('completed')}`,
@@ -394,6 +400,94 @@ app.post('/api/escalate-decision', async (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to escalate decision', message: error?.message });
+  }
+});
+
+const ADVISING_REPORT_INSTRUCTION = `
+You read Ohio State University "Advising Report" PDFs (or screenshots of them) and extract the student's academic record as JSON.
+
+Privacy rules (strict):
+- Never output the student ID / emplid, birthdate, test scores, high school, or email. They must not appear anywhere in your output.
+
+Return ONLY this JSON object:
+{
+  "isAdvisingReport": boolean (false if the file is not an OSU advising report or degree record),
+  "fullName": "string (the student's first name as they'd go by, e.g. 'Tyler' from 'REZABEK, TYLER')",
+  "major": "string (readable, e.g. 'Finance (BS Business Admin)' from 'MAJ FINANCE-BS')",
+  "minor": "string or null (readable, e.g. 'International Business' from 'MIN INTLBUS-MN')",
+  "college": "string or null (full OSU college name, e.g. 'Fisher College of Business' for UBUS / BUSINESS)",
+  "classStanding": "one of 'Freshman (Year 1)', 'Sophomore (Year 2)', 'Junior (Year 3)', 'Senior (Year 4)' from the latest RK value (1-4), or null",
+  "gpa": number or null (latest cumulative GPA),
+  "earnedCredits": number or null (latest cumulative EH, earned hours, including exam/transfer credit),
+  "advisorName": "string or null (readable, e.g. 'Lindsay McGory' from 'MCGORY,LINDSAY WEBB')",
+  "terms": [
+    {
+      "season": "Autumn" | "Spring" | "Summer",
+      "year": number,
+      "courses": [
+        { "code": "SUBJECT NUMBER, e.g. 'ACCTMIS 2200' or 'ENGLISH 1110.02'", "name": "readable title in Title Case", "credits": number, "grade": "string or null (final grade; 'EM' means credit by exam; null if in progress)" }
+      ]
+    }
+  ]
+}
+
+Include every term that lists courses, including terms in progress (no grade yet). Read the course table carefully: in extracted text a grade can run into the next course's subject (e.g. '3.00 ABUSMHR 2000' is grade A then BUSMHR 2000).
+`;
+
+// Turns an uploaded OSU advising report into the student's profile and classes.
+// The file is only passed to Claude for reading; it is never stored.
+app.post('/api/parse-advising-report', async (req, res) => {
+  try {
+    const { fileBase64, mediaType } = req.body || {};
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+    if (!fileBase64 || !allowed.includes(mediaType)) {
+      return res.status(400).json({ error: 'Upload your advising report as a PDF or an image (PNG/JPG).' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Report reading is not available right now. Please add your classes by hand.' });
+    }
+
+    const fileBlock: Anthropic.Beta.BetaContentBlockParam =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const raw = await generateJson(
+      [fileBlock, { type: 'text', text: 'Extract this advising report as JSON following the instructions.' }],
+      ADVISING_REPORT_INSTRUCTION,
+      120_000,
+    );
+    const parsed = JSON.parse(raw);
+    if (!parsed.isAdvisingReport) {
+      return res.status(422).json({ error: "That file doesn't look like an OSU advising report. Please check the file and try again." });
+    }
+
+    // Pass through only the academic fields, whatever else the model returned.
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const seasons = ['Autumn', 'Spring', 'Summer'];
+    res.json({
+      fullName: str(parsed.fullName),
+      major: str(parsed.major),
+      minor: str(parsed.minor),
+      college: str(parsed.college),
+      classStanding: str(parsed.classStanding),
+      gpa: num(parsed.gpa),
+      earnedCredits: num(parsed.earnedCredits),
+      advisorName: str(parsed.advisorName),
+      terms: (Array.isArray(parsed.terms) ? parsed.terms : [])
+        .filter((t: any) => seasons.includes(t?.season) && Number.isInteger(t?.year))
+        .map((t: any) => ({
+          season: t.season,
+          year: t.year,
+          courses: (Array.isArray(t.courses) ? t.courses : [])
+            .filter((c: any) => str(c?.code))
+            .map((c: any) => ({ code: str(c.code), name: str(c.name), credits: num(c.credits) ?? 0, grade: str(c.grade) })),
+        })),
+    });
+  } catch (error: any) {
+    console.error('Advising report parse failed:', error?.message);
+    res.status(500).json({ error: "Couldn't read that report. Please try again, or add your classes by hand." });
   }
 });
 
