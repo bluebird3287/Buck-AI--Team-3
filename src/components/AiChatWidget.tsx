@@ -566,9 +566,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   ];
 
   return (
-    <div className="fixed inset-2 sm:inset-6 md:inset-10 lg:inset-16 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-      {/* Main Dialog Container */}
-      <div className="bg-white rounded-xl shadow-2xl border border-gray-300 w-full max-w-4xl h-[92vh] max-h-[840px] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Full-screen Container */}
+      <div className="bg-white w-full h-full flex flex-col overflow-hidden">
         
         {/* Top Header Bar matching BuckeyeLink institutional styling */}
         <div className="bg-[#ba0c2f] text-white px-6 py-4 flex items-center justify-between shrink-0">
@@ -1556,7 +1556,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                           className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-1.5 rounded transition-colors flex items-center space-x-1.5 shadow-2xs"
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
-                          <span>Ask Advising AI</span>
+                          <span>Ask BuckAI</span>
                         </button>
                       </div>
                     </div>
