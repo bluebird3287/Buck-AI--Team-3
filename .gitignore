@@ -8,3 +8,6 @@ coverage/
 !.env.example
 .vercel
 public/buckeyelink-advising-ai.zip
+
+# Student reviews saved by the local server
+data/faculty-reviews.json
