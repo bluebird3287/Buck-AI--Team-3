@@ -4,9 +4,12 @@ Source pages (read October 2026):
   https://fisher.osu.edu/undergraduate/academics/curriculum-requirements
   https://fisher.osu.edu/undergraduate/academics/specializations/<name>
 
-Edit the data below, then run:
-  python3 scripts/fisher_requirements.py > supabase/migrations/<timestamp>_seed_fisher_requirements.sql
-and apply that file to Supabase. It replaces all curriculum rows.
+Minors: https://fisher.osu.edu/undergraduate/academics/minors/<name>
+
+Edit the data below, then run one of:
+  python3 scripts/fisher_requirements.py degree > supabase/migrations/<timestamp>_seed_fisher_requirements.sql
+  python3 scripts/fisher_requirements.py minors > supabase/migrations/<timestamp>_seed_fisher_minors.sql
+and apply that file to Supabase. Each replaces the rows for its own programs.
 """
 
 CATALOG = "Fisher BSBA, enrollment Spring 2027 and prior"
@@ -432,6 +435,275 @@ PROGRAMS += [
     },
 ]
 
+MINOR_URL = "https://fisher.osu.edu/undergraduate/academics/minors/"
+ALL_BSBA = ["fisher-bsba"]  # excluded_programs entry meaning "any Fisher BSBA student"
+MINOR_RULES = (
+    "Minimum C- in each course and a 2.00 GPA across all minor coursework; no Pass/Non-Pass. "
+    "Up to 6 credit hours may overlap with the GE. The minor must be in a different subject than the major "
+    "and contain at least 12 credit hours distinct from the major and other minors. 1000-level courses don't count."
+)
+
+
+def mc(code, title, credits, prereqs=None, **kw):
+    """A minor course: Fisher requires C- or better."""
+    return c(code, title, credits, prereqs, min_grade="C-", **kw)
+
+
+def many(codes, credits=None, note=None):
+    """Elective lists given as 'CODE: Title' strings."""
+    out = []
+    for item in codes:
+        code, _, title = item.partition(": ")
+        out.append(mc(code.strip(), title.strip() or code.strip(), credits, None, notes=note))
+    return out
+
+
+ENTREP_NONPRACTICUM = [
+    "DESIGN 2700: Intro to Design Practice", "DESIGN 3105: Exploring Design Thinking", "DESIGN 3305: Visualization as Thinking",
+    "DESIGN 3505: Presentation as Thinking", "FILMSTD 3770: Screen Industry Studies", "FILMSTD 4880: Screenwriting and the Business of Cinema",
+    "FILMSTD 4881: Screenwriting and the Business of Television", "HISTORY 2010: History of American Capitalism",
+    "HISTORY 3706: American Business and Global Ecological Change", "HISTORY 2701: History of Technology",
+    "HISTORY 3302: Technology and Global Society", "POLSCI 4910: Business and Government Relations", "PSYCH 2462: Psychology of Creativity",
+    "THEATRE 2000.12: Technical Production: Self-Production", "THEATRE 2100: Introduction to Theatre", "THEATRE 5220: Professional Aspects",
+    "THEATRE 5321: Film/Video Production I", "THEATRE 5331: Screenwriting",
+    "BUSADM 3533: Technology Entrepreneurship", "BUSADM 4510.05: Inside Startups", "BUSFIN 4215: Entrepreneurial Finance",
+    "BUSFIN 4217: Private Financing", "BUSML 4240: New Product Management",
+    "CSCFFS 3270: Families in Business", "CSFRST 3330: Corporate Social Responsibility, Sustainability, & Entrepreneurship",
+    "CSFRST 3585: Retail Merchandising 1", "CSFRST 2300: Branding in Fashion, Hospitality, and Sports",
+    "CSHSPMG 2300: Branding in Fashion, Hospitality, and Sports", "CSFRST 5780: Leadership for the Service Industry",
+    "CSHSPMG 5780: Leadership for the Service Industry", "ESHESA 3221: Innovation and Leadership", "ESHESA 2570: Team and Organizational Leadership",
+    "CSE 5251: Introduction to Software Startups", "ECE 5078: Empowering the Entrepreneurial Electrical and Computer Engineer",
+    "ENVENG 3600: Technology Innovation for Sustainability", "ISE 5610: Ergonomics in the Product Design Process",
+    "MECHENG 5682.01: Fundamentals of Product Design Engineering (Engineering majors)",
+    "MECHENG 5682.02: Fundamentals of Product Design Engineering for Entrepreneurs (non-Engineering majors)",
+    "AEDE 4100: Self-Employment and Entrepreneurship", "AEDE 3160: Human Resource Management in Small Business",
+    "ENR 3900: Sustainability Metrics", "FDSCTE 5720: Food Product Development", "FDSCTE 5730: Technical Problem Solving",
+    "RURLSOC 5500: Diffusion of Innovations", "PUBAFRS 5595: Non-Profit Social Enterprise",
+    "PUBAFRS 5750: Public Policy: The Business-Government Relationship", "PUBAFRS 2368: Nonprofit Communications and Grant Writing",
+    "SOCWORK 2110: Sport and Positive Youth Development", "SOCWORK 3700: Social Work Practice with Digital Technologies",
+    "SOCWORK 5028: Macro-Practice in Community Youth Development",
+]
+ENTREP_PRACTICUM = [
+    "EDUTL 5700: Training in Informal Science Outreach", "ART 5000: Art + Professional Practices Seminar",
+    "BUSADM 3532: Corporate Entrepreneurship", "BUSMHR 4570: Establishing Export Firms",
+    "BUSADM 4510.01: Entrepreneurship and Innovation Practicum", "BUSADM 4510.02: Startup Lab: Build",
+    "BUSADM 4510.03: Startup Lab: Validate", "BUSADM 4510.04: Startup Lab: Scale",
+    "BUSMHR 3535: President's Buckeye Accelerator Bootcamp", "NURSING 3110: Experiential Learning for Innovation Studio",
+]
+
+MINORS = [
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-accounting", "kind": "minor", "name": "Accounting Minor", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "accounting", "excluded_programs": ["spec-accounting"],
+        "notes": "No application; tell your advisor so it's tracked on your degree audit. At least 6 credit hours must be upper-division. "
+                 "Up to 6 hours of transfer or exam credit. " + MINOR_RULES,
+        "groups": [
+            group("macct-req", "Required courses (9 credit hours)", "all", [
+                mc("ACCTMIS 2200", "Introduction to Financial Accounting", 3),
+                mc("ACCTMIS 2300", "Introduction to Managerial Accounting", 3, "ACCTMIS 2200"),
+                mc("ACCTMIS 3200", "Financial Accounting I", 3, "ACCTMIS 2200; ACCTMIS 2300"),
+            ]),
+            group("macct-elec", "Electives (choose two, 6 credit hours)", "choose_courses", [
+                mc("ACCTMIS 3201", "Financial Accounting II", 3, "ACCTMIS 3200"),
+                mc("ACCTMIS 3300", "Cost Accounting", 3, "ACCTMIS 2300"),
+                mc("ACCTMIS 3400", "Tax Accounting I", 3, "ACCTMIS 3200"),
+                mc("ACCTMIS 3600", "Accounting Information Systems", 3, "ACCTMIS 3200"),
+                mc("ACCTMIS 4210", "Financial Statement Analysis", 3, "ACCTMIS 3201"),
+                mc("ACCTMIS 4220", "Governmental and Non-Profit Accounting", 3, "ACCTMIS 2200"),
+                mc("ACCTMIS 4410", "Tax Accounting II", 3, "ACCTMIS 3400"),
+                mc("ACCTMIS 4500", "Auditing Principles and Procedures", 3, "ACCTMIS 3200"),
+            ], min_courses=2),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-business", "kind": "minor", "name": "Business Minor (non-business majors)", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "business-minor", "excluded_programs": ALL_BSBA,
+        "notes": "For non-business majors only. Prerequisites: college algebra (MATH 1130/1148 or placement M+) and ECON 2001.01. "
+                 "No application. " + MINOR_RULES,
+        "groups": [
+            group("mbus-req", "Required courses (15 credit hours)", "all", [
+                mc("ACCTMIS 2000", "Foundations of Accounting", 3, "MATH 1130 or 1148; ECON 2001.01"),
+                mc("BUSFIN 3120", "Foundations of Finance", 3, "ACCTMIS 2000"),
+                mc("BUSMHR 3100", "Foundations of Management and Human Resources", 3, None),
+                mc("BUSOBA 3130", "Foundations of Operations Management", 3, None),
+                mc("BUSML 3150", "Foundations of Marketing", 3, None),
+            ]),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-business-analytics", "kind": "minor", "name": "Business Analytics Minor (admitted Autumn 2026 and after)",
+        "min_total_credits": 15, "min_gpa": 2.0, "source_url": MINOR_URL + "business-analytics",
+        "notes": "Students admitted Spring 2026 or earlier may switch to this version through their advisor. "
+                 "No substitutions for required courses; up to 3 hours of equivalent transfer credit. " + MINOR_RULES,
+        "groups": [
+            group("mba26-req", "Required courses (9 credit hours)", "all", [
+                mc("BUSOBA 3331", "Business Analytics: Tactics in Analytical Discovery", 3, "ECON 2001.01; ECON 2002.01; BUSOBA 2320 & 2321 or STAT 3202; CSE 2111"),
+                mc("BUSOBA 3332", "Business Analytics: Application of Predictive Analytics to Business Data", 3, "ECON 2001.01; ECON 2002.01; BUSOBA 2320 & 2321 or STAT 3202; CSE 2111"),
+                mc("BUSOBA 3334", "Business Analytics: Capstone Experience", 3, "BUSOBA 3331; BUSOBA 3332"),
+            ]),
+            group("mba26-elec", "Electives (6 credit hours)", "choose_credits", [
+                mc("BUSOBA 3333", "Prescriptive Analytics & Optimization", 3, "BUSOBA 3331; BUSOBA 3332"),
+                mc("ACCTMIS 4640", "Accounting Data & Analytics", 3, "ACCTMIS 3200"),
+                mc("BUSML 4382", "Logistics & Supply Chain Analytics", 3, "BUSML 3380"),
+                mc("BUSML 4386", "Logistics Supply Chain Technology", 1.5, "BUSML 3380"),
+                mc("BUSOBA 4242", "Business Sports Analytics", 3, "BUSOBA 2320 and 2321, or STAT 3202"),
+                mc("BUSOBA 4233", "Information Systems in Operations Management", 3, "BUSOBA 2320 and 2321, or STAT 3202"),
+                mc("BUSOBA 4236", "Prompt Engineering", 1.5, "BUSOBA 3331"),
+                mc("BUSOBA 4256", "Tools", 1.5, "BUSOBA 2320 and 2321, or STAT 3202"),
+                mc("BUSOBA 4257", "Data Visualization and Storytelling", 1.5, "BUSOBA 2320 and 2321, or STAT 3202"),
+            ], min_credits=6,
+                notes="Fisher also lists AI & Machine Learning for Business (3 cr) and Data Management & Architecture (1.5 cr); course numbers not yet assigned."),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-business-analytics-legacy", "kind": "minor", "name": "Business Analytics Minor (admitted Spring 2026 and before)",
+        "min_total_credits": 15, "min_gpa": 2.0, "source_url": MINOR_URL + "business-analytics",
+        "notes": "Juniors may take the Industry Cluster courses (BUSADM 3630.05, 3632.05) through the Industry Immersion Program before the core. "
+                 "No substitutions for required courses; up to 3 hours of equivalent transfer credit. " + MINOR_RULES,
+        "groups": [
+            group("mba-req", "Required courses (9 credit hours)", "all", [
+                mc("BUSOBA 3331", "Business Analytics: Data Management & Descriptive Analytics", 3, "ECON 2001.01; ECON 2002.01; CSE 2111; MATH 1131/1151"),
+                mc("BUSOBA 3332", "Application of Predictive Analytics to Business Data", 3, "ECON 2001.01; ECON 2002.01; STAT 3202 or BUSOBA 2320 & 2321; CSE 2111"),
+                mc("BUSOBA 3333", "Prescriptive Analytics and Optimization", 3, "ECON 2001.01; ECON 2002.01; STAT 3202 or BUSOBA 2320 & 2321; CSE 2111", notes="Spring only"),
+            ]),
+            group("mba-elec", "Electives (6 credit hours)", "choose_credits", [
+                mc("BUSADM 3630.05", "Intro to Business Analytics (Industry Cluster)", 3),
+                mc("BUSADM 3632.05", "Analytics Solutions Development (Industry Cluster)", 3),
+                mc("ACCTMIS 4210", "Financial Statement Analysis", 3),
+                mc("ACCTMIS 4620", "Management Information Systems", 3),
+                mc("ACCTMIS 4640", "Accounting Data & Analytics", 3),
+                mc("ACCTMIS 4650", "Decision Support Systems", 3),
+                mc("CSE 3241", "Intro to Database Systems", 3),
+                mc("CSE 5243", "Intro to Data Mining", 3),
+                mc("BUSML 4202", "Marketing Research", 3),
+                mc("BUSML 4210", "Advanced Marketing Research", 1.5),
+                mc("BUSML 4211", "Market Analysis & Forecasting", 1.5),
+                mc("BUSML 4212", "Customer Relationship Management", 1.5),
+                mc("BUSML 4232", "Digital Marketing", 3),
+                mc("BUSML 4382", "Logistics & Supply Chain Analytics", 3),
+                mc("BUSOBA 4233", "Information Systems in Operations Management", 3),
+                mc("BUSOBA 4242", "Business Sports Analytics", 3),
+                mc("BUSOBA 4250", "Six Sigma Principles", 3),
+                mc("BUSOBA 4251", "Six Sigma Projects", 3),
+                mc("STAT 3301", "Modeling for Discovery I", 3),
+                mc("STAT 3302", "Modeling for Discovery II", 3),
+                mc("STAT 3303", "Bayesian Analysis & Decision Making", 3),
+            ], min_credits=6),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-entrepreneurship", "kind": "minor", "name": "Entrepreneurship Minor", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "entrepreneurship",
+        "notes": "No application; your college advisor approves the completed minor. Internship courses may count as practicum electives "
+                 "with the minor director's approval. Many electives have their own prerequisites. " + MINOR_RULES,
+        "groups": [
+            group("ment-req", "Required courses (6 credit hours)", "all", [
+                mc("BUSMHR 2500", "Principles of Entrepreneurship", 3),
+                mc("BUSMHR 3510", "Entrepreneurship and Value Creation", 3),
+            ]),
+            group("ment-practicum", "Practicum elective (at least 3 credit hours)", "choose_credits",
+                  many(ENTREP_PRACTICUM), min_credits=3),
+            group("ment-elec", "More electives (6 credit hours, practicum or non-practicum)", "choose_credits",
+                  many(ENTREP_NONPRACTICUM) + many(ENTREP_PRACTICUM), min_credits=6),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-insurance", "kind": "minor", "name": "Insurance Minor", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "insurance",
+        "notes": "Prerequisites: college algebra (MATH 1130/1148 or placement M or L) and ECON 2001.01. "
+                 "Students are encouraged, not required, to take electives from all three disciplines. " + MINOR_RULES,
+        "groups": [
+            group("mins-req", "Required courses (6 credit hours)", "all", [
+                mc("BUSFIN 3300", "Introduction to Insurance and Risk", 3, "ECON 2001.01; MATH 1130 or 1148"),
+                mc("BUSFIN 4310", "Commercial Property & Casualty Insurance", 3, "BUSFIN 3300"),
+            ]),
+            group("mins-elec", "Electives (9 credit hours)", "choose_credits", [
+                mc("BUSFIN 4311", "Life and Health Insurance", 3, "BUSFIN 3300"),
+                mc("BUSFIN 4312", "Employee Benefits Plans", 3),
+                mc("BUSFIN 4315", "Insurance Operations", 3),
+                mc("BUSFIN 4265", "Financial Institutions", 3),
+                mc("BUSFIN 3400", "Intro to Real Estate", 3),
+                mc("BUSFIN 4411", "Property Management", 3),
+                mc("BUSOBA 4234", "Service Operations", 3),
+                mc("ACCTMIS 3400", "Tax Accounting I", 3),
+                mc("BUSMHR 4326", "Compensation and Benefits Administration", 3),
+                mc("ECON 5860", "Health Economics", 3),
+                mc("CSCFFS 3260", "Family Financial Management: Theory and Practice", 3),
+                mc("CSCFFS 4260", "Family Tax Planning", 3),
+            ], min_credits=9),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-international-business", "kind": "minor", "name": "International Business Minor", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "international-business", "excluded_programs": ["spec-international-business"],
+        "notes": "15-16.5 credit hours. Take BUSMHR 2000 before the other core courses; all prerequisites must be done first. "
+                 "Minor courses can't count toward the business core or specialization, except as free electives. "
+                 "No foreign language courses. Other internationally focused electives need approval from Professor Mona Makhija. " + MINOR_RULES,
+        "groups": [
+            group("mib-req", "Required core (10.5 credit hours)", "all", [
+                mc("BUSMHR 2000", "Introduction to International Business", 1.5, "ECON 2001; ECON 2002"),
+                mc("BUSMHR 4010", "International Business Strategies", 3, "BUSMHR 2000"),
+                mc("BUSMHR 4020", "Cross-Cultural Management", 3, "BUSMHR 2000"),
+                mc("BUSMHR 4021", "Institutions of the International Business Environment", 3, "BUSMHR 2000"),
+            ]),
+            group("mib-elec", "Electives with an international focus (6 credit hours)", "choose_credits", [
+                mc("BUSFIN 3250", "Foundations of International Finance", 3, None, notes="Finance specialization students only"),
+                mc("BUSFIN 4250", "Global Finance", 1.5, None, notes="Finance specialization students only"),
+                mc("BUSOBA 4237", "International Operations Management", 3),
+                mc("BUSOBA 4263", "Global Sourcing", 3),
+                mc("BUSMHR 4023", "International business elective", None),
+                mc("BUSMHR 4321", "International Labor & Human Resource Management", 3),
+                mc("BUSML 4254", "International Marketing", 3),
+                mc("AEDECON 4535", "International economics elective", None),
+                mc("AEDECON 4540", "International economics elective", None),
+                mc("ECON 4130", "International economics elective", None),
+                mc("ECON 4560", "International economics elective", None),
+                mc("GEOG 5700", "International geography elective", None),
+                mc("INTSTDS 4195", "International studies elective", None),
+                mc("INTSTDS 4850", "International studies elective", None),
+                mc("POLITSC 4310", "International politics elective", None),
+                mc("POLITSC 4910", "International politics elective", None),
+                mc("SPANISH 5640", "International elective (not a language course)", None),
+            ], min_credits=6, notes="Commonly approved electives; Fisher lists course numbers without titles for most of these."),
+        ],
+    },
+    {
+        "catalog": "Fisher minor requirements (2026)",
+        "id": "minor-real-estate", "kind": "minor", "name": "Real Estate Minor", "min_total_credits": 15, "min_gpa": 2.0,
+        "source_url": MINOR_URL + "real-estate", "excluded_programs": ["spec-real-estate"],
+        "notes": "Prerequisite: ECON 2001 or ECON 2002. BUSFIN 3400's BUSMHR 2292 prerequisite may be waived for declared Real Estate minors "
+                 "(email undergraduate@fisher.osu.edu). " + MINOR_RULES,
+        "groups": [
+            group("mre-req", "Required course (3 credit hours)", "all", [
+                mc("BUSFIN 3400", "Introduction to Real Estate", 3, "ECON 2001 or ECON 2002"),
+            ]),
+            group("mre-elec", "Electives (12 credit hours)", "choose_credits", [
+                mc("BUSFIN 4410", "Real Estate Finance", 3, "BUSFIN 3120 or 3220; BUSFIN 3400"),
+                mc("BUSFIN 4411", "Property Management", 3, "BUSFIN 3400; BUSFIN 3220; BUSFIN 3500; BUSOBA 2320; BUSOBA 2321; BUSMHR 2292"),
+                mc("BUSFIN 4412", "Real Estate Law", 3, "BUSFIN 3400; BUSFIN 3220; BUSFIN 3500; BUSOBA 2320; BUSOBA 2321; BUSMHR 2292"),
+                mc("BUSFIN 4413", "Planning & Development", 3, "BUSFIN 3400; BUSFIN 3220; BUSFIN 3500; BUSOBA 2320; BUSOBA 2321; BUSMHR 2292"),
+                mc("BUSFIN 5402", "Real Estate Valuation", 3, "BUSFIN 3400; Real Estate minor declared"),
+                mc("BUSML 4380", "Advanced Logistics Management", 1.5, "BUSML 3380; ACCTMIS 2200; ACCTMIS 2300; BUSOBA 2320; BUSOBA 2321; BUSMHR 2292"),
+                mc("BUSML 4388", "Logistics Execution II", 1.5, "BUSML 4381; ACCTMIS 2200; ACCTMIS 2300; BUSOBA 2320; BUSOBA 2321; BUSMHR 2292"),
+                mc("CRP 3400", "Planning for Sustainable Economic Development", 3, "ECON 2001.01"),
+                mc("CRP 3600", "Land Development Planning", 3),
+                mc("CRP 5400", "Planning for Housing", 3),
+                mc("CONSYSM 2205", "Intro to Construction Project Management", 3, "MATH 1148, 1149, 1150, or 1151 (or concurrent)"),
+                mc("CONSYSM 2310", "Electrical and Lighting Systems", 3, "MATH 1148, 1149, 1150, or 1151; PHYSICS 1200 or 1250 (or concurrent)"),
+                mc("CONSYSM 2345", "Mechanical Systems for Buildings", 3, "MATH 1148, 1149, 1150, or 1151; PHYSICS 1200 or 1250 (or concurrent)"),
+                mc("CONSYSM 5670", "Green Building and Sustainable Construction", 3, "Junior, senior, or graduate standing"),
+            ], min_credits=12),
+        ],
+    },
+]
+
 
 def sql(v):
     if v is None:
@@ -445,22 +717,22 @@ def sql(v):
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def main():
+def build(programs_in, scope, first_sort):
+    ids = ", ".join(sql(p["id"]) for p in programs_in)
     out = [
-        "-- Generated by scripts/fisher_requirements.py. Edit that file, not this one.",
+        f"-- Generated by scripts/fisher_requirements.py ({scope}). Edit that file, not this one.",
         "begin;",
-        "update public.student_profiles set specialization_id = null where specialization_id is not null"
-        " and specialization_id not in (" + ", ".join(sql(p["id"]) for p in PROGRAMS) + ");",
-        "delete from public.requirement_courses;",
-        "delete from public.requirement_groups;",
-        "delete from public.programs where id not in (" + ", ".join(sql(p["id"]) for p in PROGRAMS) + ");",
+        f"delete from public.requirement_groups where program_id in (select id from public.programs where kind in {scope_kinds(scope)});",
+        f"update public.student_profiles set specialization_id = null where specialization_id in "
+        f"(select id from public.programs where kind in {scope_kinds(scope)} and id not in ({ids}));",
+        f"delete from public.programs where kind in {scope_kinds(scope)} and id not in ({ids});",
     ]
     programs, groups, courses = [], [], []
-    for pi, p in enumerate(PROGRAMS):
+    for pi, p in enumerate(programs_in):
         programs.append(dict(
-            id=p["id"], kind=p["kind"], name=p["name"], college="Fisher College of Business", catalog=CATALOG,
+            id=p["id"], kind=p["kind"], name=p["name"], college="Fisher College of Business", catalog=p.get("catalog", CATALOG),
             min_total_credits=p.get("min_total_credits"), min_gpa=p.get("min_gpa"), notes=p.get("notes"),
-            source_url=p.get("source_url"), sort_order=pi,
+            source_url=p.get("source_url"), sort_order=first_sort + pi, excluded_programs=p.get("excluded_programs", []),
         ))
         for gi, g in enumerate(p["groups"]):
             groups.append(dict(
@@ -488,7 +760,22 @@ def main():
     out.append(insert("requirement_groups", groups))
     out.append(insert("requirement_courses", courses))
     out.append("commit;")
-    print("\n".join(out))
+    return "\n".join(out)
+
+
+def scope_kinds(scope):
+    return "('degree', 'specialization')" if scope == "degree" else "('minor')"
+
+
+def main():
+    import sys
+    scope = sys.argv[1] if len(sys.argv) > 1 else "degree"
+    if scope == "degree":
+        print(build(PROGRAMS, scope, 0))
+    elif scope == "minors":
+        print(build(MINORS, scope, 100))
+    else:
+        sys.exit("usage: fisher_requirements.py degree|minors")
 
 
 if __name__ == "__main__":

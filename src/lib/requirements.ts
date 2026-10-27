@@ -30,24 +30,26 @@ export interface RequirementGroup {
 
 export interface Program {
   id: string;
-  kind: 'degree' | 'specialization';
+  kind: 'degree' | 'specialization' | 'minor';
   name: string;
   catalog: string;
   min_total_credits: number | null;
   min_gpa: number | null;
   notes: string | null;
   source_url: string | null;
+  excluded_programs: string[]; // students in these programs can't add this minor ('fisher-bsba' = any BSBA student)
   groups: RequirementGroup[];
 }
 
 export interface Curriculum {
   degree: Program;
   specializations: Program[];
+  minors: Program[];
 }
 
 export async function loadCurriculum(): Promise<Curriculum> {
   const [programs, groups, courses] = await Promise.all([
-    supabase.from('programs').select('id, kind, name, catalog, min_total_credits, min_gpa, notes, source_url').order('sort_order'),
+    supabase.from('programs').select('id, kind, name, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs').order('sort_order'),
     supabase
       .from('requirement_groups')
       .select('id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes')
@@ -84,7 +86,11 @@ export async function loadCurriculum(): Promise<Curriculum> {
   }));
   const degree = all.find((p) => p.kind === 'degree');
   if (!degree) throw new Error('Curriculum is missing the BSBA degree program.');
-  return { degree, specializations: all.filter((p) => p.kind === 'specialization') };
+  return {
+    degree,
+    specializations: all.filter((p) => p.kind === 'specialization'),
+    minors: all.filter((p) => p.kind === 'minor'),
+  };
 }
 
 // Best guess at a specialization from free text such as "Finance (BS Business Admin)".
@@ -480,4 +486,64 @@ export function planGaps(audit: DegreeAudit): string[] {
   const total = c.earned + c.inProgress + c.planned;
   if (total < c.required) gaps.push(`Total is ${total} credit hours; add ${c.required - total} more to reach ${c.required} (electives or GE courses)`);
   return gaps;
+}
+
+// ---------- What-if: adding a minor ----------
+
+export interface MinorAudit {
+  progress: ProgramProgress;
+  eligible: boolean;
+  ineligibleReason: string | null;
+  creditsCounted: number; // toward the minor from classes taken, in progress, or planned
+  creditsDone: number;
+  creditsRequired: number;
+  overlapCodes: string[]; // minor courses that also count toward the BSBA or specialization
+  overlapCredits: number;
+  overlapTooHigh: boolean; // Fisher: at least 12 credit hours must be distinct from the major
+}
+
+export function auditMinor(minor: Program, specializationId: string | null, semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
+  const progress = checkProgram(minor, semesters);
+  const excluded = minor.excluded_programs;
+  const eligible = !excluded.includes('fisher-bsba') && !(specializationId && excluded.includes(specializationId));
+  const ineligibleReason = eligible
+    ? null
+    : excluded.includes('fisher-bsba')
+    ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
+    : 'A minor must be in a different subject than your specialization.';
+
+  // Courses the student's major requirements already use
+  const majorCodes = new Set<string>();
+  for (const p of [degreeAudit?.degree, degreeAudit?.specialization]) {
+    for (const g of p?.groups ?? []) for (const i of g.items) if (i.state !== 'missing') majorCodes.add(norm(i.takenAs ?? i.code));
+  }
+
+  let creditsCounted = 0;
+  let creditsDone = 0;
+  let overlapCredits = 0;
+  const overlapCodes: string[] = [];
+  for (const g of progress.groups) {
+    for (const i of g.items) {
+      if (i.state === 'missing') continue;
+      const cr = Number(i.credits) || 0;
+      creditsCounted += cr;
+      if (i.state === 'done') creditsDone += cr;
+      if (majorCodes.has(norm(i.takenAs ?? i.code))) {
+        overlapCredits += cr;
+        overlapCodes.push(i.takenAs ?? i.code);
+      }
+    }
+  }
+  const creditsRequired = minor.min_total_credits ?? 15;
+  return {
+    progress,
+    eligible,
+    ineligibleReason,
+    creditsCounted,
+    creditsDone,
+    creditsRequired,
+    overlapCodes,
+    overlapCredits,
+    overlapTooHigh: creditsRequired - overlapCredits < 12,
+  };
 }

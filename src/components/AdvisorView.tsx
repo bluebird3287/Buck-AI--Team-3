@@ -1,12 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Inbox, CalendarDays, CalendarClock, Sparkles, AlertTriangle, CheckCircle2, RotateCcw, Users, Search } from 'lucide-react';
+import { Inbox, CalendarDays, CalendarClock, Sparkles, AlertTriangle, CheckCircle2, Users, Search } from 'lucide-react';
 import {
   AdvisingRequest,
   ADVISOR,
   CATEGORY_LABELS,
   describeSlot,
   relativeTime,
-  resetAdvisingData,
   toggleAdvisorSlot,
   useAdvisingState,
 } from '../lib/advising';
@@ -184,17 +183,6 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              resetAdvisingData();
-              setDialogRequestId(null);
-              setAnnouncement('Sample data restored.');
-            }}
-            className={`mb-2 inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-gray-900 rounded px-2 py-1 ${focusRing}`}
-          >
-            <RotateCcw className="w-4 h-4" aria-hidden /> Reset sample data
-          </button>
         </div>
 
         <p role="status" aria-live="polite" className="sr-only">

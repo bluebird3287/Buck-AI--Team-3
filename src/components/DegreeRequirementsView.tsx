@@ -10,7 +10,7 @@ const STATE_STYLE: Record<ItemState | 'manual', { label: string; cls: string; Ic
   manual: { label: 'Confirm with advisor', cls: 'bg-gray-50 text-gray-700 border-gray-200', Icon: HelpCircle },
 };
 
-const Badge: React.FC<{ state: ItemState | 'manual' }> = ({ state }) => {
+export const Badge: React.FC<{ state: ItemState | 'manual' }> = ({ state }) => {
   const { label, cls, Icon } = STATE_STYLE[state];
   return (
     <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${cls}`}>
@@ -25,7 +25,7 @@ function progressText(g: GroupProgress): string {
   return `${g.coursesCounted} of ${g.coursesNeeded} ${g.coursesNeeded === 1 ? 'course' : 'courses'}`;
 }
 
-const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
+export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
   const [showOptions, setShowOptions] = useState(false);
   const counted = new Set(g.items.map((i) => i.code));
   const options = g.group.kind === 'all' ? [] : g.group.courses.filter((c) => !counted.has(c.code));

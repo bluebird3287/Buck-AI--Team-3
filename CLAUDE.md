@@ -67,3 +67,12 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
   can't be checked from course codes alone.
 - Fisher's Autumn 2027 redesigned curriculum isn't published yet; add it as new programs
   when it is.
+- Fisher minors (kind `minor`) power the What-If Minor Audit. `excluded_programs` marks
+  who can't take a minor (`fisher-bsba` = any BSBA student). Regenerate with
+  `python3 scripts/fisher_requirements.py minors`.
+
+## Advising requests
+
+Student requests to advisors live in `advising_requests` (RLS: students see their own,
+advisors see all and decide) and advisor blocked-off times in `advisor_closed_slots`.
+`booked_slot_keys()` exposes taken times without names. There is no sample data.

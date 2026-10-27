@@ -447,6 +447,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         initialTab={chatTab}
         onSimulateSeatDrop={handleTriggerSeatDropAlert}
         audit={audit}
+        curriculum={curriculum}
+        specializationId={specializationId}
       />
 
       {/* Survey Insights Modal */}

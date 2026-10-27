@@ -47,15 +47,19 @@ export const AdvisorSchedulingView: React.FC<AdvisorSchedulingViewProps> = ({
   const advisorInitials = profile.advisorName.split(/[\s,]+/).filter((w) => /^[A-Z]/.test(w)).slice(0, 2).map((w) => w[0]).join('');
 
   // Booking sends the request to the advisor's approval queue (BuckAI checks it first).
-  const handleBooking = () => {
+  const handleBooking = async () => {
     if (!selectedSlot) return;
-    submitRequest({
+    const sent = await submitRequest({
       category: 'appointment',
       title: 'Advising appointment',
       studentMessage: studentNotes,
       student: studentFromProfile(profile),
       appointment: { slotKey: selectedSlot.key, format: selectedFormat === 'Zoom Virtual' ? 'Zoom' : selectedFormat },
     });
+    if (!sent) {
+      window.alert("Your request couldn't be sent. That time may have just been taken, so please pick another time and try again.");
+      return;
+    }
     onConfirmBooking(toAdvisorSlot(selectedSlot), selectedFormat, studentNotes);
   };
 

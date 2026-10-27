@@ -33,7 +33,8 @@ import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDeci
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
-import { DegreeAudit } from '../lib/requirements';
+import { Curriculum, DegreeAudit } from '../lib/requirements';
+import { MinorAuditView } from './MinorAuditView';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
 
 export interface ChatMessage {
@@ -65,119 +66,11 @@ interface AiChatWidgetProps {
   initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
+  curriculum: Curriculum | null;
+  specializationId: string | null;
 }
 
-interface MinorOption {
-  id: string;
-  name: string;
-  college: string;
-  totalCredits: number;
-  creditsCompleted: number;
-  alreadyTaken: { code: string; name: string; credits: number }[];
-  remainingNeeded: { code: string; name: string; term: string; credits: number }[];
-  graduationDelay: string;
-  synergyScore: string;
-  careerMatch: string;
-  description: string;
-}
 
-const MINOR_OPTIONS: MinorOption[] = [
-  {
-    id: 'analytics',
-    name: 'Business Analytics & CIS Minor',
-    college: 'Fisher College of Business',
-    totalCredits: 15,
-    creditsCompleted: 7,
-    alreadyTaken: [
-      { code: 'STAT 1430.01', name: 'Statistics for Business', credits: 4 },
-      { code: 'CSE 2221', name: 'Software I: Software Components', credits: 3 }
-    ],
-    remainingNeeded: [
-      { code: 'BUSOBA 2320', name: 'Decision Sciences', term: 'Spring 2027', credits: 3 },
-      { code: 'CSE 3241', name: 'Introduction to Database Systems', term: 'Spring 2028', credits: 3 },
-      { code: 'BUSOBA 4240', name: 'Applied Predictive Analytics & AI', term: 'Spring 2029', credits: 3 }
-    ],
-    graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: 'Pairs well with business and data-focused majors',
-    careerMatch: 'Financial Data Analyst, Quantitative Trader, FinTech Consultant',
-    description: 'Combines data analytics with programming. Business statistics and intro CSE courses count toward it.'
-  },
-  {
-    id: 'cse',
-    name: 'Computer Science (CSE) Minor',
-    college: 'College of Engineering',
-    totalCredits: 16,
-    creditsCompleted: 8,
-    alreadyTaken: [
-      { code: 'MATH 1151', name: 'Calculus I', credits: 5 },
-      { code: 'CSE 2221', name: 'Software I: Software Components', credits: 3 }
-    ],
-    remainingNeeded: [
-      { code: 'CSE 2231', name: 'Software II: Development & Components', term: 'Spring 2027', credits: 4 },
-      { code: 'CSE 2321', name: 'Foundations I: Discrete Structures', term: 'Autumn 2027', credits: 3 },
-      { code: 'CSE 2421', name: 'Systems I: Computer Architecture', term: 'Spring 2028', credits: 4 },
-      { code: 'CSE 3000+', name: 'Advanced CSE Technical Elective', term: 'Autumn 2028', credits: 3 }
-    ],
-    graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: 'Strong fit for technical and quantitative majors',
-    careerMatch: 'Algorithmic Trading, Financial Software Engineer, Systems Analyst',
-    description: 'Deep technical foundation in algorithms and software systems. Calculus 1 and Software 1 count toward the prerequisite baseline.'
-  },
-  {
-    id: 'econ',
-    name: 'Economics Minor',
-    college: 'College of Arts and Sciences',
-    totalCredits: 15,
-    creditsCompleted: 10,
-    alreadyTaken: [
-      { code: 'ECON 2001.01', name: 'Principles of Microeconomics', credits: 3 },
-      { code: 'ECON 2002.01', name: 'Principles of Macroeconomics', credits: 3 },
-      { code: 'STAT 1430.01', name: 'Statistics for Business', credits: 4 }
-    ],
-    remainingNeeded: [
-      { code: 'ECON 4001.01', name: 'Intermediate Microeconomic Theory', term: 'Autumn 2027', credits: 3 },
-      { code: 'ECON 4400', name: 'Money & Banking', term: 'Spring 2028', credits: 3 }
-    ],
-    graduationDelay: '0 Months (Fastest Minor: Only 2 classes left)',
-    synergyScore: 'Shares intro courses with most business majors',
-    careerMatch: 'Economic Forecaster, Central Banking, Investment Research',
-    description: 'Intro micro/macroeconomics and statistics count toward it, so it is often quick to finish.'
-  },
-  {
-    id: 'realestate',
-    name: 'Real Estate Minor',
-    college: 'Fisher College of Business',
-    totalCredits: 12,
-    creditsCompleted: 3,
-    alreadyTaken: [
-      { code: 'ECON 2001.01', name: 'Principles of Microeconomics', credits: 3 }
-    ],
-    remainingNeeded: [
-      { code: 'BUSFIN 3400', name: 'Introduction to Real Estate', term: 'Autumn 2027', credits: 3 },
-      { code: 'BUSFIN 4410', name: 'Real Estate Finance & Commercial Lending', term: 'Spring 2028', credits: 3 },
-      { code: 'BUSFIN 4412', name: 'Real Estate Valuation & Property Markets', term: 'Autumn 2028', credits: 3 }
-    ],
-    graduationDelay: '0 Months (Graduating on time in May 2029)',
-    synergyScore: 'Pairs well with finance and business majors',
-    careerMatch: 'Commercial Real Estate Brokerage, REIT Analyst, Property Portfolio Manager',
-    description: 'Specializes in property valuation and commercial real estate finance. Taught by Fisher faculty.'
-  }
-];
-
-// Re-sorts a minor's courses into "already have" and "still needed" using the classes
-// this student entered, so nobody sees another student's record.
-function personalizeMinor(m: MinorOption, takenCodes: Set<string>): MinorOption {
-  const all = [
-    ...m.alreadyTaken.map((c) => ({ ...c, term: 'TBD' })),
-    ...m.remainingNeeded,
-  ];
-  const has = (code: string) => takenCodes.has(code.toUpperCase());
-  const alreadyTaken = all.filter((c) => has(c.code)).map(({ term: _term, ...c }) => c);
-  const remainingNeeded = all.filter((c) => !has(c.code)).map((c) => ({ ...c, term: c.term === 'TBD' ? 'Not yet planned' : `Suggested ${c.term}` }));
-  const creditsCompleted = alreadyTaken.reduce((sum, c) => sum + c.credits, 0);
-  const left = Math.max(m.totalCredits - creditsCompleted, 0);
-  return { ...m, alreadyTaken, remainingNeeded, creditsCompleted, graduationDelay: `${left} credits left` };
-}
 
 export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   isOpen,
@@ -194,8 +87,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   onUpdateDecision,
   initialTab,
   onSimulateSeatDrop,
-  audit
+  audit,
+  curriculum,
+  specializationId
 }) => {
+  const currentCourseToDrop = roadmap.find((sem) => sem.status === 'in-progress')?.courses[0]?.code;
   const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
 
   useEffect(() => {
@@ -209,12 +105,6 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const [expandedYear, setExpandedYear] = useState<number>(
     () => roadmap.find((s) => s.status === 'in-progress')?.year ?? roadmap[roadmap.length - 1]?.year ?? 1,
   );
-  const takenCodes = new Set(roadmap.filter((sem) => sem.status !== 'planned').flatMap((sem) => sem.courses.map((c) => c.code.toUpperCase())));
-  const currentCourseToDrop = roadmap.find((sem) => sem.status === 'in-progress')?.courses[0]?.code;
-  const minorOptions = MINOR_OPTIONS.map((m) => personalizeMinor(m, takenCodes));
-  const [selectedMinorId, setSelectedMinorId] = useState<string>('analytics');
-  const [appliedMinorId, setAppliedMinorId] = useState<string>('analytics');
-  const [appliedFeedback, setAppliedFeedback] = useState<string | null>(null);
 
   // High Stakes Decision State & Handlers
   const [isSubmittingEscalation, setIsSubmittingEscalation] = useState<boolean>(false);
@@ -344,16 +234,20 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   };
 
   // Request the picked time; it goes to the advisor's approval queue after BuckAI checks it.
-  const handleRequestAppointment = () => {
+  const handleRequestAppointment = async () => {
     if (!pickedSlot) return;
     const notes = 'Meeting to review my 4-year degree roadmap.';
-    submitRequest({
+    const sent = await submitRequest({
       category: 'appointment',
       title: 'Advising appointment',
       studentMessage: notes,
       student: studentFromProfile(profile),
       appointment: { slotKey: pickedSlot.key, format: pickedFormat },
     });
+    if (!sent) {
+      window.alert("Your request couldn't be sent. That time may have just been taken, so please pick another time and try again.");
+      return;
+    }
     onConfirmBooking(toAdvisorSlot(pickedSlot), pickedFormat, notes);
     setPickedSlot(null);
   };
@@ -882,206 +776,26 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
         {/* TAB 3: "WHAT-IF" MINOR & SPECIALIZATION SIMULATOR */}
         {activeTab === 'whatif' && (
-          <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc] space-y-6">
-            {/* Header intro */}
-            <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center space-x-2">
-                    <span>What-If Academic Minor Simulator</span>
-                  </h3>
-                  <p className="text-xs text-gray-600 mt-1 max-w-2xl leading-relaxed">
-                    Test how adding an academic minor fits with your ${profile.major} requirements. The audit engine cross-checks completed coursework, prerequisite dependencies, and graduation timeline under official Ohio State curriculum guidelines.
-                  </p>
-                </div>
-                {appliedFeedback && (
-                  <div className="bg-gray-100 border border-gray-300 text-gray-900 px-3.5 py-1.5 rounded text-xs font-semibold flex items-center space-x-1.5 shrink-0">
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    <span>{appliedFeedback}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Minor Selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block">
-                Select Minor Program:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {minorOptions.map((m) => {
-                  const isSelected = selectedMinorId === m.id;
-                  const isApplied = appliedMinorId === m.id;
-
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() => setSelectedMinorId(m.id)}
-                      className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
-                        isSelected
-                          ? 'bg-white border-[#ba0c2f] ring-1 ring-[#ba0c2f] shadow-xs'
-                          : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50/50 shadow-2xs'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <span className="font-bold text-xs sm:text-sm text-gray-900 leading-snug">
-                          {m.name}
-                        </span>
-                        {isApplied && (
-                          <span className="text-[10px] bg-gray-100 text-gray-800 font-semibold px-1.5 py-0.5 rounded shrink-0 ml-1 border border-gray-200">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-gray-500 mt-1">{m.college}</div>
-                      <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
-                        <span className="text-gray-600">{m.totalCredits} Total Credits</span>
-                        <span className="text-gray-900 font-bold">
-                          {Math.round((m.creditsCompleted / m.totalCredits) * 100)}% Met
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Selected Minor Detailed Audit Card */}
-            {(() => {
-              const currentMinor = minorOptions.find((m) => m.id === selectedMinorId) || minorOptions[0];
-
-              return (
-                <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs space-y-5">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h4 className="text-base font-bold text-gray-900">{currentMinor.name}</h4>
-                        <span className="text-xs bg-gray-100 text-gray-700 font-medium px-2 py-0.5 rounded border border-gray-200">
-                          {currentMinor.college}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">{currentMinor.description}</p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                      <button
-                        onClick={() => {
-                          setAppliedMinorId(currentMinor.id);
-                          onUpdateRoadmap(`Applied ${currentMinor.name} to 4-year degree plan.`);
-                          setAppliedFeedback(`Simulated: ${currentMinor.name}`);
-                          setTimeout(() => setAppliedFeedback(null), 4000);
-                          onSendMessage(`I applied the ${currentMinor.name} to my 4-year roadmap simulation. How does this complement my ${profile.major} major and career goals?`);
-                        }}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-semibold px-3.5 py-2 rounded transition-colors shadow-2xs"
-                        title="Simulate adding this minor on your 4-year degree roadmap"
-                      >
-                        Simulate on 4-Year Plan
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          onSendMessage(`I want to declare the ${currentMinor.name} as my real choice on my official university record.`);
-                          setActiveTab('chat');
-                        }}
-                        className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3.5 py-2 rounded transition-colors shadow-2xs flex items-center space-x-1.5"
-                        title="Declare minor as official choice (triggers serious warning and advisor escalation)"
-                      >
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        <span>Declare as Real Choice</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Cohesive 3-Part Metric Panel */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200 text-center gap-2 sm:gap-0">
-                    <div className="sm:px-3">
-                      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Graduation Timeline</div>
-                      <div className="text-xs sm:text-sm font-bold text-gray-900 mt-1">{currentMinor.graduationDelay}</div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">Based on the classes you entered</div>
-                    </div>
-
-                    <div className="sm:px-3">
-                      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Curriculum Overlap</div>
-                      <div className="text-xs sm:text-sm font-bold text-gray-900 mt-1">{currentMinor.synergyScore}</div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">Dual-counts toward GE/Major electives</div>
-                    </div>
-
-                    <div className="sm:px-3">
-                      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Career Pathways</div>
-                      <div className="text-xs sm:text-sm font-bold text-gray-900 mt-1 truncate" title={currentMinor.careerMatch}>
-                        {currentMinor.careerMatch}
-                      </div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">High industry placement</div>
-                    </div>
-                  </div>
-
-                  {/* Course Requirements Breakdown */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
-                    {/* Courses Already Completed */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-xs uppercase tracking-wider text-gray-700">
-                          Completed / In-Progress ({currentMinor.creditsCompleted} cr):
-                        </span>
-                        <span className="text-xs text-gray-600 flex items-center space-x-1">
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Satisfied</span>
-                        </span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {currentMinor.alreadyTaken.map((c, i) => (
-                          <div
-                            key={i}
-                            className="p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between text-xs"
-                          >
-                            <div>
-                              <span className="font-bold text-gray-900">{c.code}</span>
-                              <div className="text-gray-600 text-[11px]">{c.name}</div>
-                            </div>
-                            <span className="font-semibold text-gray-700">{c.credits} cr</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Remaining Courses Needed */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-xs uppercase tracking-wider text-gray-700">
-                          Remaining Requirements ({currentMinor.totalCredits - currentMinor.creditsCompleted} cr):
-                        </span>
-                        <span className="text-xs text-gray-500">Planned in Roadmap</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {currentMinor.remainingNeeded.map((c, i) => (
-                          <div
-                            key={i}
-                            className="p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between text-xs"
-                          >
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <span className="font-bold text-gray-900">{c.code}</span>
-                                <span className="text-[10px] bg-gray-100 text-gray-700 font-mono px-1.5 py-0.5 rounded border border-gray-200">
-                                  {c.term}
-                                </span>
-                              </div>
-                              <div className="text-gray-600 text-[11px]">{c.name}</div>
-                            </div>
-                            <span className="font-semibold text-gray-700">{c.credits} cr</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+          <MinorAuditView
+            curriculum={curriculum}
+            specializationId={specializationId}
+            roadmap={roadmap}
+            audit={audit}
+            onAsk={(prompt) => {
+              setActiveTab('chat');
+              onSendMessage(prompt);
+            }}
+            onAddToPlan={(prompt) => {
+              setActiveTab('roadmap');
+              onUpdateRoadmap(prompt);
+            }}
+            onDeclare={(prompt) => {
+              setActiveTab('chat');
+              onSendMessage(prompt);
+            }}
+          />
         )}
 
-        {/* TAB 4: FACULTY EVALUATIONS & FEEDBACK (every Fisher instructor & course, student reviews) */}
         {activeTab === 'rmp' && <FacultyEvaluationsView />}
 
         {/* TAB 5: ADVISOR AVAILABILITY MATCHING & HOLD CLEARANCE */}
