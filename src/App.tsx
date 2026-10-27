@@ -278,7 +278,13 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         // Keep the classes the student entered for past and current terms; only planned terms change.
         plan = normalizeSemesters([
           ...locked,
-          ...data.semesters.filter((s: Semester) => !lockedIds.has(s.id)).map((s: Semester) => ({ ...s, status: 'planned' as const })),
+          ...data.semesters
+            .filter((s: Semester) => !lockedIds.has(s.id))
+            .map((s: Semester) => ({
+              ...s,
+              status: 'planned' as const,
+              courses: (s.courses ?? []).map((c) => ({ ...c, prereqMet: c.prereqMet ?? true, type: c.type ?? 'General', difficulty: c.difficulty ?? 3 })),
+            })),
         ]);
         if (!curriculum) break;
         setRoadmapStage('Checking the plan against your requirements and prerequisites');
@@ -335,7 +341,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       reply = {
         id: statusId,
         role: 'assistant',
-        text: "I couldn't build your plan just now. Please try again in a moment, or use the 4-Year Degree Plan tab.",
+        text: "I couldn't finish building your plan. The planning service took too long or had an error. Please try again in a minute; if it keeps happening, use the 4-Year Degree Plan tab or ask your advisor.",
       };
     } else {
       const planned = result.plan.filter((s) => s.status === 'planned' && s.courses.length);

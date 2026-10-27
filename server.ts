@@ -33,6 +33,8 @@ app.use(express.json({ limit: '4.5mb' }));
 
 // Claude client (reads ANTHROPIC_API_KEY from the environment)
 const anthropic = new Anthropic({ timeout: 45_000, maxRetries: 1 });
+// Building a whole 4-year plan takes much longer than a chat reply (Vercel allows up to 300s; see vercel.json)
+const ROADMAP_TIMEOUT_MS = 240_000;
 const CLAUDE_MODEL = 'claude-opus-5-5';
 
 // Ask Claude for a JSON reply and return the raw JSON text.
@@ -42,6 +44,7 @@ async function generateJson(
   prompt: string | Anthropic.Beta.BetaContentBlockParam[],
   system?: string,
   timeoutMs?: number,
+  maxRetries?: number,
 ): Promise<string> {
   const response = await anthropic.beta.messages.create({
     model: CLAUDE_MODEL,
@@ -51,7 +54,7 @@ async function generateJson(
     output_config: { effort: 'low' },
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content: prompt }],
-  }, timeoutMs ? { timeout: timeoutMs } : undefined);
+  }, { ...(timeoutMs ? { timeout: timeoutMs } : {}), ...(maxRetries != null ? { maxRetries } : {}) });
 
   if (response.stop_reason === 'refusal') {
     throw new Error(`Claude declined the request (${response.stop_details?.category ?? 'unspecified'})`);
@@ -688,13 +691,9 @@ Return a JSON with:
   "semesters": [
     {
       "id": "autumn-2027",
-      "name": "Autumn 2027",
-      "status": "planned",
       "courses": [
-        { "code": "DEPT 1234", "name": "Course title", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true, "prereqInfo": "optional note" }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Light" | "Moderate" | "Balanced" | "Heavy" | "Overload"
+        { "code": "DEPT 1234", "name": "Short course title", "credits": 3, "type": "Major Core", "difficulty": 3 }
+      ]
     }
   ]
 }
@@ -710,12 +709,15 @@ Rules for "semesters":
 - Leave room for the GE categories that are not tracked automatically (Arts, Historical & Cultural, Natural Science, Diversity, two Themes) if the student has not covered them, using generic placeholders like "GE-THEME-CITIZENSHIP".
 - BUSMHR 4490 Strategic Management requires senior standing, so it belongs in the final year.
 
+Keep the JSON compact: only the fields shown, short course titles, no extra commentary. The app computes term names, credit totals, and workload itself.
+
 Return ONLY valid JSON.
 `;
 
     let parsed;
     if (process.env.ANTHROPIC_API_KEY) {
-      parsed = JSON.parse(await generateJson(requestPrompt));
+      // A full plan is a long answer: give it up to 4 minutes, without a retry that would double the wait.
+      parsed = JSON.parse(await generateJson(requestPrompt, undefined, ROADMAP_TIMEOUT_MS, 0));
     } else {
       throw new Error('ANTHROPIC_API_KEY not configured, using balanced roadmap fallback');
     }
