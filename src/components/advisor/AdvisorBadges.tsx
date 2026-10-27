@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, AlertTriangle, XCircle, Loader2, Clock, CheckCircle2, HelpCircle, Ban } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, XCircle, Loader2, Clock, CheckCircle2, HelpCircle, Ban, CalendarCheck } from 'lucide-react';
 import type { AiReview, RequestStatus } from '../../lib/advising';
 
 // Small status labels shared by the advisor screens. Each pairs color with an icon and
@@ -40,6 +40,7 @@ const STATUS: Record<RequestStatus, { cls: string; label: string; icon: React.El
   ai_review: { cls: 'border-gray-300 bg-gray-50 text-gray-700', label: 'AI checking', icon: Loader2 },
   pending_advisor: { cls: 'border-[#ba0c2f]/30 bg-red-50 text-[#8a0a23]', label: 'Awaiting your approval', icon: Clock },
   needs_info: { cls: 'border-blue-300 bg-blue-50 text-blue-800', label: 'Info requested', icon: HelpCircle },
+  scheduled: { cls: 'border-blue-300 bg-blue-50 text-blue-800', label: 'Meeting scheduled', icon: CalendarCheck },
   approved: { cls: 'border-emerald-300 bg-emerald-50 text-emerald-800', label: 'Approved', icon: CheckCircle2 },
   denied: { cls: 'border-gray-400 bg-gray-100 text-gray-800', label: 'Denied', icon: Ban },
 };

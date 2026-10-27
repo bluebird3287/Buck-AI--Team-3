@@ -1620,7 +1620,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 <div
                   role="status"
                   className={`px-4 py-2 rounded text-sm font-semibold border ${
-                    myAppointment.status === 'approved'
+                    myAppointment.status === 'approved' || myAppointment.status === 'scheduled'
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                       : myAppointment.status === 'denied'
                       ? 'bg-gray-100 border-gray-300 text-gray-900'
@@ -1632,6 +1632,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                       ? 'Appointment approved'
                       : myAppointment.status === 'denied'
                       ? 'Appointment not approved'
+                      : myAppointment.status === 'scheduled'
+                      ? `${profile.advisorName} scheduled a meeting with you`
                       : myAppointment.status === 'needs_info'
                       ? 'Your advisor needs more information'
                       : 'Appointment requested'}
