@@ -35,6 +35,7 @@ import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
 import { Curriculum, DegreeAudit } from '../lib/requirements';
 import { MinorAuditView } from './MinorAuditView';
+import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
 
 export interface ChatMessage {
@@ -60,6 +61,7 @@ interface AiChatWidgetProps {
   roadmap: Semester[];
   onUpdateRoadmap: (promptText: string) => Promise<void>;
   isRoadmapUpdating: boolean;
+  roadmapStage?: string;
   bookedSlot?: AdvisorSlot | null;
   onConfirmBooking: (slot: AdvisorSlot, format: string, notes: string) => void;
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
@@ -84,6 +86,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   roadmap,
   onUpdateRoadmap,
   isRoadmapUpdating,
+  roadmapStage,
   bookedSlot,
   onConfirmBooking,
   onUpdateDecision,
@@ -538,11 +541,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 </div>
               ))}
 
-              {isLoading && (
-                <div className="flex items-center space-x-2 text-xs text-gray-600 bg-white p-3 rounded-lg border border-gray-200 w-fit">
-                  <RefreshCw className="w-4 h-4 text-[#ba0c2f] animate-spin" />
-                  <span>Checking Ohio State course catalog and prerequisite records...</span>
-                </div>
+              {/* One indicator for the whole request, so the timer keeps counting from answer to plan */}
+              {(isLoading || isRoadmapUpdating) && (
+                <ThinkingIndicator
+                  stage={isLoading ? 'Checking your record and Ohio State course rules' : roadmapStage}
+                  slowNote={isRoadmapUpdating ? 'Still working. Building a full plan can take up to a minute.' : undefined}
+                />
               )}
 
               <div ref={messagesEndRef} />
@@ -691,6 +695,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
             {/* Roadmap Semesters View */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {isRoadmapUpdating && (
+                <ThinkingIndicator stage={roadmapStage} slowNote="Still working. Building a full plan can take up to a minute." />
+              )}
               {years.map((yr) => {
                 const isOpen = expandedYear === yr.yearNumber;
 

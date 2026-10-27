@@ -75,6 +75,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [isRoadmapUpdating, setIsRoadmapUpdating] = useState<boolean>(false);
+  const [roadmapStage, setRoadmapStage] = useState<string>('');
 
   // Booking State
   const [bookedSlot, setBookedSlot] = useState<AdvisorSlot | null>(null);
@@ -236,6 +237,11 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       let gaps: string[] = [];
 
       for (let round = 0; round < 3; round++) {
+        setRoadmapStage(
+          round === 0
+            ? 'Drafting your plan around your remaining Fisher requirements'
+            : `Fixing ${gaps.length} gap${gaps.length === 1 ? '' : 's'} in the plan (pass ${round + 1} of 3)`,
+        );
         const summary = curriculum
           ? describeAudit(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits))
           : requirementsSummary;
@@ -254,6 +260,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           ...data.semesters.filter((s: Semester) => !lockedIds.has(s.id)).map((s: Semester) => ({ ...s, status: 'planned' as const })),
         ]);
         if (!curriculum) break;
+        setRoadmapStage('Checking the plan against your requirements and prerequisites');
         gaps = planGaps(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits));
         if (!gaps.length) break;
         prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}`;
@@ -268,6 +275,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       return null;
     } finally {
       setIsRoadmapUpdating(false);
+      setRoadmapStage('');
     }
   };
 
@@ -503,6 +511,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         roadmap={roadmap}
         onUpdateRoadmap={handleUpdateRoadmap}
         isRoadmapUpdating={isRoadmapUpdating}
+        roadmapStage={roadmapStage}
         bookedSlot={bookedSlot}
         onConfirmBooking={handleConfirmBooking}
         onUpdateDecision={handleUpdateDecision}
