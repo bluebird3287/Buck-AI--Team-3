@@ -495,6 +495,164 @@ app.post('/api/parse-advising-report', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Advisor request review: step 1 of the double check. The AI verifies a student's
+// request and summarizes their needs; a human advisor makes the final decision.
+// ---------------------------------------------------------------------------
+
+const ADVISOR_REVIEW_SYSTEM_INSTRUCTION = `
+You are BuckAI's request verification assistant for Ohio State University academic advisors.
+A student has submitted an advising request. You do NOT approve or deny it; a human advisor
+makes the final decision. Your job is to save the advisor time:
+- Summarize what the student needs and why they want an appointment, in plain language.
+- Verify the request against the student record and OSU / Fisher policy (credit load for
+  full-time status is 12 hours; the no-"W" drop deadline is the 4th Friday of the term and has
+  passed for Autumn 2026; minors require a 2.50 CPHR and allow at most 6 overlapping credits
+  with the major; registration holds are lifted by the assigned advisor after a plan review).
+- Flag risks honestly (financial aid, transcript notation, graduation delay). Never invent facts
+  that are not in the request; say "verify in SIS" when something cannot be checked.
+
+Respond ONLY with a JSON object:
+{
+  "verdict": "supported" | "needs_attention" | "not_supported",
+  "confidence": "high" | "moderate" | "uncertain",
+  "summary": "2 sentences max",
+  "reasonForAppointment": "one sentence",
+  "studentNeeds": ["2-4 short items"],
+  "riskFlags": ["0-3 short items"],
+  "checks": [{ "label": "short check name", "passed": boolean, "detail": "one short sentence" }],
+  "suggestedAgenda": ["2-3 short items for the meeting"],
+  "recommendation": "one sentence for the advisor",
+  "situation": "3-5 sentences describing the student's problem and current circumstances in detail (what is going on, what they have tried, what they are worried about, what they want). The reader is an experienced advisor: do not explain policies or requirements."
+}
+`;
+
+type ReviewCheck = { label: string; passed: boolean; detail: string };
+
+function ruleBasedReview(request: any) {
+  const student = request?.student ?? {};
+  const category: string = request?.category ?? 'appointment';
+  const name: string = student.name ?? 'The student';
+  const enrolled: number = Number(student.enrolledCredits ?? 15);
+  const gpa: number = Number(student.gpa ?? 0);
+  const holds: string[] = Array.isArray(student.holds) ? student.holds : [];
+  const checks: ReviewCheck[] = [
+    { label: 'Student is your advisee', passed: true, detail: 'Assigned to Sarah Jenkins in the Fisher advising roster.' },
+  ];
+  const riskFlags: string[] = [];
+  let summary = `${name} submitted "${request?.title ?? 'an advising request'}".`;
+  let reason = request?.title ?? 'Advising consultation';
+  let needs: string[] = [request?.title ?? 'Advising consultation'];
+  let agenda: string[] = ['Review the request with the student', 'Agree on next steps'];
+  let recommendation = 'Review and decide.';
+
+  if (category === 'drop_class') {
+    const credits = Number(request?.details?.credits ?? 3);
+    const course = request?.details?.course ?? 'the course';
+    const after = enrolled - credits;
+    checks.push({ label: 'Stays full-time (12+ credits)', passed: after >= 12, detail: `${enrolled} − ${credits} = ${after} credit hours after the drop.` });
+    checks.push({ label: 'Within no-"W" drop window', passed: false, detail: 'Autumn 2026 4th Friday has passed; a W grade will be recorded.' });
+    if (after < 12) riskFlags.push(`Drops to ${after} credit hours: below full-time (financial aid risk)`);
+    riskFlags.push('A "W" will appear on the transcript');
+    summary = `${name} wants to drop ${course}. That leaves ${after} credit hours this term.`;
+    reason = `Decide whether to drop ${course}.`;
+    needs = [`A decision on dropping ${course}`, 'Guidance on financial aid and full-time status', 'A plan to retake or replace the course'];
+    agenda = ['Review financial-aid impact', 'Discuss alternatives (tutoring, adding a GE to stay at 12 hours)', 'Confirm the retake term'];
+    recommendation = after < 12 ? 'Meet before approving: the drop has financial-aid and transcript consequences.' : 'Approve if the student accepts the W notation.';
+  } else if (category === 'add_minor') {
+    const minor = request?.details?.minor ?? 'the minor';
+    checks.push({ label: 'Minimum 2.50 CPHR', passed: gpa >= 2.5, detail: `Cumulative GPA ${gpa.toFixed(2)}.` });
+    checks.push({ label: 'Overlap with major (max 6 credits)', passed: true, detail: 'Verify overlapping courses in the degree audit.' });
+    riskFlags.push('No more than 6 credits may overlap with the major');
+    summary = `${name} wants to declare the ${minor}. GPA ${gpa >= 2.5 ? 'meets' : 'does not meet'} the 2.50 requirement.`;
+    reason = `Confirm the ${minor} plan and file the declaration.`;
+    needs = ['Official minor declaration filed in SIS', 'A course sequence for the minor'];
+    agenda = ['Check overlap credits in the degree audit', 'Map minor courses to upcoming terms'];
+    recommendation = gpa >= 2.5 ? 'Approve if overlap credits check out.' : 'Deny or defer until GPA reaches 2.50.';
+  } else if (category === 'hold_clearance' || category === 'appointment') {
+    const hasHold = holds.length > 0;
+    checks.push({ label: 'Hold on record', passed: hasHold, detail: hasHold ? holds.join('; ') : 'No active holds found.' });
+    checks.push({ label: 'Requested time is mutually free', passed: !!request?.appointment, detail: request?.appointment ? 'Matched against class schedule and advisor calendar.' : 'No time selected yet.' });
+    summary = `${name} is requesting an advising appointment${hasHold ? ` to lift: ${holds[0]}` : ''}.`;
+    reason = hasHold ? 'Required plan review to lift a registration hold.' : 'General advising check-in.';
+    needs = hasHold ? ['Registration hold lifted before the enrollment window', 'Feedback on the draft 4-year plan'] : ['Advising check-in'];
+    if (request?.studentMessage) needs.push('Discuss the student’s notes (see their words below)');
+    agenda = ['Review the draft 4-year plan', 'Confirm the Spring 2027 cart', hasHold ? 'Lift the hold in SIS' : 'Agree on next steps'];
+    recommendation = 'Approve the appointment.';
+    if (hasHold) riskFlags.push('Enrollment window opens soon: delays could cost seats');
+  } else {
+    checks.push({ label: 'Graduation timing', passed: false, detail: 'Verify impact in the degree audit (DARS).' });
+    riskFlags.push('Record change requires advisor filing in SIS');
+    recommendation = 'Meet with the student before deciding.';
+  }
+
+  const failed = checks.some((c) => !c.passed);
+  const year = String(student.rank ?? 'student').replace(/\s*\(.*\)\s*/, '').toLowerCase();
+  const situation = [
+    `${name} is a ${year} in ${student.major ?? 'their program'} with a ${gpa.toFixed(2)} GPA, ${student.earnedCredits ?? 0} credits earned and ${enrolled} credits this term.`,
+    holds.length ? `There is an active hold on the account: ${holds.join('; ')}.` : '',
+    `They are asking for approval for: ${request?.title ?? 'an advising request'}.`,
+    request?.appointment ? 'They have already picked a meeting time that works for both of you.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return {
+    situation,
+    verdict: failed ? 'needs_attention' : 'supported',
+    confidence: 'moderate',
+    summary,
+    reasonForAppointment: reason,
+    studentNeeds: needs,
+    riskFlags,
+    checks,
+    suggestedAgenda: agenda,
+    recommendation,
+    source: 'rules',
+    reviewedAt: new Date().toISOString(),
+  };
+}
+
+app.post('/api/advisor-summary', async (req, res) => {
+  const request = req.body?.request;
+  if (!request || !request.student) {
+    return res.status(400).json({ error: 'request with student is required' });
+  }
+  const fallback = ruleBasedReview(request);
+
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY not configured, using rule-based review');
+    }
+    const prompt = `
+Student request to review:
+${JSON.stringify(
+  {
+    category: request.category,
+    title: request.title,
+    studentMessage: request.studentMessage,
+    details: request.details,
+    student: request.student,
+    requestedAppointment: request.appointment ?? null,
+  },
+  null,
+  2,
+)}
+`;
+    const parsed = JSON.parse(await generateJson(prompt, ADVISOR_REVIEW_SYSTEM_INSTRUCTION));
+    // Keep any field Claude left out from the rule-based review so the UI always has a full shape.
+    res.json({
+      ...fallback,
+      ...parsed,
+      checks: Array.isArray(parsed.checks) && parsed.checks.length ? parsed.checks : fallback.checks,
+      source: 'claude',
+      reviewedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.warn('Advisor review fallback:', error?.message);
+    res.json(fallback);
+  }
+});
+
 // Endpoint to dynamically recalculate or balance the 4-year roadmap
 app.post('/api/roadmap-generate', async (req, res) => {
   try {

@@ -26,7 +26,9 @@ import {
   CreditCard,
   CheckCircle2
 } from 'lucide-react';
-import { StudentProfile, Semester, AdvisorSlot, MUTUAL_ADVISOR_SLOTS } from '../data/sampleData';
+import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
+import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
+import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
 import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDecisionCard';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
@@ -450,6 +452,29 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const [isSubmittingEscalation, setIsSubmittingEscalation] = useState<boolean>(false);
   const [localDecisions, setLocalDecisions] = useState<Record<string, HighStakesDecisionData>>({});
 
+  // Appointment picking (shared availability with the advisor's calendar) and the
+  // student's latest appointment request, so they see when the advisor decides.
+  const [pickedSlot, setPickedSlot] = useState<MatchSlot | null>(null);
+  const [pickedFormat, setPickedFormat] = useState<'In-Person' | 'Zoom' | 'Phone'>('In-Person');
+  const advisingState = useAdvisingState();
+  const myEmail = studentFromProfile(profile).email;
+  const myAppointment = advisingState.requests.find((r) => r.appointment && r.student.email === myEmail) ?? null;
+
+  // Send the decision into the advisor's approval queue; BuckAI checks it first.
+  const queueForAdvisor = (decision: HighStakesDecisionData, confirmed: boolean) => {
+    const course = decision.decisionTitle.match(/[A-Z]{3,8}\s\d{4}/)?.[0];
+    const credits = course?.startsWith('MATH') ? 5 : course?.startsWith('CSE') ? 4 : 3;
+    submitRequest({
+      category: decision.actionType,
+      title: decision.decisionTitle,
+      studentMessage: confirmed
+        ? `I understand the risks BuckAI listed and want to go ahead: ${decision.decisionTitle}.`
+        : `I'd like to talk with my advisor before deciding: ${decision.decisionTitle}.`,
+      details: decision.actionType === 'drop_class' ? { course, credits } : decision.actionType === 'add_minor' ? { minor: decision.decisionTitle.replace(/^Declare (the )?/, '').replace(/ on .*$/, '') } : undefined,
+      student: studentFromProfile(profile),
+    });
+  };
+
   const handleEscalateToAdvisor = async (messageId: string, decision: HighStakesDecisionData) => {
     setIsSubmittingEscalation(true);
     try {
@@ -467,6 +492,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         }),
       });
       const data = await res.json();
+      queueForAdvisor(decision, false);
       const updated: HighStakesDecisionData = {
         ...decision,
         status: 'escalated_to_advisor',
@@ -505,6 +531,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         }),
       });
       const data = await res.json();
+      queueForAdvisor(decision, true);
       const updated: HighStakesDecisionData = {
         ...decision,
         status: 'confirmed_and_sent',
@@ -554,13 +581,19 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
     await onUpdateRoadmap(prompt);
   };
 
-  const handleBookSlot = (slot: AdvisorSlot) => {
-    onConfirmBooking(
-      slot,
-      `In-Person (${profile.advisorOffice})`,
-      'Meeting to review my 4-year degree roadmap.'
-    );
-    onSendMessage(`I just booked an advising appointment with ${profile.advisorName} on ${slot.day}, ${slot.date} at ${slot.time}.`);
+  // Request the picked time; it goes to the advisor's approval queue after BuckAI checks it.
+  const handleRequestAppointment = () => {
+    if (!pickedSlot) return;
+    const notes = 'Meeting to review my 4-year degree roadmap.';
+    submitRequest({
+      category: 'appointment',
+      title: 'Advising appointment',
+      studentMessage: notes,
+      student: studentFromProfile(profile),
+      appointment: { slotKey: pickedSlot.key, format: pickedFormat },
+    });
+    onConfirmBooking(toAdvisorSlot(pickedSlot), pickedFormat, notes);
+    setPickedSlot(null);
   };
 
   // Group semesters by academic year for clean, spacious display
@@ -1621,11 +1654,34 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 </div>
               </div>
 
-              {bookedSlot ? (
-                <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2 rounded text-xs font-semibold">
-                  <div>Appointment Confirmed: {bookedSlot.day}, {bookedSlot.time}</div>
-                  <div className="text-[11px] text-emerald-700 font-normal mt-0.5">
-                    Bring your questions and your roadmap to the meeting.
+              {myAppointment ? (
+                <div
+                  role="status"
+                  className={`px-4 py-2 rounded text-sm font-semibold border ${
+                    myAppointment.status === 'approved' || myAppointment.status === 'scheduled'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                      : myAppointment.status === 'denied'
+                      ? 'bg-gray-100 border-gray-300 text-gray-900'
+                      : 'bg-amber-50 border-amber-300 text-amber-950'
+                  }`}
+                >
+                  <div>
+                    {myAppointment.status === 'approved'
+                      ? 'Appointment approved'
+                      : myAppointment.status === 'denied'
+                      ? 'Appointment not approved'
+                      : myAppointment.status === 'scheduled'
+                      ? `${profile.advisorName} scheduled a meeting with you`
+                      : myAppointment.status === 'needs_info'
+                      ? 'Your advisor needs more information'
+                      : 'Appointment requested'}
+                    : {describeSlot(myAppointment.appointment!.slotKey)}
+                  </div>
+                  <div className="text-xs font-normal mt-0.5">
+                    {myAppointment.decision?.note ||
+                      (myAppointment.status === 'ai_review'
+                        ? 'BuckAI is checking your request…'
+                        : `Checked by BuckAI · waiting for ${profile.advisorName} to approve.`)}
                   </div>
                 </div>
               ) : (
@@ -1636,74 +1692,60 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
               )}
             </div>
 
-            {/* Mutual Free Times */}
-            <div className="space-y-3">
-              <h4 className="font-bold text-xs sm:text-sm text-gray-900">
-                Mutually Open Appointment Windows (Filtered by Class Schedule):
-              </h4>
+            {/* Mutual availability matcher (same data as the advisor's calendar) */}
+            <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs space-y-4">
+              <ScheduleMatcher
+                mode="student"
+                studentName={profile.name}
+                selectedKey={pickedSlot?.key ?? null}
+                onSelect={setPickedSlot}
+              />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {MUTUAL_ADVISOR_SLOTS.map((slot) => {
-                  const isFree = slot.mutualMatch;
-                  const isThisBooked = bookedSlot?.id === slot.id;
-
-                  return (
-                    <div
-                      key={slot.id}
-                      className={`p-4 rounded-lg border transition-all ${
-                        isThisBooked
-                          ? 'bg-emerald-50/50 border-emerald-400 ring-1 ring-emerald-400 shadow-2xs'
-                          : isFree
-                          ? 'bg-white border-gray-200 hover:border-gray-300 shadow-2xs'
-                          : 'bg-gray-50 border-gray-200 opacity-60'
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold text-gray-900">Meeting format</legend>
+                <div className="flex flex-wrap gap-2">
+                  {(['In-Person', 'Zoom', 'Phone'] as const).map((f) => (
+                    <label
+                      key={f}
+                      className={`cursor-pointer rounded-md border px-3 py-2 text-sm has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#ba0c2f] ${
+                        pickedFormat === f ? 'border-[#ba0c2f] bg-red-50 font-semibold text-[#8a0a23]' : 'border-gray-300 bg-white text-gray-800'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-bold text-sm text-gray-900">
-                            {slot.day}, {slot.date}
-                          </div>
-                          <div className="text-xs text-gray-600 mt-1 flex items-center space-x-1">
-                            <Clock className="w-3.5 h-3.5 text-gray-500" />
-                            <span>{slot.time}</span>
-                          </div>
-                        </div>
+                      <input
+                        type="radio"
+                        name="meeting-format"
+                        value={f}
+                        checked={pickedFormat === f}
+                        onChange={() => setPickedFormat(f)}
+                        className="sr-only"
+                      />
+                      {f === 'In-Person' ? `In person (${profile.advisorOffice})` : f}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
-                        <div>
-                          {isThisBooked ? (
-                            <span className="bg-emerald-700 text-white text-xs font-semibold px-2.5 py-1 rounded flex items-center space-x-1">
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Booked</span>
-                            </span>
-                          ) : isFree ? (
-                            <button
-                              onClick={() => handleBookSlot(slot)}
-                              className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-1.5 rounded transition-colors shadow-2xs"
-                            >
-                              Reserve Slot
-                            </button>
-                          ) : (
-                            <span className="bg-gray-200 text-gray-700 text-xs font-medium px-2 py-0.5 rounded">
-                              Conflict
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 pt-2 border-t border-gray-100 text-xs">
-                        {isFree ? (
-                          <span className="text-emerald-800 font-medium">
-                            Both you and {profile.advisorName} are free
-                          </span>
-                        ) : (
-                          <span className="text-gray-600">
-                            Class conflict
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg bg-gray-50 border border-gray-200 p-4">
+                <p className="text-sm text-gray-800" aria-live="polite">
+                  {pickedSlot ? (
+                    <>
+                      <span className="font-semibold">Selected:</span> {describeSlot(pickedSlot.key)} · {pickedFormat}
+                    </>
+                  ) : (
+                    'Choose an available time above.'
+                  )}
+                  <span className="block text-xs text-gray-600 mt-0.5">
+                    BuckAI checks your request first, then {profile.advisorName} gives final approval.
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRequestAppointment}
+                  disabled={!pickedSlot}
+                  className="bg-[#ba0c2f] hover:bg-[#9d0a27] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-md shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f]"
+                >
+                  Request this appointment
+                </button>
               </div>
             </div>
           </div>

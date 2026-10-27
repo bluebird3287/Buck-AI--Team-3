@@ -6,7 +6,7 @@ export type Role = 'student' | 'advisor';
 export const ADVISOR_EMAILS: string[] = [
   'jenkins.892@osu.edu', // Sarah Jenkins, the advisor in the prototype
   'tylerrez3@gmail.com', // demo advisor account (rezabek.14@osu.edu is the student view)
-  'enzomancini447@gmail.com', // Enzo Mancini, advisor account
+  'enzomancini447@gmail.com', // Enzo's advisor test account (mancini.114@osu.edu is the student view)
 ];
 
 export function getRole(email: string | undefined | null): Role {
