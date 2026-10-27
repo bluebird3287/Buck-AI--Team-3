@@ -14,7 +14,7 @@ import {
   ParsedAdvisingReport,
   semestersFromReport,
 } from '../lib/studentProfile';
-import { Curriculum, guessSpecialization } from '../lib/requirements';
+import { Curriculum, guessSpecializations } from '../lib/requirements';
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
@@ -60,7 +60,14 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
   const [minor, setMinor] = useState(initial?.minor ?? '');
   // The pilot is Fisher-only, so everyone is a Fisher BSBA student with a specialization.
   const [college, setCollege] = useState(initial?.college ?? 'Fisher College of Business');
-  const [specializationId, setSpecializationId] = useState<string>(initial?.specialization_id ?? '');
+  // A student can have a second specialization (e.g. Finance + Tech Innovation)
+  const initialSpecs = initial?.specialization_ids?.length
+    ? initial.specialization_ids
+    : initial?.specialization_id
+    ? [initial.specialization_id]
+    : [];
+  const [specializationId, setSpecializationId] = useState<string>(initialSpecs[0] ?? '');
+  const [secondSpecializationId, setSecondSpecializationId] = useState<string>(initialSpecs[1] ?? '');
   const [standing, setStanding] = useState(initial?.class_standing ?? '');
   const [gpa, setGpa] = useState(initial?.gpa != null ? String(initial.gpa) : '');
   const [semesters, setSemesters] = useState<Semester[]>(
@@ -81,9 +88,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
 
   const isFirstRun = !initial;
 
-  const specializationName = (id: string) => {
-    const name = curriculum?.specializations.find((p) => p.id === id)?.name;
-    return name ? `${name} (BSBA)` : '';
+  const specializationName = (...ids: string[]) => {
+    const names = ids.map((id) => curriculum?.specializations.find((p) => p.id === id)?.name).filter(Boolean);
+    return names.length ? `${names.join(' + ')} (BSBA)` : '';
   };
 
   // Reads the advising report on the server and fills in the form for the student to review.
@@ -111,8 +118,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
       if (report.fullName) setFullName(report.fullName);
       if (report.major) {
         setMajor(report.major);
-        const guess = curriculum && guessSpecialization(curriculum, report.major);
-        if (guess) setSpecializationId(guess);
+        const guesses = curriculum ? guessSpecializations(curriculum, report.major) : [];
+        if (guesses[0]) setSpecializationId(guesses[0]);
+        if (guesses[1]) setSecondSpecializationId(guesses[1]);
       }
       setMinor(report.minor ?? '');
       if (report.college) setCollege(COLLEGES.includes(report.college) ? report.college : 'Other');
@@ -179,8 +187,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
     try {
       await onSave({
         full_name: fullName.trim(),
-        major: major.trim() || specializationName(specializationId),
+        major: specializationName(specializationId, secondSpecializationId) || major.trim(),
         specialization_id: specializationId || null,
+        specialization_ids: [specializationId, secondSpecializationId].filter((id, i, all) => id && all.indexOf(id) === i),
         minor: minor.trim() || null,
         college: college || null,
         class_standing: standing || null,
@@ -299,13 +308,31 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
                 value={specializationId}
                 onChange={(e) => {
                   setSpecializationId(e.target.value);
-                  setMajor(specializationName(e.target.value));
+                  setMajor(specializationName(e.target.value, secondSpecializationId));
                 }}
               >
                 <option value="">{curriculum ? 'Select…' : 'Loading…'}</option>
                 {curriculum?.specializations.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-gray-700 space-y-1">
+              <span>Second specialization</span>
+              <select
+                className={inputCls}
+                value={secondSpecializationId}
+                onChange={(e) => {
+                  setSecondSpecializationId(e.target.value);
+                  setMajor(specializationName(specializationId, e.target.value));
+                }}
+              >
+                <option value="">None</option>
+                {curriculum?.specializations
+                  .filter((p) => p.id !== specializationId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
               </select>
             </label>
             <label className="text-xs font-semibold text-gray-700 space-y-1">

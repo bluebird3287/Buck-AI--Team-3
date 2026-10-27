@@ -157,9 +157,15 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
             <div className="bg-amber-300 h-full" style={{ width: `${plannedPct}%` }} />
           </div>
         </div>
-        {audit.specializationGpa != null && (
-          <p className="text-xs text-gray-600">
-            Specialization GPA so far: <strong>{audit.specializationGpa.toFixed(2)}</strong> (Fisher requires 2.00)
+        {audit.specializationGpas.map((g) => (
+          <p key={g.name} className="text-xs text-gray-600">
+            {g.name} GPA so far: <strong>{g.gpa.toFixed(2)}</strong> (Fisher requires 2.00)
+          </p>
+        ))}
+        {audit.sharedCourses.length > 0 && (
+          <p className="text-xs text-amber-800">
+            {audit.sharedCourses.join(', ')} {audit.sharedCourses.length === 1 ? 'counts' : 'count'} toward more than one of your
+            specializations. Confirm with your advisor that a course can count for both.
           </p>
         )}
       </div>
@@ -177,8 +183,8 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
         </div>
       )}
 
-      {audit.specialization ? (
-        <ProgramSection p={audit.specialization} />
+      {audit.specializations.length ? (
+        audit.specializations.map((p) => <ProgramSection key={p.program.id} p={p} />)
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
           Choose your Fisher specialization under <strong>My classes</strong> to see its major core requirements.

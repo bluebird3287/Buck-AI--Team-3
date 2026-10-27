@@ -93,11 +93,19 @@ export async function loadCurriculum(): Promise<Curriculum> {
   };
 }
 
-// Best guess at a specialization from free text such as "Finance (BS Business Admin)".
-export function guessSpecialization(curriculum: Curriculum, major: string): string | null {
+// Best guess at specializations named in free text such as "Finance (BS Business Admin)"
+// or "Finance + Tech Innovation". Programs that share a name (Operations tracks) count once.
+export function guessSpecializations(curriculum: Curriculum, major: string): string[] {
   const text = major.toLowerCase();
-  const hit = curriculum.specializations.find((p) => text.includes(p.name.split(' (')[0].toLowerCase()));
-  return hit?.id ?? null;
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const p of curriculum.specializations) {
+    const base = p.name.split(' (')[0].toLowerCase();
+    if (seen.has(base) || !text.includes(base)) continue;
+    seen.add(base);
+    ids.push(p.id);
+  }
+  return ids;
 }
 
 // ---------- Matching a student's classes to requirements ----------
@@ -309,15 +317,22 @@ export interface PrereqWarning {
 }
 
 // Turns "BUSMHR 2000, 2292; ECON 2001 & ECON 2002; MATH 1131/1151 or 1161" into clauses, each a list
-// of codes where any one satisfies it. Clauses that allow concurrent enrollment or name no course
-// (standing, placement, permission) are skipped; rules too tangled to read ("...; or ...") return null.
-function parsePrereqs(text: string): string[][] | null {
+// of codes where any one satisfies it. A clause that allows concurrent enrollment can be met in the
+// same term. Clauses that name no course (standing, placement, permission) are skipped; rules too
+// tangled to read ("...; or ...") return null.
+interface PrereqClause {
+  codes: string[];
+  sameTermOk: boolean;
+}
+
+function parsePrereqs(text: string): PrereqClause[] | null {
   const parts = text.split(';').map((p) => p.trim()).filter(Boolean);
   if (parts.some((p) => /^or\b/i.test(p))) return null;
-  const clauses: string[][] = [];
+  const clauses: PrereqClause[] = [];
   for (const part of parts) {
     for (const clause of part.split(/\s*&\s*|\s+and\s+/i)) {
-      if (!clause || /concur/i.test(clause)) continue;
+      if (!clause) continue;
+      const sameTermOk = /concur/i.test(clause);
       const codes: string[] = [];
       let dept = '';
       for (const m of clause.matchAll(/\b([A-Z]{3,8})\s+(\d{4}(?:\.\d{2})?H?)|\b(\d{4}(?:\.\d{2})?H?)\b/g)) {
@@ -326,8 +341,8 @@ function parsePrereqs(text: string): string[][] | null {
         if (dept && num) codes.push(`${dept} ${num}`);
       }
       if (!codes.length) continue;
-      if (/\bor\b|\//i.test(clause)) clauses.push(codes);
-      else clauses.push(...codes.map((code) => [code]));
+      if (/\bor\b|\//i.test(clause)) clauses.push({ codes, sameTermOk });
+      else clauses.push(...codes.map((code) => ({ codes: [code], sameTermOk })));
     }
   }
   return clauses;
@@ -354,18 +369,18 @@ export function checkPrerequisites(curriculum: Curriculum, semesters: Semester[]
     if (!clauses) continue;
     const missing = clauses
       .filter(
-        (anyOf) =>
+        ({ codes: anyOf, sameTermOk }) =>
           !anyOf.some((code) =>
             taken.some(
               (x) =>
-                x.termIndex < t.termIndex &&
+                (sameTermOk ? x.termIndex <= t.termIndex : x.termIndex < t.termIndex) &&
                 (baseCode(code) === baseCode(x.code) ||
                   (equivalents.get(baseCode(code)) ?? []).some((e) => baseCode(e) === baseCode(x.code))) &&
                 (x.state !== 'done' || passes(x.grade, null)),
             ),
           ),
       )
-      .map((anyOf) => anyOf.join(' or '));
+      .map(({ codes }) => codes.join(' or '));
     if (missing.length) warnings.push({ code: t.code, term: t.term, missing });
   }
   return warnings;
@@ -375,40 +390,55 @@ export function checkPrerequisites(curriculum: Curriculum, semesters: Semester[]
 
 export interface DegreeAudit {
   degree: ProgramProgress;
-  specialization: ProgramProgress | null;
+  specializations: ProgramProgress[]; // a student may have more than one
   prereqWarnings: PrereqWarning[];
   credits: { earned: number; inProgress: number; planned: number; required: number };
-  specializationGpa: number | null;
+  specializationGpas: { name: string; gpa: number }[];
+  // Courses counting toward more than one specialization. Fisher doesn't publish a rule for this,
+  // so they're counted for each and flagged for the advisor to confirm.
+  sharedCourses: string[];
 }
 
 export function auditDegree(
   curriculum: Curriculum,
-  specializationId: string | null,
+  specializationIds: string[],
   semesters: Semester[],
   earnedCredits: number,
 ): DegreeAudit {
-  const spec = curriculum.specializations.find((p) => p.id === specializationId) ?? null;
-  const specProgress = spec ? checkProgram(spec, semesters) : null;
+  const specs = specializationIds
+    .map((id) => curriculum.specializations.find((p) => p.id === id))
+    .filter((p): p is Program => !!p);
+  const specProgress = specs.map((spec) => checkProgram(spec, semesters));
 
-  let points = 0;
-  let hours = 0;
-  for (const g of specProgress?.groups ?? []) {
-    for (const item of g.items) {
-      if (item.state !== 'done') continue;
-      const course = semesters.flatMap((s) => s.courses).find((c) => norm(c.code) === norm(item.takenAs ?? item.code));
-      const grade = course ? courseGrade(course)?.toUpperCase() : null;
-      if (grade && grade in GRADE_POINTS) {
-        points += GRADE_POINTS[grade] * (Number(course!.credits) || 0);
-        hours += Number(course!.credits) || 0;
+  const allCourses = semesters.flatMap((s) => s.courses);
+  const specializationGpas: DegreeAudit['specializationGpas'] = [];
+  const usedBy = new Map<string, number>();
+  for (const sp of specProgress) {
+    let points = 0;
+    let hours = 0;
+    const used = new Set<string>();
+    for (const g of sp.groups) {
+      for (const item of g.items) {
+        if (item.state === 'missing') continue;
+        used.add(norm(item.takenAs ?? item.code));
+        if (item.state !== 'done') continue;
+        const course = allCourses.find((c) => norm(c.code) === norm(item.takenAs ?? item.code));
+        const grade = course ? courseGrade(course)?.toUpperCase() : null;
+        if (grade && grade in GRADE_POINTS) {
+          points += GRADE_POINTS[grade] * (Number(course!.credits) || 0);
+          hours += Number(course!.credits) || 0;
+        }
       }
     }
+    for (const code of used) usedBy.set(code, (usedBy.get(code) ?? 0) + 1);
+    if (hours) specializationGpas.push({ name: sp.program.name, gpa: Math.round((points / hours) * 100) / 100 });
   }
   const sum = (status: Semester['status']) =>
     semesters.filter((s) => s.status === status).reduce((n, s) => n + s.courses.reduce((m, c) => m + (Number(c.credits) || 0), 0), 0);
 
   return {
     degree: checkProgram(curriculum.degree, semesters),
-    specialization: specProgress,
+    specializations: specProgress,
     prereqWarnings: checkPrerequisites(curriculum, semesters),
     credits: {
       earned: earnedCredits,
@@ -416,7 +446,8 @@ export function auditDegree(
       planned: sum('planned'),
       required: curriculum.degree.min_total_credits ?? 121,
     },
-    specializationGpa: hours ? Math.round((points / hours) * 100) / 100 : null,
+    specializationGpas,
+    sharedCourses: [...usedBy].filter(([, n]) => n > 1).map(([code]) => code),
   };
 }
 
@@ -450,11 +481,15 @@ export function describeAudit(audit: DegreeAudit): string {
     }
   };
   program(audit.degree);
-  if (audit.specialization) program(audit.specialization);
+  if (audit.specializations.length) audit.specializations.forEach(program);
   else lines.push('Specialization: not chosen yet.');
+  if (audit.specializations.length > 1)
+    lines.push(`The student has ${audit.specializations.length} specializations (${audit.specializations.map((p) => p.program.name).join(' and ')}); each must be completed.`);
+  if (audit.sharedCourses.length)
+    lines.push(`Courses counted toward more than one specialization (confirm double-counting with an advisor): ${audit.sharedCourses.join(', ')}.`);
   const c = audit.credits;
   lines.push(`Credits: ${c.earned} earned, ${c.inProgress} in progress, ${c.planned} planned, ${c.required} required.`);
-  if (audit.specializationGpa != null) lines.push(`Specialization GPA so far: ${audit.specializationGpa} (2.00 required).`);
+  for (const g of audit.specializationGpas) lines.push(`${g.name} GPA so far: ${g.gpa} (2.00 required).`);
   for (const w of audit.prereqWarnings) lines.push(`Prerequisite warning: ${w.code} (${w.term}) needs ${w.missing.join('; ')} first.`);
   return lines.join('\n');
 }
@@ -463,10 +498,10 @@ export function describeAudit(audit: DegreeAudit): string {
 // Manual (GE choice) groups are left out because course codes can't show them.
 export function planGaps(audit: DegreeAudit): string[] {
   const gaps: string[] = [];
-  for (const p of [audit.degree, audit.specialization]) {
-    for (const g of p?.groups ?? []) {
+  for (const p of [audit.degree, ...audit.specializations]) {
+    for (const g of p.groups) {
       if (g.state !== 'missing') continue;
-      const where = `${p!.program.name} – ${g.group.title}`;
+      const where = `${p.program.name} – ${g.group.title}`;
       if (g.group.kind === 'all') {
         const missing = g.items.filter((i) => i.state === 'missing').map((i) => i.code);
         gaps.push(`${where}: add ${missing.join(', ')}`);
@@ -502,10 +537,10 @@ export interface MinorAudit {
   overlapTooHigh: boolean; // Fisher: at least 12 credit hours must be distinct from the major
 }
 
-export function auditMinor(minor: Program, specializationId: string | null, semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
+export function auditMinor(minor: Program, specializationIds: string[], semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
   const progress = checkProgram(minor, semesters);
   const excluded = minor.excluded_programs;
-  const eligible = !excluded.includes('fisher-bsba') && !(specializationId && excluded.includes(specializationId));
+  const eligible = !excluded.includes('fisher-bsba') && !specializationIds.some((id) => excluded.includes(id));
   const ineligibleReason = eligible
     ? null
     : excluded.includes('fisher-bsba')
@@ -514,7 +549,7 @@ export function auditMinor(minor: Program, specializationId: string | null, seme
 
   // Courses the student's major requirements already use
   const majorCodes = new Set<string>();
-  for (const p of [degreeAudit?.degree, degreeAudit?.specialization]) {
+  for (const p of [degreeAudit?.degree, ...(degreeAudit?.specializations ?? [])]) {
     for (const g of p?.groups ?? []) for (const i of g.items) if (i.state !== 'missing') majorCodes.add(norm(i.takenAs ?? i.code));
   }
 

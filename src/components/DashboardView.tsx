@@ -69,7 +69,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const currentCourses = roadmap.find((s) => s.status === 'in-progress')?.courses ?? [];
   const trackedGroups = audit
-    ? [...audit.degree.groups, ...(audit.specialization?.groups ?? [])].filter((g) => g.state !== 'manual')
+    ? [...audit.degree.groups, ...audit.specializations.flatMap((p) => p.groups)].filter((g) => g.state !== 'manual')
     : [];
   const groupsMet = trackedGroups.filter((g) => g.state === 'done').length;
 
@@ -175,7 +175,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {audit.prereqWarnings.length} prerequisite {audit.prereqWarnings.length === 1 ? 'issue' : 'issues'}
                       </span>
                     )}
-                    {!audit.specialization && (
+                    {audit.specializations.length === 0 && (
                       <span className="px-3 py-0.5 rounded-full border border-amber-300 text-xs text-amber-800 bg-amber-50">
                         Choose a specialization
                       </span>

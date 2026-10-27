@@ -27,7 +27,7 @@ export interface StudentProfile {
   rank: string;
   college: string;
   major: string;
-  specializationId: string | null;
+  specializationIds: string[];
   minor: string;
   gpa: number;
   earnedCredits: number;

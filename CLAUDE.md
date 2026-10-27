@@ -61,6 +61,10 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
 
 - Edit `scripts/fisher_requirements.py`, regenerate the seed SQL in `supabase/migrations/`,
   and apply it. Don't hand-edit the generated SQL.
+- Students can have more than one specialization (`student_profiles.specialization_ids`).
+  Fisher doesn't publish a double-counting rule, so a course shared by two specializations
+  counts for both and is flagged for the advisor. Tech Innovation (new Autumn 2026) comes from
+  the OAA proposal's curriculum sheet.
 - `src/lib/requirements.ts` checks a student's classes against those requirements (grades,
   "choose N" and credit-hour electives, prerequisites) and feeds the result to the AI.
 - GE Foundations/Themes that are student choice are shown as "confirm with advisor"; they

@@ -67,7 +67,7 @@ interface AiChatWidgetProps {
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
-  specializationId: string | null;
+  specializationIds: string[];
 }
 
 
@@ -89,7 +89,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   onSimulateSeatDrop,
   audit,
   curriculum,
-  specializationId
+  specializationIds
 }) => {
   const currentCourseToDrop = roadmap.find((sem) => sem.status === 'in-progress')?.courses[0]?.code;
   const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
@@ -778,7 +778,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         {activeTab === 'whatif' && (
           <MinorAuditView
             curriculum={curriculum}
-            specializationId={specializationId}
+            specializationIds={specializationIds}
             roadmap={roadmap}
             audit={audit}
             onAsk={(prompt) => {

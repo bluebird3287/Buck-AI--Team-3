@@ -6,7 +6,7 @@ import { GroupCard } from './DegreeRequirementsView';
 
 interface MinorAuditViewProps {
   curriculum: Curriculum | null;
-  specializationId: string | null;
+  specializationIds: string[];
   roadmap: Semester[];
   audit: DegreeAudit | null;
   onAsk: (prompt: string) => void;
@@ -17,7 +17,7 @@ interface MinorAuditViewProps {
 // What-if audit for every Fisher minor, checked against the classes the student entered.
 export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   curriculum,
-  specializationId,
+  specializationIds,
   roadmap,
   audit,
   onAsk,
@@ -27,10 +27,10 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   const minors = useMemo(
     () =>
       (curriculum?.minors ?? [])
-        .map((minor) => ({ minor, result: auditMinor(minor, specializationId, roadmap, audit) }))
+        .map((minor) => ({ minor, result: auditMinor(minor, specializationIds, roadmap, audit) }))
         // Eligible minors first, then the ones the student is furthest along in
         .sort((a, b) => Number(b.result.eligible) - Number(a.result.eligible) || b.result.creditsCounted - a.result.creditsCounted),
-    [curriculum, specializationId, roadmap, audit],
+    [curriculum, specializationIds, roadmap, audit],
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = minors.find((m) => m.minor.id === selectedId) ?? minors[0];
@@ -85,7 +85,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
                 </>
               ) : (
                 <div className="text-xs text-gray-600 mt-1 flex items-center gap-1">
-                  <Ban className="w-3 h-3" /> Not available with your specialization
+                  <Ban className="w-3 h-3" /> Not available with your specialization(s)
                 </div>
               )}
             </button>
@@ -121,7 +121,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
           <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
-              {result.overlapCredits} credit hours here also count toward your BSBA or specialization ({result.overlapCodes.join(', ')}).
+              {result.overlapCredits} credit hours here also count toward your BSBA or specializations ({result.overlapCodes.join(', ')}).
               Fisher requires at least 12 credit hours in the minor that don&apos;t overlap with your major, so you&apos;d need extra
               minor courses. Check with your advisor.
             </span>

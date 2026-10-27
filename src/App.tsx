@@ -13,7 +13,7 @@ import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
 import { normalizeSemesters } from './lib/studentProfile';
-import { Curriculum, auditDegree, describeAudit, guessSpecialization, planGaps } from './lib/requirements';
+import { Curriculum, auditDegree, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -58,10 +58,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   const [roadmap, setRoadmap] = useState<Semester[]>(initialRoadmap);
 
   // Fisher requirements check, recomputed whenever the plan changes
-  const specializationId = curriculum ? profile.specializationId ?? guessSpecialization(curriculum, profile.major) : null;
+  const specializationIds = useMemo(
+    () =>
+      !curriculum ? [] : profile.specializationIds.length ? profile.specializationIds : guessSpecializations(curriculum, profile.major),
+    [curriculum, profile.specializationIds, profile.major],
+  );
   const audit = useMemo(
-    () => (curriculum ? auditDegree(curriculum, specializationId, roadmap, profile.earnedCredits) : null),
-    [curriculum, specializationId, roadmap, profile.earnedCredits],
+    () => (curriculum ? auditDegree(curriculum, specializationIds, roadmap, profile.earnedCredits) : null),
+    [curriculum, specializationIds, roadmap, profile.earnedCredits],
   );
   const requirementsSummary = audit ? describeAudit(audit) : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
@@ -222,7 +226,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
       for (let round = 0; round < 3; round++) {
         const summary = curriculum
-          ? describeAudit(auditDegree(curriculum, specializationId, plan, profile.earnedCredits))
+          ? describeAudit(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits))
           : requirementsSummary;
         const response = await fetch('/api/roadmap-generate', {
           method: 'POST',
@@ -239,7 +243,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           ...data.semesters.filter((s: Semester) => !lockedIds.has(s.id)).map((s: Semester) => ({ ...s, status: 'planned' as const })),
         ]);
         if (!curriculum) break;
-        gaps = planGaps(auditDegree(curriculum, specializationId, plan, profile.earnedCredits));
+        gaps = planGaps(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits));
         if (!gaps.length) break;
         prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}`;
       }
@@ -448,7 +452,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         onSimulateSeatDrop={handleTriggerSeatDropAlert}
         audit={audit}
         curriculum={curriculum}
-        specializationId={specializationId}
+        specializationIds={specializationIds}
       />
 
       {/* Survey Insights Modal */}
