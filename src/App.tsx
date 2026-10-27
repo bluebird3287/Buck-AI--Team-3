@@ -26,6 +26,10 @@ interface AppProps {
   curriculum: Curriculum | null;
 }
 
+// "Build me a roadmap", "make my 4-year plan", "redo my schedule for next year"…
+const ROADMAP_REQUEST =
+  /\b(build|make|create|generate|draft|plan out|fill( in)?|populate|redo|rebuild|rebalance|update|lay out)\b.*\b(road ?map|4[- ]?year|four[- ]year|degree plan|plan|schedule)\b/i;
+
 // The opening chat message, written for whoever is signed in.
 function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage {
   const current = roadmap.find((s) => s.status === 'in-progress');
@@ -104,9 +108,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       if (!response.ok) throw new Error(`Server status ${response.status}`);
       const data = await response.json();
 
-      let highStakesDecision: HighStakesDecisionData | null = data.highStakesDecision || null;
+      // Claude flags requests to build or change the roadmap; keywords are the backup.
+      const wantsRoadmap = typeof data.roadmapRequest?.build === 'boolean' ? data.roadmapRequest.build : ROADMAP_REQUEST.test(text);
+
+      let highStakesDecision: HighStakesDecisionData | null = wantsRoadmap ? null : data.highStakesDecision || null;
       const lower = text.toLowerCase();
-      if (!highStakesDecision && (lower.includes('drop') || lower.includes('withdraw') || (lower.includes('minor') && (lower.includes('add') || lower.includes('pick up') || lower.includes('declare') || lower.includes('real choice'))))) {
+      if (!wantsRoadmap && !highStakesDecision && (lower.includes('drop') || lower.includes('withdraw') || (lower.includes('minor') && (lower.includes('add') || lower.includes('pick up') || lower.includes('declare') || lower.includes('real choice'))))) {
         const isDrop = lower.includes('drop') || lower.includes('withdraw');
         const course = currentCourseMentioned(lower) ?? 'this class';
         const minorName = lower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
@@ -138,6 +145,10 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       };
 
       setMessages((prev) => [...prev, aiMsg]);
+      if (wantsRoadmap) {
+        setIsChatLoading(false);
+        await buildRoadmapFromChat(data.roadmapRequest?.instructions || text);
+      }
     } catch (err) {
       console.warn('API fallback:', err);
       const textLower = text.toLowerCase();
@@ -215,7 +226,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // Handle Dynamic Roadmap updates via Claude
   // Asks Claude for a plan, then checks it against Fisher's requirements and sends any gaps back
   // to be fixed (up to two rounds), so the saved plan covers every requirement BuckAI can track.
-  const handleUpdateRoadmap = async (promptText: string) => {
+  const buildRoadmap = async (promptText: string): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
     setIsRoadmapUpdating(true);
     try {
       const locked = roadmap.filter((s) => s.status !== 'planned');
@@ -248,29 +259,76 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}`;
       }
 
-      if (plan !== roadmap) {
-        setRoadmap(plan);
-        onRoadmapChange(plan);
-      }
-      if (gaps.length) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}`,
-            role: 'assistant',
-            text: `I updated your plan, but it still doesn't cover everything:\n\n- ${gaps.join('\n- ')}\n\nCheck the Degree Requirements tab, or bring this to your advisor.`,
-            sourceCitation: 'Fisher BSBA curriculum requirements',
-            confidence: 'moderate',
-            confidenceExplanation: 'Checked against Fisher\'s published requirements for students who entered before Autumn 2027.',
-            escalationSuggested: true,
-          },
-        ]);
-      }
+      if (plan === roadmap) return null;
+      setRoadmap(plan);
+      onRoadmapChange(plan);
+      return { plan, gaps };
     } catch (err) {
       console.warn('Roadmap update failed:', err);
+      return null;
     } finally {
       setIsRoadmapUpdating(false);
     }
+  };
+
+  // From the 4-Year Plan tab: build, then say what's still missing, if anything.
+  const handleUpdateRoadmap = async (promptText: string) => {
+    const result = await buildRoadmap(promptText);
+    const gaps = result?.gaps ?? [];
+    if (!gaps.length) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        text: `I updated your plan, but it still doesn't cover everything:\n\n- ${gaps.join('\n- ')}\n\nCheck the Degree Requirements tab, or bring this to your advisor.`,
+        sourceCitation: 'Fisher BSBA curriculum requirements',
+        confidence: 'moderate',
+        confidenceExplanation: 'Checked against Fisher\'s published requirements for students who entered before Autumn 2027.',
+        escalationSuggested: true,
+      },
+    ]);
+  };
+
+  // From the chat ("build me a roadmap"): build and save the plan, then summarize it in the chat
+  // and open the 4-Year Plan tab.
+  const buildRoadmapFromChat = async (instructions: string) => {
+    const statusId = `msg-${Date.now()}-plan`;
+    setMessages((prev) => [
+      ...prev,
+      { id: statusId, role: 'assistant', text: 'Building your 4-year plan and checking it against Fisher’s requirements… this can take up to a minute.' },
+    ]);
+    const result = await buildRoadmap(
+      `${instructions}\nBuild a complete plan through graduation that covers every remaining Fisher requirement for the student's specialization(s), respects prerequisites, and balances workload.`,
+    );
+    let reply: ChatMessage;
+    if (!result) {
+      reply = {
+        id: statusId,
+        role: 'assistant',
+        text: "I couldn't build your plan just now. Please try again in a moment, or use the 4-Year Degree Plan tab.",
+      };
+    } else {
+      const planned = result.plan.filter((s) => s.status === 'planned' && s.courses.length);
+      const total = result.plan.reduce((n, s) => n + s.totalCredits, 0);
+      const terms = planned.map((s) => `${s.name} (${s.totalCredits} cr): ${s.courses.map((c) => c.code).join(', ')}`).join('\n');
+      const status = result.gaps.length
+        ? `\n\nIt still doesn't cover everything:\n- ${result.gaps.slice(0, 5).join('\n- ')}${
+            result.gaps.length > 5 ? `\n- …and ${result.gaps.length - 5} more` : ''
+          }\n\nSee the Degree Requirements tab for the full list, or bring this to your advisor.`
+        : '\n\nEvery requirement BuckAI can track is covered, with prerequisites in order. GE choices (arts, history, science, diversity, themes) are placeholders for you to pick.';
+      reply = {
+        id: statusId,
+        role: 'assistant',
+        text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${status}`,
+        sourceCitation: 'Fisher BSBA curriculum requirements',
+        confidence: result.gaps.length ? 'moderate' : 'high',
+        confidenceExplanation: 'Checked against Fisher’s published requirements and the classes you entered. Your advisor has the final word.',
+        escalationSuggested: result.gaps.length > 0,
+        action: { label: 'View my 4-year plan', tab: 'roadmap', autoOpen: true },
+      };
+    }
+    setMessages((prev) => prev.map((m) => (m.id === statusId ? reply : m)));
   };
 
   // A class code from this term's schedule that the student mentioned, if any.

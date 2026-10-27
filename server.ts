@@ -136,6 +136,10 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
+  "roadmapRequest": {
+    "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
+    "instructions": "string or null (their preferences for the plan in one or two sentences, e.g. 'Graduate in Spring 2029, keep terms around 15 credits, add the Insurance minor')"
+  },
   "roadmapRecommendation": {
     "targetSemester": "string or null (e.g. 'Spring 2027')",
     "courseAdjustment": "string or null",
@@ -148,6 +152,8 @@ IMPORTANT: When a student asks to make a big decision like dropping a class (e.g
 - You MUST set "highStakesDecision.isHighStakes" to true.
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
 - Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
+
+When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against Fisher's requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
 
 Do not wrap the JSON in extra text outside the JSON object.
 `;
@@ -243,7 +249,9 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isDroppingClass = lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw') || lowerPrompt.includes('drop a class');
     const isDeclaringMinor = (lowerPrompt.includes('minor') && (lowerPrompt.includes('add') || lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
 
-    if ((isDroppingClass || isDeclaringMinor) && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
+    // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change.
+    const isPlanning = !!parsed.roadmapRequest?.build;
+    if (!isPlanning && (isDroppingClass || isDeclaringMinor) && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
       if (isDroppingClass) {
         const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
         parsed.highStakesDecision = {

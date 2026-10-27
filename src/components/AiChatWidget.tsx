@@ -46,6 +46,8 @@ export interface ChatMessage {
   confidenceExplanation?: string;
   escalationSuggested?: boolean;
   highStakesDecision?: HighStakesDecisionData | null;
+  // A button under the message that opens another tab (and opens it right away if autoOpen)
+  action?: { label: string; tab: 'roadmap' | 'requirements'; autoOpen?: boolean };
 }
 
 interface AiChatWidgetProps {
@@ -210,6 +212,16 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Open the tab a new message points to (e.g. the plan BuckAI just built from the chat)
+  const openedActions = useRef(new Set<string>());
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.action?.autoOpen && !openedActions.current.has(last.id)) {
+      openedActions.current.add(last.id);
+      setActiveTab(last.action.tab);
+    }
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -442,6 +454,14 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                     }`}
                   >
                     <div className="whitespace-pre-line text-xs sm:text-sm">{msg.text}</div>
+                    {msg.action && (
+                      <button
+                        onClick={() => setActiveTab(msg.action!.tab)}
+                        className="mt-1 inline-flex items-center gap-1.5 bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-1.5 rounded"
+                      >
+                        <BookOpen className="w-3.5 h-3.5" /> {msg.action.label}
+                      </button>
+                    )}
 
                     {/* Source & Confidence (Compact with Dropdown) */}
                     {msg.role === 'assistant' && (msg.sourceCitation || msg.confidence) && (
