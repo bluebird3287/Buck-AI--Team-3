@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Inbox, CalendarDays, CalendarClock, Sparkles, AlertTriangle, CheckCircle2, RotateCcw, Users } from 'lucide-react';
+import { Inbox, CalendarDays, CalendarClock, Sparkles, AlertTriangle, CheckCircle2, RotateCcw, Users, Search } from 'lucide-react';
 import {
   AdvisingRequest,
   ADVISOR,
@@ -10,27 +10,27 @@ import {
   toggleAdvisorSlot,
   useAdvisingState,
 } from '../lib/advising';
-import { RequestDetail } from './advisor/RequestDetail';
+import { RequestDialog } from './advisor/RequestDialog';
 import { AiVerdictBadge, RequestStatusBadge, initials } from './advisor/AdvisorBadges';
 import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
 
 // Advisor Center: where advisors land after signing in. Students' requests arrive here
 // after BuckAI has checked them (step 1); the advisor makes the final call (step 2).
 // Tabs: Approvals (request queue + AI summary), Appointments (booked meetings with an
-// AI pre-meeting brief), Availability (the shared mutual-availability matcher).
+// AI pre-meeting brief), Advisor schedule (the shared mutual-availability matcher).
 
 type Tab = 'approvals' | 'appointments' | 'availability';
-type Filter = 'pending' | 'needs_info' | 'decided' | 'all';
+type Filter = 'pending' | 'scheduled' | 'decided' | 'all';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'approvals', label: 'Approval requests', icon: Inbox },
   { id: 'appointments', label: 'Appointments', icon: CalendarClock },
-  { id: 'availability', label: 'Availability', icon: CalendarDays },
+  { id: 'availability', label: 'Advisor schedule', icon: CalendarDays },
 ];
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'pending', label: 'Awaiting approval' },
-  { id: 'needs_info', label: 'Info requested' },
+  { id: 'scheduled', label: 'Meeting scheduled' },
   { id: 'decided', label: 'Decided' },
   { id: 'all', label: 'All' },
 ];
@@ -39,8 +39,9 @@ const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-
 
 function matchesFilter(r: AdvisingRequest, f: Filter) {
   if (f === 'all') return true;
-  if (f === 'pending') return r.status === 'pending_advisor' || r.status === 'ai_review';
-  if (f === 'needs_info') return r.status === 'needs_info';
+  // "Info requested" (from before advisors could schedule) still needs a decision.
+  if (f === 'pending') return r.status === 'pending_advisor' || r.status === 'ai_review' || r.status === 'needs_info';
+  if (f === 'scheduled') return r.status === 'scheduled';
   return r.status === 'approved' || r.status === 'denied';
 }
 
@@ -48,7 +49,8 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
   const { requests } = useAdvisingState();
   const [tab, setTab] = useState<Tab>('approvals');
   const [filter, setFilter] = useState<Filter>('pending');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dialogRequestId, setDialogRequestId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ approvals: null, appointments: null, availability: null });
 
@@ -65,17 +67,17 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
     (r) => r.decision && (r.status === 'approved' || r.status === 'denied') && Date.now() - new Date(r.decision.at).getTime() < 7 * 86_400_000,
   );
 
+  const q = query.trim().toLowerCase();
   const visible = requests
     .filter((r) => matchesFilter(r, filter))
+    .filter(
+      (r) =>
+        !q ||
+        [r.student.name, r.student.email, r.title, r.ticketId, CATEGORY_LABELS[r.category]].some((v) => v.toLowerCase().includes(q)),
+    )
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-  const selected = visible.find((r) => r.id === selectedId) ?? visible[0] ?? null;
-
-  const openRequest = (id: string) => {
-    setFilter('all');
-    setSelectedId(id);
-    setTab('approvals');
-    tabRefs.current.approvals?.focus();
-  };
+  // Every request opens in the same pop-up, wherever it was clicked from.
+  const openRequest = (id: string) => setDialogRequestId(id);
 
   // Arrow keys move between tabs (WAI-ARIA tabs pattern).
   const onTabKey = (e: React.KeyboardEvent, index: number) => {
@@ -186,7 +188,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
             type="button"
             onClick={() => {
               resetAdvisingData();
-              setSelectedId(null);
+              setDialogRequestId(null);
               setAnnouncement('Sample data restored.');
             }}
             className={`mb-2 inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-gray-900 rounded px-2 py-1 ${focusRing}`}
@@ -202,6 +204,22 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
         {/* Approvals */}
         {tab === 'approvals' && (
           <section id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" className="space-y-4">
+            <div className="max-w-md">
+              <label htmlFor="request-search" className="block text-sm font-semibold text-gray-900">
+                Search requests
+              </label>
+              <div className="relative mt-1">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden />
+                <input
+                  id="request-search"
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Student name, name.#, ticket, or request type"
+                  className="w-full rounded-md border border-gray-400 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ba0c2f] focus:border-[#ba0c2f]"
+                />
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter requests">
               {FILTERS.map((f) => {
                 const n = requests.filter((r) => matchesFilter(r, f.id)).length;
@@ -210,10 +228,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
                     key={f.id}
                     type="button"
                     aria-pressed={filter === f.id}
-                    onClick={() => {
-                      setFilter(f.id);
-                      setSelectedId(null);
-                    }}
+                    onClick={() => setFilter(f.id)}
                     className={`rounded-full border px-3 py-1.5 text-sm font-medium ${focusRing} ${
                       filter === f.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
                     }`}
@@ -224,62 +239,50 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
               })}
             </div>
 
-            <div className="grid lg:grid-cols-[360px_1fr] gap-5 items-start">
-              <nav aria-label="Requests" className="rounded-lg border border-gray-200 bg-white">
-                {visible.length === 0 ? (
-                  <p className="p-5 text-sm text-gray-700">No requests here. You’re all caught up.</p>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {visible.map((r) => {
-                      const active = selected?.id === r.id;
-                      return (
-                        <li key={r.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedId(r.id)}
-                            aria-current={active ? 'true' : undefined}
-                            className={`w-full text-left p-4 flex gap-3 ${focusRing} ${
-                              active ? 'bg-red-50/70 border-l-4 border-[#ba0c2f] pl-3' : 'hover:bg-gray-50 border-l-4 border-transparent pl-3'
-                            }`}
-                          >
-                            <span
-                              className="w-9 h-9 rounded-full bg-gray-200 text-gray-800 text-sm font-bold flex items-center justify-center shrink-0"
-                              aria-hidden
-                            >
-                              {initials(r.student.name)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-gray-900 truncate">{r.student.name}</span>
-                                <span className="text-xs text-gray-600 shrink-0">{relativeTime(r.submittedAt)}</span>
-                              </span>
-                              <span className="block text-sm text-gray-800 truncate">{r.title}</span>
-                              <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                <span className="text-xs text-gray-600">{CATEGORY_LABELS[r.category]}</span>
-                              </span>
-                              <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                <AiVerdictBadge review={r.aiReview} />
-                                {filter === 'all' || filter === 'decided' ? <RequestStatusBadge status={r.status} /> : null}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </nav>
-
-              <div>
-                {selected ? (
-                  <RequestDetail request={selected} onDecided={setAnnouncement} />
-                ) : (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-700">
-                    Select a request to see the AI summary and make a decision.
-                  </div>
-                )}
-              </div>
-            </div>
+            <p className="text-sm text-gray-700" aria-live="polite">
+              {visible.length} request{visible.length === 1 ? '' : 's'}
+              {q ? ` matching “${query.trim()}”` : ''} · select one to open it
+            </p>
+            {visible.length === 0 ? (
+              <p className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-700">
+                {q ? 'No requests match your search.' : 'No requests here. You’re all caught up.'}
+              </p>
+            ) : (
+              <ul aria-label="Requests" className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {visible.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => setDialogRequestId(r.id)}
+                      aria-haspopup="dialog"
+                      className={`h-full w-full text-left rounded-lg border border-gray-200 bg-white p-4 flex gap-3 hover:border-[#ba0c2f] hover:shadow-sm ${focusRing}`}
+                    >
+                      <span
+                        className="w-9 h-9 rounded-full bg-gray-200 text-gray-800 text-sm font-bold flex items-center justify-center shrink-0"
+                        aria-hidden
+                      >
+                        {initials(r.student.name)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-gray-900 truncate">{r.student.name}</span>
+                          <span className="text-xs text-gray-600 shrink-0">{relativeTime(r.submittedAt)}</span>
+                        </span>
+                        <span className="block text-sm text-gray-800">{r.title}</span>
+                        <span className="mt-1 block text-xs text-gray-600">
+                          {CATEGORY_LABELS[r.category]}
+                          {r.appointment ? ` · ${describeSlot(r.appointment.slotKey)}` : ''}
+                        </span>
+                        <span className="mt-2 flex flex-wrap gap-1.5">
+                          <AiVerdictBadge review={r.aiReview} />
+                          <RequestStatusBadge status={r.status} />
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         )}
 
@@ -310,6 +313,9 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
                         <RequestStatusBadge status={r.status} />
                       </div>
                     </div>
+                    {r.aiReview && (
+                      <p className="mt-3 text-sm leading-relaxed text-gray-900">{r.aiReview.situation || r.aiReview.summary}</p>
+                    )}
                     {r.aiReview && (
                       <div className="mt-3 grid md:grid-cols-2 gap-4 rounded-md bg-gray-50 border border-gray-100 p-3">
                         <div>
@@ -347,7 +353,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
           </section>
         )}
 
-        {/* Availability */}
+        {/* Advisor schedule */}
         {tab === 'availability' && (
           <section
             id="panel-availability"
@@ -362,6 +368,7 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
             <ScheduleMatcher
               mode="advisor"
               studentName="Tyler Rez"
+              onOpenBooking={openRequest}
               onToggleAvailability={(slot) => {
                 toggleAdvisorSlot(slot.key);
                 setAnnouncement(
@@ -372,6 +379,12 @@ export const AdvisorView: React.FC<{ email: string }> = ({ email }) => {
           </section>
         )}
       </main>
+
+      <RequestDialog
+        request={requests.find((r) => r.id === dialogRequestId) ?? null}
+        onClose={() => setDialogRequestId(null)}
+        onDecided={setAnnouncement}
+      />
     </div>
   );
 };

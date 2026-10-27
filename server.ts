@@ -408,7 +408,8 @@ Respond ONLY with a JSON object:
   "riskFlags": ["0-3 short items"],
   "checks": [{ "label": "short check name", "passed": boolean, "detail": "one short sentence" }],
   "suggestedAgenda": ["2-3 short items for the meeting"],
-  "recommendation": "one sentence for the advisor"
+  "recommendation": "one sentence for the advisor",
+  "situation": "3-5 sentences describing the student's problem and current circumstances in detail (what is going on, what they have tried, what they are worried about, what they want). The reader is an experienced advisor: do not explain policies or requirements."
 }
 `;
 
@@ -472,7 +473,17 @@ function ruleBasedReview(request: any) {
   }
 
   const failed = checks.some((c) => !c.passed);
+  const year = String(student.rank ?? 'student').replace(/\s*\(.*\)\s*/, '').toLowerCase();
+  const situation = [
+    `${name} is a ${year} in ${student.major ?? 'their program'} with a ${gpa.toFixed(2)} GPA, ${student.earnedCredits ?? 0} credits earned and ${enrolled} credits this term.`,
+    holds.length ? `There is an active hold on the account: ${holds.join('; ')}.` : '',
+    `They are asking for approval for: ${request?.title ?? 'an advising request'}.`,
+    request?.appointment ? 'They have already picked a meeting time that works for both of you.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return {
+    situation,
     verdict: failed ? 'needs_attention' : 'supported',
     confidence: 'moderate',
     summary,

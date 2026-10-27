@@ -18,6 +18,7 @@ interface ScheduleMatcherProps {
   selectedKey?: string | null;
   onSelect?: (slot: MatchSlot) => void;
   onToggleAvailability?: (slot: MatchSlot) => void;
+  onOpenBooking?: (requestId: string) => void;
 }
 
 const STATUS_UI: Record<SlotStatus, { cell: string; short: (m: Mode) => string; icon: React.ElementType | null }> = {
@@ -43,6 +44,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
   selectedKey,
   onSelect,
   onToggleAvailability,
+  onOpenBooking,
 }) => {
   const state = useAdvisingState();
   const [weekOffset, setWeekOffset] = useState(0);
@@ -54,7 +56,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
       ...d,
       slots: d.slots.map((s): MatchSlot =>
         s.status === 'booked'
-          ? { ...s, reason: 'Already booked', bookedBy: undefined }
+          ? { ...s, reason: 'Already booked', bookedBy: undefined, requestId: undefined }
           : s.status === 'advisor_closed'
           ? { ...s, reason: 'Advisor unavailable' }
           : s,
@@ -67,11 +69,14 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
   const rangeLabel = days.length ? `${days[0].dateLabel} – ${days[days.length - 1].dateLabel}` : '';
 
   const isActionable = (s: MatchSlot) =>
-    mode === 'student' ? s.status === 'open' : s.status === 'open' || s.status === 'advisor_closed';
+    mode === 'student'
+      ? s.status === 'open'
+      : s.status === 'open' || s.status === 'advisor_closed' || (s.status === 'booked' && !!s.requestId && !!onOpenBooking);
 
   const handleClick = (s: MatchSlot) => {
     if (!isActionable(s)) return;
     if (mode === 'student') onSelect?.(s);
+    else if (s.status === 'booked' && s.requestId) onOpenBooking?.(s.requestId);
     else onToggleAvailability?.(s);
   };
 
@@ -87,7 +92,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
           <p className="text-sm text-gray-600">
             {mode === 'student'
               ? 'Only times when you and your advisor are both free are shown.'
-              : 'Only times when you and the student are both free are shown. Select an open time to close it, or a closed time to reopen it.'}
+              : 'Only times when you and the student are both free are shown. Select an open time to close it, a closed time to reopen it, or a booked student to open their request.'}
           </p>
         </div>
         <div className="flex items-center gap-2" role="group" aria-label="Change week">
@@ -210,6 +215,8 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
                       ? 'Select to mark unavailable.'
                       : mode === 'advisor' && s.status === 'advisor_closed'
                       ? 'Select to reopen.'
+                      : mode === 'advisor' && s.status === 'booked' && actionable
+                      ? `Select to open ${s.bookedBy}’s appointment request.`
                       : mode === 'student' && s.status === 'open'
                       ? 'Select to choose this time.'
                       : '';
@@ -224,7 +231,9 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
                         title={s.reason}
                         className={`w-full h-9 rounded border px-1.5 flex items-center gap-1 text-xs font-medium truncate focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#ba0c2f] ${
                           selected ? 'bg-[#ba0c2f] border-[#ba0c2f] text-white' : ui.cell
-                        } ${actionable ? 'cursor-pointer' : 'cursor-default'}`}
+                        } ${actionable ? 'cursor-pointer' : 'cursor-default'} ${
+                          actionable && s.status === 'booked' ? 'hover:bg-blue-100 hover:underline' : ''
+                        }`}
                       >
                         {selected ? <Check className="w-3.5 h-3.5 shrink-0" aria-hidden /> : Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden />}
                         <span className="truncate">
