@@ -16,6 +16,11 @@ import {
 import fisherData from '../data/fisherFaculty.json';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
+// Rate My Professors search for an instructor at Ohio State (school 724). RMP doesn't publish
+// professor IDs we could match, so this opens the search, which lists the professor's page.
+const rateMyProfessorsUrl = (name: string) =>
+  `https://www.ratemyprofessors.com/search/professors/724?q=${encodeURIComponent(name)}`;
+
 type Faculty = (typeof fisherData.faculty)[number];
 type Course = (typeof fisherData.courses)[number];
 
@@ -561,7 +566,7 @@ export const FacultyEvaluationsView: React.FC = () => {
                       </div>
                       <div className="text-[11px] text-neutral-500 mt-0.5">Teaching {f.terms.join(', ')}</div>
                     </div>
-                    <div className="flex gap-2 shrink-0">
+                    <div className="flex flex-wrap gap-2 shrink-0">
                       {f.profileUrl && (
                         <a
                           href={f.profileUrl}
@@ -572,6 +577,15 @@ export const FacultyEvaluationsView: React.FC = () => {
                           Profile <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
+                      <a
+                        href={rateMyProfessorsUrl(f.name)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Search Rate My Professors for ${f.name} at Ohio State`}
+                        className="px-2.5 py-1.5 rounded-lg border border-neutral-300 text-xs font-semibold text-neutral-700 hover:border-[#ba0c2f] flex items-center gap-1"
+                      >
+                        Rate My Professors <ExternalLink className="w-3 h-3" />
+                      </a>
                       {storageEnabled && (
                         <button
                           onClick={() => setReviewTarget({ facultyId: f.id })}
