@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MessageSquare,
   ArrowRight,
@@ -13,6 +13,7 @@ import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
 import { normalizeSemesters } from './lib/studentProfile';
+import { loadChatLog, saveChatMessage } from './lib/chatLog';
 import { Curriculum, auditDegree, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
@@ -73,6 +74,26 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   );
   const requirementsSummary = audit ? describeAudit(audit) : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
+
+  // Chat log: show the student's earlier conversation, then save each new message once it's final.
+  const savedIds = useRef(new Set<string>(['msg-1']));
+  const historyLoaded = useRef(false);
+  useEffect(() => {
+    loadChatLog().then((history) => {
+      history.forEach((m) => savedIds.current.add(m.id));
+      historyLoaded.current = true;
+      // Always set state, so anything sent before history arrived gets saved too
+      setMessages((prev) => [...history, ...prev]);
+    });
+  }, []);
+  useEffect(() => {
+    if (!historyLoaded.current) return;
+    for (const m of messages) {
+      if (m.pending || savedIds.current.has(m.id)) continue;
+      savedIds.current.add(m.id);
+      void saveChatMessage(m);
+    }
+  }, [messages]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [isRoadmapUpdating, setIsRoadmapUpdating] = useState<boolean>(false);
   const [roadmapStage, setRoadmapStage] = useState<string>('');
@@ -304,7 +325,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const statusId = `msg-${Date.now()}-plan`;
     setMessages((prev) => [
       ...prev,
-      { id: statusId, role: 'assistant', text: 'Building your 4-year plan and checking it against Fisher’s requirements… this can take up to a minute.' },
+      { id: statusId, role: 'assistant', text: 'Building your 4-year plan and checking it against Fisher’s requirements… this can take up to a minute.', pending: true },
     ]);
     const result = await buildRoadmap(
       `${instructions}\nBuild a complete plan through graduation that covers every remaining Fisher requirement for the student's specialization(s), respects prerequisites, and balances workload.`,

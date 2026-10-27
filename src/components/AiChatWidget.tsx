@@ -38,6 +38,10 @@ import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
 
+// A student asking to get into a building or study space after hours (the BuckID access flow)
+const ACCESS_REQUEST =
+  /\b(after[- ]?hours?|buck ?id|building access|study (space|access|room)|swipe (in|access)|card access|door access|locked building|get into (the )?(building|hall|lab))\b/i;
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -49,6 +53,8 @@ export interface ChatMessage {
   highStakesDecision?: HighStakesDecisionData | null;
   // A button under the message that opens another tab (and opens it right away if autoOpen)
   action?: { label: string; tab: 'roadmap' | 'requirements'; autoOpen?: boolean };
+  pending?: boolean; // a placeholder that will be replaced (not saved to the chat log)
+  sentAt?: string; // when a saved message was sent (chat history)
 }
 
 interface AiChatWidgetProps {
@@ -440,7 +446,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
             {/* Chat Messages Stream */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-[#f8fafc]">
-              {messages.map((msg) => (
+              {messages.map((msg, idx) => (
                 <div
                   key={msg.id}
                   className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -520,7 +526,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                     })()}
 
                     {/* Interactive BuckID Building Access Quick Link */}
-                    {msg.role === 'assistant' && (msg.text.toLowerCase().includes('after-hours') || msg.text.toLowerCase().includes('building') || msg.text.toLowerCase().includes('buckid') || msg.text.toLowerCase().includes('study access')) && (
+                    {/* Only when the student asked about building or study access, not whenever a reply says "building" */}
+                    {msg.role === 'assistant' && messages[idx - 1]?.role === 'user' && ACCESS_REQUEST.test(messages[idx - 1].text) && (
                       <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-red-50/50 p-2.5 rounded-lg border border-red-100 text-xs">
                         <div className="flex items-center space-x-2">
                           <CreditCard className="w-4 h-4 text-[#ba0c2f] shrink-0" />

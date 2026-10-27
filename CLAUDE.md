@@ -80,3 +80,9 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
 Student requests to advisors live in `advising_requests` (RLS: students see their own,
 advisors see all and decide) and advisor blocked-off times in `advisor_closed_slots`.
 `booked_slot_keys()` exposes taken times without names. There is no sample data.
+
+## Chat log
+
+Each student's BuckAI conversation is saved in `chat_messages` (RLS: students read, add and
+clear only their own; advisors can't see chats). The app reloads the last 200 messages and
+saves each finished message; temporary placeholders (`pending`) aren't saved.
