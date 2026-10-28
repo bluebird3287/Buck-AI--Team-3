@@ -16,862 +16,163 @@ import {
   Sparkles
 } from 'lucide-react';
 import { StudentProfile } from '../data/sampleData';
+import campusData from '../data/osuBuildings.json';
 
-export interface CampusBuilding {
-  id: string;
-  name: string;
+type OsuBuilding = (typeof campusData.buildings)[number];
+type HoursDay = OsuBuilding['libraries'][number]['week'][number];
+
+export type CampusBuilding = Omit<OsuBuilding, 'code'> & {
   code: string;
-  area: 'North Campus' | 'South Campus' | 'Central Campus' | 'West Campus' | 'Medical Campus';
-  category:
-    | 'Libraries'
-    | 'Business'
-    | 'Engineering'
-    | 'Arts & Humanities'
-    | 'Sciences & Math'
-    | 'Agriculture & Environment'
-    | 'Health & Medicine'
-    | 'Architecture'
-    | 'Public Affairs & Law'
-    | 'Student Centers';
+  area: string;
+  isLibrary: boolean;
   locksAt: string;
   weekendStatus: string;
-  isLibrary?: boolean;
   notes: string;
+};
+
+const LIBRARY_WEEK = campusData.libraryWeek;
+
+// Date in Columbus as YYYY-MM-DD, to find today's column in the scraped weekly library hours
+function columbusDate(date = new Date()): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
-// Complete campus building database (80 major OSU academic buildings)
-export const ALL_CAMPUS_BUILDINGS: CampusBuilding[] = [
-  // 1. Libraries (Automatic BuckID Access for all students)
-  {
-    id: 'lib-18th',
-    name: '18th Avenue Library (Science & Engineering)',
-    code: '18TH',
-    area: 'North Campus',
-    category: 'Libraries',
-    locksAt: 'Open 24/7',
-    weekendStatus: 'Open 24/7',
-    isLibrary: true,
-    notes: 'Every Ohio State student already has automatic 24/7 BuckID access.'
-  },
-  {
-    id: 'lib-thompson',
-    name: 'Thompson Library (Main Library)',
-    code: 'THOMP',
-    area: 'Central Campus',
-    category: 'Libraries',
-    locksAt: 'Locks at 10:00 PM (Mon–Fri)',
-    weekendStatus: 'Open Sat & Sun until 9:00 PM',
-    isLibrary: true,
-    notes: 'Every Ohio State student already has automatic daytime and evening BuckID access.'
-  },
-  {
-    id: 'lib-prior',
-    name: 'Prior Health Sciences Library',
-    code: 'PHSL',
-    area: 'Medical Campus',
-    category: 'Libraries',
-    locksAt: 'Locks at 10:00 PM (Mon–Fri)',
-    weekendStatus: 'Open Sat & Sun 10:00 AM – 8:00 PM',
-    isLibrary: true,
-    notes: 'Health sciences and pre-med quiet study floors. BuckID access automatic.'
-  },
+// Library hours are a one-week snapshot; once that week has passed, point students to the live page
+export function isLibraryWeekCurrent(): boolean {
+  return LIBRARY_WEEK.some((d) => d.date === columbusDate());
+}
 
-  // 2. Business (Fisher College of Business)
-  {
-    id: 'mason',
-    name: 'Mason Hall',
-    code: 'MH',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Computer labs, accounting tutoring center (ALC), and group study rooms.'
-  },
-  {
-    id: 'fisher',
-    name: 'Fisher Hall',
-    code: 'FH',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Faculty offices, quiet breakout pods, and business seminar rooms.'
-  },
-  {
-    id: 'gerlach',
-    name: 'Gerlach Hall',
-    code: 'GH',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Graduate business study lounges and quiet breakout rooms.'
-  },
-  {
-    id: 'schoenbaum',
-    name: 'Schoenbaum Hall',
-    code: 'SH',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Undergraduate business classrooms and interview study rooms.'
-  },
-  {
-    id: 'pfahl',
-    name: 'Pfahl Hall',
-    code: 'PF',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Executive education classrooms and conference study spaces.'
-  },
-  {
-    id: 'blackwell-academic',
-    name: 'Blackwell Academic Center',
-    code: 'BLCK',
-    area: 'North Campus',
-    category: 'Business',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Hospitality management and business meeting rooms.'
-  },
+function hoursFor(week: HoursDay[], dayName: string): string | null {
+  return week.find((d) => d.day === dayName)?.hours ?? null;
+}
 
-  // 3. College of Engineering & Computing
-  {
-    id: 'dreese',
-    name: 'Dreese Laboratories',
-    code: 'DL',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Computer science Linux computer labs (DL 380) and collaborative coding rooms.'
-  },
-  {
-    id: 'caldwell',
-    name: 'Caldwell Laboratory',
-    code: 'CL',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Electrical and computer engineering workstations and circuit testing benches.'
-  },
-  {
-    id: 'hitchcock',
-    name: 'Hitchcock Hall',
-    code: 'HH',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'First-year engineering computer clusters and large group study tables.'
-  },
-  {
-    id: 'baker-systems',
-    name: 'Baker Systems Engineering',
-    code: 'BE',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Integrated systems engineering labs and project workspaces.'
-  },
-  {
-    id: 'bolz',
-    name: 'Bolz Hall',
-    code: 'BH',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Civil, environmental, and geodetic engineering computer rooms.'
-  },
-  {
-    id: 'scott-lab',
-    name: 'Scott Laboratory',
-    code: 'SL',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Mechanical and aerospace engineering design and computing spaces.'
-  },
-  {
-    id: 'fontana',
-    name: 'Fontana Laboratories',
-    code: 'FL',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Materials science and engineering teaching labs and study tables.'
-  },
-  {
-    id: 'watts',
-    name: 'Watts Hall',
-    code: 'WH',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Materials science research and computer modeling stations.'
-  },
-  {
-    id: 'macquigg',
-    name: 'MacQuigg Laboratories',
-    code: 'MQ',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biomedical engineering research and prototyping suites.'
-  },
-  {
-    id: 'smith-lab',
-    name: 'Smith Laboratory',
-    code: 'SML',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Physics and general STEM lecture rooms and group study tables.'
-  },
-  {
-    id: 'cee-building',
-    name: 'Civil & Environmental Engineering Building',
-    code: 'CEE',
-    area: 'North Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Structures labs, design studios, and transport simulation rooms.'
-  },
-  {
-    id: 'car-building',
-    name: 'Center for Automotive Research (CAR)',
-    code: 'CAR',
-    area: 'West Campus',
-    category: 'Engineering',
-    locksAt: 'Locks at 5:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Motorsports, electric vehicle design, and automotive engineering bays.'
-  },
-
-  // 4. College of Arts and Sciences - Humanities & Social Sciences
-  {
-    id: 'enarson',
-    name: 'Enarson Classroom Building',
-    code: 'ECB',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 8:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Central campus study lounges, quiet carrels, and rolling whiteboards.'
-  },
-  {
-    id: 'university-hall',
-    name: 'University Hall',
-    code: 'UH',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Historic Oval building with humanities seminar and study rooms.'
-  },
-  {
-    id: 'derby',
-    name: 'Derby Hall',
-    code: 'DH',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Political science and geography computer labs and study lounges.'
-  },
-  {
-    id: 'hagerty',
-    name: 'Hagerty Hall',
-    code: 'HA',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'World language study lounges, courtyard cafe tables, and media labs.'
-  },
-  {
-    id: 'denney',
-    name: 'Denney Hall',
-    code: 'DE',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'English department and writing center collaborative study rooms.'
-  },
-  {
-    id: 'dulles',
-    name: 'Dulles Hall',
-    code: 'DU',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'History, philosophy, and humanities quiet reading rooms.'
-  },
-  {
-    id: 'hopkins',
-    name: 'Hopkins Hall',
-    code: 'HO',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Department of Art studios, digital imaging, and ceramics spaces.'
-  },
-  {
-    id: 'hayes',
-    name: 'Hayes Hall',
-    code: 'HY',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Department of Design studios and computer labs on the North Oval.'
-  },
-  {
-    id: 'journalism',
-    name: 'Journalism Building',
-    code: 'JB',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'School of Communication newsroom labs and audio/video suites.'
-  },
-  {
-    id: 'mendenhall',
-    name: 'Mendenhall Laboratory',
-    code: 'ML2',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'School of Earth Sciences quiet study atrium and museum space.'
-  },
-  {
-    id: 'orton',
-    name: 'Orton Hall',
-    code: 'OH',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Historic chime tower, geology museum, and quiet reading room.'
-  },
-  {
-    id: 'bricker',
-    name: 'Bricker Hall',
-    code: 'BR',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 5:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Academic administration and student scholarship conference rooms.'
-  },
-  {
-    id: 'townshend',
-    name: 'Townshend Hall',
-    code: 'TH',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Anthropology labs and archaeological teaching rooms.'
-  },
-  {
-    id: 'hughes',
-    name: 'Hughes Hall',
-    code: 'HU',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Music rehearsal classrooms and music theory study spaces.'
-  },
-  {
-    id: 'timashev',
-    name: 'Timashev Family Music Building',
-    code: 'TFMB',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 8:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Modern music performance center, practice pods, and acoustic study rooms.'
-  },
-  {
-    id: 'drake',
-    name: 'Drake Performance & Event Center',
-    code: 'DC',
-    area: 'West Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Theatre and film rehearsal studios along the Olentangy River.'
-  },
-  {
-    id: 'sullivant',
-    name: 'Sullivant Hall',
-    code: 'SU',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Department of Dance, ACCAD animation, and Billy Ireland Cartoon Library.'
-  },
-  {
-    id: 'wexner',
-    name: 'Wexner Center for the Arts',
-    code: 'WEX',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Open Weekends until 5:00 PM',
-    notes: 'Contemporary arts exhibitions, film video theater, and study terrace.'
-  },
-  {
-    id: 'pomerene',
-    name: 'Pomerene Hall (Data Analytics / TDAI)',
-    code: 'PO',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Translational Data Analytics Institute (TDAI), Ideation Lab, and quiet mezzanine.'
-  },
-  {
-    id: 'kuhn-honors',
-    name: 'Kuhn Honors & Scholars House',
-    code: 'KH2',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Honors & Scholars lounge, quiet fireplace study room, and team tables.'
-  },
-  {
-    id: 'hale-center',
-    name: 'Hale Black Cultural Center',
-    code: 'HALE',
-    area: 'Central Campus',
-    category: 'Arts & Humanities',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Art galleries, computer lounge, and collaborative community study rooms.'
-  },
-
-  // 5. Sciences & Mathematics
-  {
-    id: 'mcpherson',
-    name: 'McPherson Chemical Laboratory',
-    code: 'ML',
-    area: 'North Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Chemistry resource center, computer rooms, and study alcoves.'
-  },
-  {
-    id: 'celeste',
-    name: 'Celeste Laboratory',
-    code: 'CL2',
-    area: 'North Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Chemistry teaching laboratories and recitation spaces.'
-  },
-  {
-    id: 'newman-wolfrom',
-    name: 'Newman & Wolfrom Laboratory',
-    code: 'NW',
-    area: 'North Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Organic and biochemistry research labs and computational suites.'
-  },
-  {
-    id: 'evans',
-    name: 'Evans Laboratory',
-    code: 'EL',
-    area: 'North Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Physical and analytical chemistry computer rooms.'
-  },
-  {
-    id: 'prb',
-    name: 'Physics Research Building (PRB)',
-    code: 'PRB',
-    area: 'North Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Physics atrium study spaces, water wall lounge, and computing rooms.'
-  },
-  {
-    id: 'jennings',
-    name: 'Jennings Hall',
-    code: 'JH',
-    area: 'South Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biology learning center, plant biology labs, and quiet study rooms.'
-  },
-  {
-    id: 'aronoff',
-    name: 'Aronoff Laboratory',
-    code: 'AL',
-    area: 'South Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biological sciences research, ecology computer clusters, and carrels.'
-  },
-  {
-    id: 'bio-sciences',
-    name: 'Biological Sciences Building',
-    code: 'BSI',
-    area: 'South Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Microbiology, genetics, and biochemistry learning centers.'
-  },
-  {
-    id: 'riffe',
-    name: 'Riffe Building (Biological Sciences)',
-    code: 'RB',
-    area: 'South Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biophysics and molecular biology study rooms.'
-  },
-  {
-    id: 'math-building',
-    name: 'Mathematical Sciences Building',
-    code: 'MW',
-    area: 'Central Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:30 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Mathematics tutoring MSLC center and problem-solving tables.'
-  },
-  {
-    id: 'cockins',
-    name: 'Cockins Hall',
-    code: 'CH',
-    area: 'Central Campus',
-    category: 'Sciences & Math',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Department of Statistics computer labs and actuarial science rooms.'
-  },
-
-  // 6. Food, Agricultural, and Environmental Sciences (CFAES)
-  {
-    id: 'ag-admin',
-    name: 'Agricultural Administration Building',
-    code: 'AA',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'CFAES college headquarters, auditorium, and student study center.'
-  },
-  {
-    id: 'animal-science',
-    name: 'Animal Science Building',
-    code: 'AS',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Animal sciences lecture halls and computing labs.'
-  },
-  {
-    id: 'ag-eng',
-    name: 'Agricultural Engineering Building',
-    code: 'AE',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Food, agricultural, and biological engineering design workshops.'
-  },
-  {
-    id: 'kottman',
-    name: 'Kottman Hall',
-    code: 'KH3',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'School of Environment & Natural Resources (SENR) study lounges.'
-  },
-  {
-    id: 'howlett',
-    name: 'Howlett Hall',
-    code: 'HH3',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Horticulture, crop science, and greenhouse research suites.'
-  },
-  {
-    id: 'parker-food',
-    name: 'Parker Food Science & Technology Building',
-    code: 'PFST',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Food science sensory evaluation labs, pilot plant, and study rooms.'
-  },
-  {
-    id: 'plumb',
-    name: 'Plumb Hall',
-    code: 'PL',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Agricultural economics and livestock judging study spaces.'
-  },
-  {
-    id: 'dakan',
-    name: 'Dakan Hall',
-    code: 'DH3',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Avian biology and animal welfare computing spaces.'
-  },
-  {
-    id: 'waterman',
-    name: 'Waterman Agricultural Laboratory Complex',
-    code: 'WAT',
-    area: 'West Campus',
-    category: 'Agriculture & Environment',
-    locksAt: 'Locks at 5:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Controlled environment agriculture and dairy research facilities.'
-  },
-
-  // 7. Health Sciences & Medicine
-  {
-    id: 'meiling',
-    name: 'Meiling Hall',
-    code: 'ME',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Medicine administrative suites and lecture halls.'
-  },
-  {
-    id: 'graves',
-    name: 'Graves Hall',
-    code: 'GH2',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biomedical science and physiology teaching laboratories.'
-  },
-  {
-    id: 'hamilton',
-    name: 'Hamilton Hall',
-    code: 'HH4',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Medical sciences, anatomy laboratories, and collaborative study desks.'
-  },
-  {
-    id: 'newton',
-    name: 'Newton Hall',
-    code: 'NH',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Nursing simulation suites and quiet reading rooms.'
-  },
-  {
-    id: 'postle',
-    name: 'Postle Hall',
-    code: 'PH2',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Dentistry student clinics, laboratories, and study rooms.'
-  },
-  {
-    id: 'parks',
-    name: 'Parks Hall',
-    code: 'PA2',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Pharmacy medicinal chemistry labs and quiet carrels.'
-  },
-  {
-    id: 'atwell',
-    name: 'Atwell Hall',
-    code: 'AT',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'School of Health and Rehabilitation Sciences study rooms.'
-  },
-  {
-    id: 'cunz',
-    name: 'Cunz Hall',
-    code: 'CU',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Public Health collaborative classrooms and study lounge.'
-  },
-  {
-    id: 'brt',
-    name: 'Biomedical Research Tower (BRT)',
-    code: 'BRT',
-    area: 'Medical Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Biomedical research tower, cafe atrium, and conference study rooms.'
-  },
-  {
-    id: 'vmab',
-    name: 'Veterinary Medicine Academic Building',
-    code: 'VMAB',
-    area: 'West Campus',
-    category: 'Health & Medicine',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Veterinary Medicine lecture halls and study pods.'
-  },
-
-  // 8. Architecture, Public Affairs, Law & Social Work
-  {
-    id: 'knowlton',
-    name: 'Knowlton Hall',
-    code: 'KH',
-    area: 'North Campus',
-    category: 'Architecture',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Architecture library, design studio desks, and roof garden terrace.'
-  },
-  {
-    id: 'page',
-    name: 'Page Hall',
-    code: 'PA',
-    area: 'Central Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'John Glenn College of Public Affairs study lounge and seminar rooms.'
-  },
-  {
-    id: 'drinko',
-    name: 'Drinko Hall (Moritz Law)',
-    code: 'DH2',
-    area: 'South Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Moritz College of Law legal library and silent study carrels.'
-  },
-  {
-    id: 'stillman',
-    name: 'Stillman Hall',
-    code: 'ST',
-    area: 'Central Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Social Work computer rooms and quiet breakout pods.'
-  },
-  {
-    id: 'ramseyer',
-    name: 'Ramseyer Hall',
-    code: 'RA',
-    area: 'Central Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'College of Education and Human Ecology teaching labs and study tables.'
-  },
-  {
-    id: 'campbell',
-    name: 'Campbell Hall',
-    code: 'CA',
-    area: 'Central Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 6:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Human sciences, consumer science, and historic costume collection study areas.'
-  },
-  {
-    id: 'arps',
-    name: 'Arps Hall',
-    code: 'AR',
-    area: 'Central Campus',
-    category: 'Public Affairs & Law',
-    locksAt: 'Locks at 7:00 PM (Mon–Fri)',
-    weekendStatus: 'Locked on Weekends',
-    notes: 'Department of Economics and Education collaboration rooms and computer lab.'
-  },
-
-  // 9. Student Centers
-  {
-    id: 'ohio-union',
-    name: 'Ohio Union',
-    code: 'OHU',
-    area: 'Central Campus',
-    category: 'Student Centers',
-    locksAt: 'Locks at 11:00 PM (Mon–Fri)',
-    weekendStatus: 'Open Sat & Sun until 11:00 PM',
-    notes: 'Student activity lounges, Keith B. Key leadership center, and group tables.'
-  },
-  {
-    id: 'rpac',
-    name: 'RPAC (Recreation & Physical Activity Center)',
-    code: 'RPAC',
-    area: 'Central Campus',
-    category: 'Student Centers',
-    locksAt: 'Locks at 11:00 PM (Mon–Fri)',
-    weekendStatus: 'Open Sat & Sun until 10:00 PM',
-    notes: 'Mezzanine study tables, quiet meeting rooms, and student wellness lounge.'
+// "Mon–Thu 24 Hours · Fri 7:30am - 10:00pm · …": groups consecutive days with the same hours
+export function summarizeWeek(week: HoursDay[]): string {
+  const groups: { from: string; to: string; hours: string }[] = [];
+  for (const { day, hours } of week) {
+    const label = hours ?? 'Not listed';
+    const last = groups[groups.length - 1];
+    if (last && last.hours === label) last.to = day;
+    else groups.push({ from: day, to: day, hours: label });
   }
+  return groups
+    .map((g) => `${g.from.slice(0, 3)}${g.from === g.to ? '' : `–${g.to.slice(0, 3)}`} ${g.hours}`)
+    .join(' · ');
+}
+
+function describeLocks(b: OsuBuilding): string {
+  const library = b.libraries[0];
+  if (library) {
+    const today = library.week.find((d) => d.date === columbusDate());
+    return today ? `Today: ${today.hours ?? 'not listed'}` : 'See this week’s library hours';
+  }
+  const buildingSpot = b.studySpots.find((s) => s.scope === 'building');
+  if (buildingSpot) return buildingSpot.hours[0];
+  if (b.studySpots.length) return 'Building hours not published (lab hours below)';
+  return 'Hours not published';
+}
+
+function describeWeekend(b: OsuBuilding): string {
+  const library = b.libraries[0];
+  if (library) return `Sat ${hoursFor(library.week, 'Saturday') ?? '—'} · Sun ${hoursFor(library.week, 'Sunday') ?? '—'}`;
+  if (b.studySpots.length) return 'See study spot hours';
+  return 'Ask the departments in this building';
+}
+
+// Every Columbus and Medical Center building from the OSU buildings directory (see scripts/build-campus-data.mjs)
+export const ALL_CAMPUS_BUILDINGS: CampusBuilding[] = campusData.buildings.map((b) => ({
+  ...b,
+  code: b.code ?? b.id,
+  area: b.campus === 'Medical Center' ? 'Medical Center' : 'Columbus campus',
+  isLibrary: b.category === 'Libraries',
+  locksAt: describeLocks(b),
+  weekendStatus: describeWeekend(b),
+  notes: b.departments.length ? b.departments.join(' · ') : 'No departments listed',
+}));
+
+const BUILDINGS_WITH_HOURS = ALL_CAMPUS_BUILDINGS.filter((b) => b.libraries.length || b.studySpots.length);
+
+const CATEGORY_ORDER = [
+  'Libraries',
+  'Business',
+  'Engineering',
+  'Arts & Humanities',
+  'Sciences & Math',
+  'Social Sciences & Education',
+  'Agriculture & Environment',
+  'Health & Medicine',
+  'Student Life & Housing',
+  'Athletics & Recreation',
+  'Administration & Other',
+  'Parking & Operations',
 ];
+
+const BuildingDetails: React.FC<{ building: CampusBuilding }> = ({ building }) => {
+  const amenities = [
+    building.accessibleEntrances.length > 0 && `Accessible entrances: ${building.accessibleEntrances.join(', ')}`,
+    building.wellnessRooms > 0 && `${building.wellnessRooms} wellness room${building.wellnessRooms === 1 ? '' : 's'}`,
+    building.genderInclusiveRestrooms > 0 &&
+      `${building.genderInclusiveRestrooms} gender-inclusive restroom${building.genderInclusiveRestrooms === 1 ? '' : 's'}`,
+    building.lactationRooms > 0 && `${building.lactationRooms} lactation room${building.lactationRooms === 1 ? '' : 's'}`,
+  ].filter(Boolean) as string[];
+  const hasHours = building.libraries.length > 0 || building.studySpots.length > 0;
+
+  return (
+    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3 text-[11px] text-gray-700">
+      {building.libraries.map((lib) => (
+        <div key={lib.name} className="space-y-1">
+          <div className="font-bold text-gray-900">
+            {lib.name} — week of {lib.week[0]?.date}{' '}
+            <a href={lib.url} target="_blank" rel="noreferrer" className="font-normal text-[#ba0c2f] hover:underline">upcoming hours ↗</a>
+          </div>
+          <div className="grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-0.5">
+            {lib.week.map((d) => (
+              <React.Fragment key={d.day}>
+                <span className="text-gray-500">{d.day}</span>
+                <span>{d.hours ?? 'Not listed'}</span>
+              </React.Fragment>
+            ))}
+          </div>
+          {lib.studyRooms.map((room) => (
+            <div key={room.name}>
+              <strong>{room.name}:</strong> {summarizeWeek(room.week)}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {building.studySpots.map((spot) => (
+        <div key={spot.name} className="space-y-0.5">
+          <div className="font-bold text-gray-900">
+            {spot.name} <span className="font-normal text-gray-500">· {spot.who}</span>
+          </div>
+          {spot.hours.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+          <div className="text-gray-600">{spot.access}</div>
+          {'closures' in spot && spot.closures && <div className="text-amber-800">{spot.closures}</div>}
+          <a href={spot.sourceUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">Source ↗</a>
+        </div>
+      ))}
+
+      {!hasHours && (
+        <div className="flex items-start gap-1.5 text-gray-600">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+          <span>
+            OSU doesn’t publish hours for this building. Many academic buildings lock outside business hours and then open only
+            for BuckIDs a department has approved — ask {building.departments.length ? 'one of the departments listed above' : 'the building’s main office'} or request access here.
+          </span>
+        </div>
+      )}
+
+      {amenities.length > 0 && <div><strong>Amenities:</strong> {amenities.join(' · ')}</div>}
+
+      <a href={building.mapUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#ba0c2f] hover:underline">
+        <MapPin className="w-3 h-3" /> {building.address ?? 'View'} on the OSU campus map ↗
+      </a>
+    </div>
+  );
+};
 
 export interface UserAccessItem {
   id: string;
@@ -891,55 +192,50 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
   // Simple view switcher: 'request' | 'my-access' | 'all-buildings'
   const [activeTab, setActiveTab] = useState<'request' | 'my-access' | 'all-buildings'>('request');
 
-  // Active BuckID access passes
-  const [myAccess, setMyAccess] = useState<UserAccessItem[]>([
-    {
-      id: 'acc-1',
-      buildingName: '18th Avenue Library',
-      code: '18TH',
-      hours: '24 Hours / 7 Days a Week',
-      term: 'Automatic for All Students',
-      status: 'active',
-      notes: 'Your BuckID always opens the doors here 24/7.'
-    },
-    {
-      id: 'acc-2',
-      buildingName: 'Thompson Library',
-      code: 'THOMP',
-      hours: 'Open until 10:00 PM weekdays, 9:00 PM weekends',
-      term: 'Automatic for All Students',
-      status: 'active',
-      notes: 'Your BuckID always works here during open hours.'
-    },
+  // Libraries every student can use during posted hours, plus the prototype's demo BuckID pass
+  const [myAccess, setMyAccess] = useState<UserAccessItem[]>(() => [
+    ...ALL_CAMPUS_BUILDINGS.filter((b) => b.id === '005' || b.id === '050').flatMap((b) =>
+      b.libraries
+        .filter((lib) => lib.name !== 'Research Commons')
+        .map((lib) => ({
+          id: `lib-${b.id}-${lib.name}`,
+          buildingName: lib.name,
+          code: b.code,
+          hours: `This week: ${summarizeWeek(lib.week)}`,
+          term: 'Open to all students',
+          status: 'active' as const,
+          notes: 'No request needed during library hours. Bring your BuckID; some hours require a current OSU ID.',
+        }))
+    ),
     {
       id: 'acc-3',
       buildingName: 'Mason Hall (Fisher College)',
       code: 'MH',
-      hours: 'Every night 7:00 PM – 2:00 AM',
+      hours: 'Demo pass: evening access',
       term: 'Autumn 2026 Semester',
       status: 'active',
-      notes: 'Active on your BuckID for computer labs and study rooms.'
+      notes: 'Sample approval for this prototype. Real after-hours access is granted by Fisher.'
     }
   ]);
 
-  // Pending requests waiting for approval
+  // Pending requests waiting for approval (sample data for the prototype)
   const [pendingRequests, setPendingRequests] = useState<UserAccessItem[]>([
     {
       id: 'req-1',
       buildingName: 'Dreese Laboratories',
       code: 'DL',
-      hours: 'Saturdays & Sundays (9:00 AM – 10:00 PM)',
+      hours: 'Weekends (Saturday & Sunday study sessions)',
       term: 'Autumn 2026 Semester',
       status: 'waiting',
-      notes: 'Sent to the Computer Science department. Usually approved within 1 business day.'
+      notes: 'Sample request sent to Computer Science and Engineering.'
     }
   ]);
 
   // Request form state
-  const [selectedBuildingId, setSelectedBuildingId] = useState<string>('dreese');
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string>('279');
   const [formFilterQuery, setFormFilterQuery] = useState<string>('');
   const [formCategoryFilter, setFormCategoryFilter] = useState<string>('All');
-  const [selectedTimeOption, setSelectedTimeOption] = useState<string>('Evenings (Locks until 1:00 AM)');
+  const [selectedTimeOption, setSelectedTimeOption] = useState<string>('Evenings (Tonight & weeknights after building locks)');
   const [selectedDuration, setSelectedDuration] = useState<string>('The whole semester');
   const [selectedReason, setSelectedReason] = useState<string>('Studying for exams');
   const [requestSentSuccess, setRequestSentSuccess] = useState<string | null>(null);
@@ -947,8 +243,9 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
   // Search & filter state for building directory tab
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
 
-  const selectedBuildingObj = ALL_CAMPUS_BUILDINGS.find((b) => b.id === selectedBuildingId) || ALL_CAMPUS_BUILDINGS[3];
+  const selectedBuildingObj = ALL_CAMPUS_BUILDINGS.find((b) => b.id === selectedBuildingId) || ALL_CAMPUS_BUILDINGS[0];
 
   // Buildings available in the form dropdown based on form filter
   const dropdownBuildings = ALL_CAMPUS_BUILDINGS.filter((b) => {
@@ -964,7 +261,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
     e.preventDefault();
 
     if (selectedBuildingObj.isLibrary) {
-      alert("You already have access to this library! Every Ohio State student's BuckID already opens the doors.");
+      alert('Libraries are open to students during their posted hours, so no request is needed.');
       return;
     }
 
@@ -975,7 +272,9 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
       hours: selectedTimeOption,
       term: selectedDuration,
       status: 'waiting',
-      notes: `Sent to ${selectedBuildingObj.category} building staff for approval.`
+      notes: selectedBuildingObj.departments.length
+        ? `Sent for approval to: ${selectedBuildingObj.departments.join(', ')}.`
+        : 'Sent to the building’s facilities staff for approval.'
     };
 
     setPendingRequests((prev) => [newReq, ...prev]);
@@ -1002,19 +301,11 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
     return matchesSearch && matchesCategory;
   });
 
-  const categoriesList = [
-    'All',
-    'Libraries',
-    'Business',
-    'Engineering',
-    'Arts & Humanities',
-    'Sciences & Math',
-    'Agriculture & Environment',
-    'Health & Medicine',
-    'Architecture',
-    'Public Affairs & Law',
-    'Student Centers'
-  ];
+  const categoriesList = ['All', ...CATEGORY_ORDER];
+
+  // Today's library hours only make sense while the scraped week is still this week
+  const libraryWeekCurrent = isLibraryWeekCurrent();
+  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' });
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 text-gray-900 pb-10">
@@ -1030,7 +321,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
               </h2>
             </div>
             <p className="text-xs text-gray-600 mt-1">
-              Need a quiet place to study after academic buildings lock? Request access here from all <strong>{ALL_CAMPUS_BUILDINGS.length} campus buildings</strong>. Once approved, you just <strong>tap your student BuckID</strong> at the door.
+              Find somewhere to get work done. Libraries and the spots below are open to students during their posted hours. After hours, most academic buildings only open for BuckIDs that the building’s department has approved, so you can request access to any of the <strong>{ALL_CAMPUS_BUILDINGS.length} campus buildings</strong> here.
             </p>
           </div>
 
@@ -1041,11 +332,37 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
           </div>
         </div>
 
-        {/* Big Friendly Library Notice */}
-        <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start space-x-2.5 text-xs text-emerald-900">
-          <BookOpen className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
-          <div>
-            <strong className="font-semibold text-emerald-950">Good news about libraries:</strong> Every Ohio State student already has automatic access to <strong>18th Avenue Library (24/7)</strong> and <strong>Thompson Library</strong> on their BuckID. You don’t need to request access—your card already works!
+        {/* Where to study today: real library hours and hand-checked study spots */}
+        <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 space-y-2">
+          <div className="flex items-start space-x-2.5">
+            <BookOpen className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-semibold text-emerald-950">
+                {libraryWeekCurrent ? `Library hours today (${todayName})` : 'Library hours'}
+              </strong>{' '}
+              — no request needed.{' '}
+              {!libraryWeekCurrent && (
+                <>
+                  These hours are from the week of {LIBRARY_WEEK[0]?.date}; check{' '}
+                  <a href="https://library.osu.edu/hours" target="_blank" rel="noreferrer" className="underline">library.osu.edu/hours</a> for this week.
+                </>
+              )}
+            </div>
+          </div>
+          {libraryWeekCurrent && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 pl-6">
+              {BUILDINGS_WITH_HOURS.flatMap((b) =>
+                b.libraries.map((lib) => (
+                  <div key={`${b.id}-${lib.name}`} className="flex justify-between gap-2">
+                    <a href={lib.url} target="_blank" rel="noreferrer" className="font-semibold hover:underline">{lib.name}</a>
+                    <span className="text-right text-emerald-800">{lib.week.find((d) => d.day === todayName)?.hours ?? 'Not listed'}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+          <div className="pl-6 text-[11px] text-emerald-800">
+            More study spots with posted hours: {BUILDINGS_WITH_HOURS.flatMap((b) => b.studySpots.map((s) => s.name)).join(' · ')}. Find them under Campus Buildings.
           </div>
         </div>
       </div>
@@ -1113,7 +430,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
               Pick any building on campus to unlock
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Choose from all 80 Ohio State academic and study buildings. When approved, your BuckID will let you in.
+              Choose from all {ALL_CAMPUS_BUILDINGS.length} Ohio State buildings. Your request goes to the departments in that building; once approved, your BuckID will let you in.
             </p>
           </div>
 
@@ -1149,7 +466,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
 
               {/* Category Quick Chips for Form */}
               <div className="flex gap-1 overflow-x-auto pb-2 text-[11px]">
-                {['All', 'Business', 'Engineering', 'Arts & Humanities', 'Sciences & Math', 'Agriculture & Environment', 'Health & Medicine'].map((cat) => (
+                {['All', 'Business', 'Engineering', 'Arts & Humanities', 'Sciences & Math', 'Social Sciences & Education', 'Agriculture & Environment', 'Health & Medicine'].map((cat) => (
                   <button
                     type="button"
                     key={cat}
@@ -1187,17 +504,25 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                   <span>{selectedBuildingObj.name}</span>
                   <span className="text-[11px] text-gray-500 font-normal">{selectedBuildingObj.area} • {selectedBuildingObj.category}</span>
                 </div>
-                <div className="text-gray-600 text-[11px] flex items-center space-x-3">
-                  <span><strong>Lock schedule:</strong> {selectedBuildingObj.locksAt}</span>
+                <div className="text-gray-600 text-[11px] flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span><strong>Hours:</strong> {selectedBuildingObj.locksAt}</span>
                   <span>•</span>
                   <span><strong>Weekends:</strong> {selectedBuildingObj.weekendStatus}</span>
+                  {selectedBuildingObj.address && (
+                    <>
+                      <span>•</span>
+                      <a href={selectedBuildingObj.mapUrl} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-0.5">
+                        <MapPin className="w-3 h-3" /> {selectedBuildingObj.address}
+                      </a>
+                    </>
+                  )}
                 </div>
                 <p className="text-gray-500 text-[11px] pt-0.5">
                   {selectedBuildingObj.notes}
                 </p>
                 {selectedBuildingObj.isLibrary && (
                   <div className="mt-1 text-emerald-700 font-bold text-[11px]">
-                    ✓ You already have automatic access to this library! No request is needed.
+                    ✓ This library is open to students during its posted hours. No request is needed.
                   </div>
                 )}
               </div>
@@ -1382,7 +707,9 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                 All Ohio State Campus Buildings ({ALL_CAMPUS_BUILDINGS.length})
               </h3>
               <p className="text-xs text-gray-500">
-                Every academic building, laboratory, studio, and facility across North, South, Central, and West campus.
+                Every Columbus and Medical Center building in the{' '}
+                <a href="https://maps.osu.edu" target="_blank" rel="noreferrer" className="underline">OSU buildings directory</a>.
+                Hours are shown only where OSU publishes them ({BUILDINGS_WITH_HOURS.length} buildings); study spot details checked {campusData.studySpotsVerifiedOn}.
               </p>
             </div>
 
@@ -1391,7 +718,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by name, code, or area..."
+                placeholder="Search by name, code, or department..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:border-[#ba0c2f] outline-none"
@@ -1454,12 +781,17 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                       </span>
                       {building.isLibrary && (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
-                          Automatic BuckID Access
+                          Open to students
+                        </span>
+                      )}
+                      {building.studySpots.length > 0 && (
+                        <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded">
+                          Study spot
                         </span>
                       )}
                     </div>
                     <div className="text-[11px] text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                      <span><strong>Locks:</strong> {building.locksAt}</span>
+                      <span><strong>Hours:</strong> {building.locksAt}</span>
                       <span>•</span>
                       <span><strong>Weekends:</strong> {building.weekendStatus}</span>
                       <span>•</span>
@@ -1470,6 +802,13 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                     <div className="text-[11px] text-gray-500">
                       {building.notes}
                     </div>
+                    <button
+                      onClick={() => setExpandedBuildingId(expandedBuildingId === building.id ? null : building.id)}
+                      className="text-[11px] font-semibold text-[#ba0c2f] hover:underline"
+                    >
+                      {expandedBuildingId === building.id ? 'Hide details' : 'Hours, access & amenities'}
+                    </button>
+                    {expandedBuildingId === building.id && <BuildingDetails building={building} />}
                   </div>
 
                   {!building.isLibrary && (
