@@ -7,7 +7,7 @@ import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
 import { MyClassesEditor } from './MyClassesEditor';
-import { StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
+import { PlanTerms, StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
 import { Semester } from '../data/sampleData';
 import { Curriculum, loadCurriculum } from '../lib/requirements';
 import App from '../App';
@@ -70,6 +70,14 @@ export const AuthGate: React.FC = () => {
     setRecord({ ...next, semesters: normalizeSemesters(next.semesters.filter((s) => s.courses.length > 0)) });
     setEditing(false);
     setVersion((v) => v + 1);
+  };
+
+  // Saves which future terms the student wants classes in (asked before each roadmap build)
+  const handlePlanTermsChange = (plan_terms: PlanTerms) => {
+    if (!record) return;
+    const next = { ...record, plan_terms };
+    setRecord(next);
+    saveStudentRecord(userId, next).catch((err) => console.warn('Could not save term choices:', err));
   };
 
   const handleRoadmapChange = (semesters: Semester[]) => {
@@ -151,6 +159,8 @@ export const AuthGate: React.FC = () => {
           initialRoadmap={normalizeSemesters(record!.semesters)}
           onRoadmapChange={handleRoadmapChange}
           curriculum={curriculum}
+          planTerms={record!.plan_terms ?? null}
+          onPlanTermsChange={handlePlanTermsChange}
         />
       )}
     </div>

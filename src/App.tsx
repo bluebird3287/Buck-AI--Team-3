@@ -12,7 +12,8 @@ import { AiChatWidget, ChatMessage } from './components/AiChatWidget';
 import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
-import { normalizeSemesters } from './lib/studentProfile';
+import { PlanTerms, activePlanTerms, defaultPlanTerms, normalizeSemesters, parseTerm } from './lib/studentProfile';
+import { TermPlanModal } from './components/TermPlanModal';
 import { loadChatLog, saveChatMessage } from './lib/chatLog';
 import { Curriculum, auditDegree, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
@@ -25,6 +26,8 @@ interface AppProps {
   initialRoadmap: Semester[];
   onRoadmapChange: (semesters: Semester[]) => void;
   curriculum: Curriculum | null;
+  planTerms?: PlanTerms | null; // saved term choices; asked again before each roadmap build
+  onPlanTermsChange?: (plan: PlanTerms) => void;
 }
 
 // "Build me a roadmap", "make my 4-year plan", "redo my schedule for next year"…
@@ -51,7 +54,7 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
   };
 }
 
-export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum }: AppProps) {
+export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
@@ -248,13 +251,24 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // Handle Dynamic Roadmap updates via Claude
   // Asks Claude for a plan, then checks it against Fisher's requirements and sends any gaps back
   // to be fixed (up to two rounds), so the saved plan covers every requirement BuckAI can track.
-  const buildRoadmap = async (promptText: string): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
+  const buildRoadmap = async (promptText: string, terms: PlanTerms): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
     setIsRoadmapUpdating(true);
     try {
       const locked = roadmap.filter((s) => s.status !== 'planned');
       const lockedIds = new Set(locked.map((s) => s.id));
+      // Only the terms the student chose (e.g. no summers), through their graduation term
+      const allowed = activePlanTerms(terms, roadmap);
+      const allowedIds = new Set(allowed.map((t) => t.id));
+      const termRule = `Schedule classes ONLY in these terms: ${allowed.map((t) => t.label).join(', ')} (graduating ${
+        parseTerm({ id: terms.graduation }) ? terms.graduation.replace('-', ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'on time'
+      }). Use ids like "spring-2027". Do not put classes in any other term, including summers that aren't listed.`;
+      // Courses placed in terms the student didn't choose
+      const termGaps = (p: Semester[]) =>
+        p
+          .filter((s) => s.status === 'planned' && s.courses.length && !allowedIds.has(s.id))
+          .map((s) => `Move every class out of ${s.name}; the student isn't taking classes that term (use only: ${allowed.map((t) => t.label).join(', ')})`);
       let plan = roadmap;
-      let prompt = promptText;
+      let prompt = `${promptText}\n${termRule}`;
       let gaps: string[] = [];
 
       for (let round = 0; round < 3; round++) {
@@ -286,11 +300,16 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
               courses: (s.courses ?? []).map((c) => ({ ...c, prereqMet: c.prereqMet ?? true, type: c.type ?? 'General', difficulty: c.difficulty ?? 3 })),
             })),
         ]);
-        if (!curriculum) break;
+        if (!curriculum) {
+          gaps = termGaps(plan);
+          if (!gaps.length) break;
+          prompt = `Revise the plan. Fix only these problems:\n- ${gaps.join('\n- ')}\n${termRule}`;
+          continue;
+        }
         setRoadmapStage('Checking the plan against your requirements and prerequisites');
-        gaps = planGaps(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits));
+        gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits))];
         if (!gaps.length) break;
-        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}`;
+        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}\n${termRule}`;
       }
 
       if (plan === roadmap) return null;
@@ -306,9 +325,21 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     }
   };
 
+  // Before any plan is built, ask which terms the student wants classes in (e.g. no summers).
+  // Resolves with their choice, or null if they cancel.
+  const [termPrompt, setTermPrompt] = useState<{ resolve: (plan: PlanTerms | null) => void } | null>(null);
+  const askTermPlan = () => new Promise<PlanTerms | null>((resolve) => setTermPrompt({ resolve }));
+  const closeTermPrompt = (plan: PlanTerms | null) => {
+    if (plan) onPlanTermsChange?.(plan);
+    termPrompt?.resolve(plan);
+    setTermPrompt(null);
+  };
+
   // From the 4-Year Plan tab: build, then say what's still missing, if anything.
   const handleUpdateRoadmap = async (promptText: string) => {
-    const result = await buildRoadmap(promptText);
+    const terms = await askTermPlan();
+    if (!terms) return;
+    const result = await buildRoadmap(promptText, terms);
     const gaps = result?.gaps ?? [];
     if (!gaps.length) return;
     setMessages((prev) => [
@@ -331,10 +362,27 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const statusId = `msg-${Date.now()}-plan`;
     setMessages((prev) => [
       ...prev,
-      { id: statusId, role: 'assistant', text: 'Building your 4-year plan and checking it against Fisher’s requirements… this can take up to a minute.', pending: true },
+      { id: statusId, role: 'assistant', text: 'Before I build it, choose the terms you want to take classes in.', pending: true },
     ]);
+    const terms = await askTermPlan();
+    if (!terms) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === statusId ? { id: statusId, role: 'assistant', text: "OK, I didn't change your plan. Ask me again whenever you're ready." } : m,
+        ),
+      );
+      return;
+    }
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === statusId
+          ? { ...m, text: 'Building your 4-year plan in the terms you chose and checking it against Fisher’s requirements… this can take up to a minute.' }
+          : m,
+      ),
+    );
     const result = await buildRoadmap(
       `${instructions}\nBuild a complete plan through graduation that covers every remaining Fisher requirement for the student's specialization(s), respects prerequisites, and balances workload.`,
+      terms,
     );
     let reply: ChatMessage;
     if (!result) {
@@ -548,6 +596,16 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         curriculum={curriculum}
         specializationIds={specializationIds}
       />
+
+      {/* Which terms to plan, asked before every roadmap build */}
+      {termPrompt && (
+        <TermPlanModal
+          roadmap={roadmap}
+          initial={planTerms ?? defaultPlanTerms(roadmap)}
+          onConfirm={(plan) => closeTermPrompt(plan)}
+          onCancel={() => closeTermPrompt(null)}
+        />
+      )}
 
       {/* Survey Insights Modal */}
       <SurveyModal

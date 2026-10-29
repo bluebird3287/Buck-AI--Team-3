@@ -13,6 +13,7 @@ export interface StudentRecord {
   semesters: Semester[];
   specialization_id?: string | null; // older rows; use specialization_ids
   specialization_ids?: string[];
+  plan_terms?: PlanTerms | null; // which future terms they want to take classes in
   // From the advising report, when the student uploaded one
   earned_credits?: number | null;
   advisor_name?: string | null;
@@ -61,7 +62,7 @@ export function parseTerm(sem: Pick<Semester, 'id'>): { season: Season; year: nu
   return { season: (m[1][0].toUpperCase() + m[1].slice(1)) as Season, year: Number(m[2]) };
 }
 
-const termKey = (season: Season, year: number) => year * 3 + SEASON_ORDER[season];
+export const termKey = (season: Season, year: number) => year * 3 + SEASON_ORDER[season];
 
 // Ohio State's academic year starts in Autumn, so Spring/Summer belong to the prior year's Autumn.
 const academicYearStart = (season: Season, year: number) => (season === 'Autumn' ? year : year - 1);
@@ -148,7 +149,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
   const { data, error } = await supabase
     .from('student_profiles')
-    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, specialization_id, specialization_ids')
+    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, specialization_id, specialization_ids, plan_terms')
     .maybeSingle();
   if (error) throw error;
   return data as StudentRecord | null;
@@ -163,3 +164,59 @@ export async function saveStudentRecord(userId: string, record: StudentRecord): 
   });
   if (error) throw error;
 }
+
+// ---------- Which future terms a student plans to take classes in ----------
+
+export interface PlanTerms {
+  terms: string[]; // term ids, e.g. 'spring-2027'
+  graduation: string; // term id of the target graduation term
+}
+
+export interface TermOption {
+  id: string;
+  season: Season;
+  year: number;
+  label: string;
+}
+
+// Ohio State's academic year starts in Autumn, so Spring/Summer belong to the prior year's Autumn.
+export const academicYearOf = (season: Season, year: number) => (season === 'Autumn' ? year : year - 1);
+
+// The academic year the student started, from their earliest term (or this year).
+export function firstAcademicYear(semesters: Semester[]): number {
+  const starts = semesters.map(parseTerm).filter(Boolean).map((t) => academicYearOf(t!.season, t!.year));
+  return starts.length ? Math.min(...starts) : academicYearOf(CURRENT_TERM.season, CURRENT_TERM.year);
+}
+
+// Terms after the current one, through the end of the student's 6th academic year.
+export function futureTerms(semesters: Semester[]): TermOption[] {
+  const first = firstAcademicYear(semesters);
+  const now = termKey(CURRENT_TERM.season, CURRENT_TERM.year);
+  const out: TermOption[] = [];
+  for (let ay = first; ay < first + 6; ay++) {
+    for (const [season, year] of [['Autumn', ay], ['Spring', ay + 1], ['Summer', ay + 1]] as [Season, number][]) {
+      if (termKey(season, year) <= now) continue;
+      out.push({ id: termId(season, year), season, year, label: `${season} ${year}` });
+    }
+  }
+  return out;
+}
+
+// Default: Autumn and Spring terms (no summers) through Spring of the student's 4th year.
+export function defaultPlanTerms(semesters: Semester[]): PlanTerms {
+  const graduation = termId('Spring', firstAcademicYear(semesters) + 4);
+  const gradKey = termKey('Spring', firstAcademicYear(semesters) + 4);
+  const terms = futureTerms(semesters)
+    .filter((t) => t.season !== 'Summer' && termKey(t.season, t.year) <= gradKey)
+    .map((t) => t.id);
+  return { terms, graduation };
+}
+
+// The chosen terms that fall on or before graduation, in order.
+export function activePlanTerms(plan: PlanTerms, semesters: Semester[]): TermOption[] {
+  const grad = parseTerm({ id: plan.graduation });
+  const gradKey = grad ? termKey(grad.season, grad.year) : Infinity;
+  const chosen = new Set(plan.terms);
+  return futureTerms(semesters).filter((t) => chosen.has(t.id) && termKey(t.season, t.year) <= gradKey);
+}
+
