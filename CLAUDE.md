@@ -67,8 +67,13 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
   the OAA proposal's curriculum sheet.
 - `src/lib/requirements.ts` checks a student's classes against those requirements (grades,
   "choose N" and credit-hour electives, prerequisites) and feeds the result to the AI.
-- GE Foundations/Themes that are student choice are shown as "confirm with advisor"; they
-  can't be checked from course codes alone.
+- GE Foundations and Themes (requirement group kind `ge`) are checked against the registrar's
+  GEN tags in `src/data/geCourses.json` (refresh each term with `python3 scripts/build_ge_data.py`).
+  One course fills one GE category; a Theme is one 4-credit course or two 3-credit courses from
+  different subjects; Citizenship plus one other Theme.
+- `requirement_courses.offered_terms` (from the Autumn 2026/Spring 2027 schedule; `None` = not
+  scheduled) and `min_standing` (30/60/90 earned hours) drive the plan's timing checks.
+  Planned courses must be real course codes; only `ELECTIVE` is allowed as a placeholder.
 - Fisher's Autumn 2027 redesigned curriculum isn't published yet; add it as new programs
   when it is.
 - Fisher minors (kind `minor`) power the What-If Minor Audit. `excluded_programs` marks

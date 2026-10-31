@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Clock, CalendarClock, Circle, AlertTriangle, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { DegreeAudit, GroupProgress, ItemState, ProgramProgress } from '../lib/requirements';
+import { DegreeAudit, GroupProgress, ItemState, ProgramProgress, geExamples } from '../lib/requirements';
 
 const STATE_STYLE: Record<ItemState | 'manual', { label: string; cls: string; Icon: React.FC<{ className?: string }> }> = {
   done: { label: 'Complete', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200', Icon: CheckCircle2 },
@@ -21,6 +21,7 @@ export const Badge: React.FC<{ state: ItemState | 'manual' }> = ({ state }) => {
 
 function progressText(g: GroupProgress): string {
   if (g.state === 'manual') return g.group.min_credits ? `${g.group.min_credits}+ credit hours` : '';
+  if (g.group.kind === 'ge') return g.state === 'missing' ? `${g.group.min_credits ?? 3}+ credit hours` : `${g.creditsCounted} credit hours`;
   if (g.group.kind === 'choose_credits') return `${g.creditsCounted} of ${g.creditsNeeded} credit hours`;
   return `${g.coursesCounted} of ${g.coursesNeeded} ${g.coursesNeeded === 1 ? 'course' : 'courses'}`;
 }
@@ -52,7 +53,7 @@ export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
                 {item.takenAs && <span className="text-gray-500"> · taken as {item.takenAs}</span>}
                 {item.term && <span className="text-gray-500"> · {item.term}</span>}
                 {item.issue && <span className="block text-[#ba0c2f] mt-0.5">{item.issue}</span>}
-                {item.viaEquivalent && <span className="block text-amber-700 mt-0.5">{item.notes}</span>}
+                {(item.viaEquivalent || (g.group.kind === 'ge' && item.notes)) && <span className="block text-amber-700 mt-0.5">{item.notes}</span>}
               </span>
               <Badge state={item.state} />
             </li>
@@ -75,11 +76,29 @@ export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
                 <li key={c.code} className="text-xs border border-gray-100 rounded px-3 py-1.5" title={c.prerequisites ?? ''}>
                   <strong>{c.code}</strong> <span className="text-gray-600">{c.title}</span>
                   {c.credits != null && <span className="text-gray-500"> · {c.credits} cr</span>}
+                  {c.offered_terms?.includes('None') ? (
+                    <span className="block text-gray-500">Not on the Autumn 2026 / Spring 2027 schedule</span>
+                  ) : c.offered_terms?.length ? (
+                    <span className="block text-gray-500">{c.offered_terms.join('/')} only</span>
+                  ) : null}
                   {c.notes && <span className="block text-gray-500">{c.notes}</span>}
                 </li>
               ))}
             </ul>
           )}
+        </div>
+      )}
+      {g.group.kind === 'ge' && g.state === 'missing' && (
+        <div className="text-xs text-gray-600">
+          <p className="font-semibold text-gray-700">Some Autumn 2026 / Spring 2027 courses that count:</p>
+          <ul className="mt-1 list-disc pl-4 space-y-0.5">
+            {geExamples(g.group.ge_category ?? '', 5).map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          <a href="https://classes.osu.edu" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-[#ba0c2f] hover:underline">
+            Search all GEN courses on Class Search <ExternalLink className="w-3 h-3" />
+          </a>
         </div>
       )}
       {g.group.code_pattern && g.state === 'missing' && (
@@ -178,6 +197,20 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
           {audit.prereqWarnings.map((w) => (
             <p key={w.code + w.term} className="text-xs text-red-900">
               <strong>{w.code}</strong> ({w.term}) needs {w.missing.join('; ')} completed in an earlier term.
+            </p>
+          ))}
+        </div>
+      )}
+
+      {audit.scheduleWarnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-1.5">
+          <h4 className="font-bold text-sm text-amber-900 flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4" /> Timing issues in your plan
+          </h4>
+          {audit.scheduleWarnings.map((w) => (
+            <p key={w.code + w.term + w.message} className={`text-xs ${w.blocking ? 'text-red-900' : 'text-amber-900'}`}>
+              {w.blocking ? '' : 'Note: '}
+              {w.message}
             </p>
           ))}
         </div>

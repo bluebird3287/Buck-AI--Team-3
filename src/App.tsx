@@ -15,7 +15,7 @@ import { SummaryConfirmationView } from './components/SummaryConfirmationView';
 import { PlanTerms, activePlanTerms, defaultPlanTerms, normalizeSemesters, parseTerm } from './lib/studentProfile';
 import { TermPlanModal } from './components/TermPlanModal';
 import { loadChatLog, saveChatMessage } from './lib/chatLog';
-import { Curriculum, auditDegree, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
+import { Curriculum, auditDegree, catalogCredits, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -297,7 +297,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             .map((s: Semester) => ({
               ...s,
               status: 'planned' as const,
-              courses: (s.courses ?? []).map((c) => ({ ...c, prereqMet: c.prereqMet ?? true, type: c.type ?? 'General', difficulty: c.difficulty ?? 3 })),
+              // Use official credit hours where known (the AI sometimes guesses, e.g. 3 for 1.5-credit classes)
+              courses: (s.courses ?? []).map((c) => ({
+                ...c,
+                credits: catalogCredits(curriculum, c.code) ?? c.credits,
+                prereqMet: c.prereqMet ?? true,
+                type: c.type ?? 'General',
+                difficulty: c.difficulty ?? 3,
+              })),
             })),
         ]);
         if (!curriculum) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, BookOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -72,20 +72,22 @@ export const AuthGate: React.FC = () => {
     setVersion((v) => v + 1);
   };
 
-  // Saves which future terms the student wants classes in (asked before each roadmap build)
-  const handlePlanTermsChange = (plan_terms: PlanTerms) => {
-    if (!record) return;
-    const next = { ...record, plan_terms };
+  // The latest record, for saves that finish after a long roadmap build: the handler passed down when
+  // the build started would otherwise save an older copy and drop changes made since (e.g. term choices).
+  const latestRecord = useRef(record);
+  latestRecord.current = record;
+  const updateRecord = (patch: Partial<StudentRecord>, what: string) => {
+    if (!latestRecord.current) return;
+    const next = { ...latestRecord.current, ...patch };
+    latestRecord.current = next;
     setRecord(next);
-    saveStudentRecord(userId, next).catch((err) => console.warn('Could not save term choices:', err));
+    saveStudentRecord(userId, next).catch((err) => console.warn(`Could not save ${what}:`, err));
   };
 
-  const handleRoadmapChange = (semesters: Semester[]) => {
-    if (!record) return;
-    const next = { ...record, semesters };
-    setRecord(next);
-    saveStudentRecord(userId, next).catch((err) => console.warn('Could not save roadmap:', err));
-  };
+  // Saves which future terms the student wants classes in (asked before each roadmap build)
+  const handlePlanTermsChange = (plan_terms: PlanTerms) => updateRecord({ plan_terms }, 'term choices');
+
+  const handleRoadmapChange = (semesters: Semester[]) => updateRecord({ semesters }, 'roadmap');
 
   if (loading || (session && role === 'student' && loadedFor !== userId)) {
     return (

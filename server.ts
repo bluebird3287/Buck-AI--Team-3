@@ -704,10 +704,14 @@ Rules for "semesters":
 - Never plan a course they've already taken. Respect prerequisites against the classes they entered.
 - "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
 - Plan through graduation at 121 total credits (Fisher's BSBA minimum).
-- Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options.
-- Place every course after its prerequisites (in an earlier term), and respect "Autumn only" / "Spring only" notes.
-- Leave room for the GE categories that are not tracked automatically (Arts, Historical & Cultural, Natural Science, Diversity, two Themes) if the student has not covered them, using generic placeholders like "GE-THEME-CITIZENSHIP".
-- BUSMHR 4490 Strategic Management requires senior standing, so it belongs in the final year.
+- Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options, preferring ones on the current schedule.
+- Use the credit hours shown in the requirements check (several Finance electives are 1.5 credits, not 3).
+- Place every course after its prerequisites (in an earlier term). A course marked "Autumn only" goes in an Autumn term and "Spring only" in a Spring term.
+- Respect class standing: sophomore = 30, junior = 60, senior = 90 earned credit hours before the term starts. BUSMHR 4490 needs senior standing, so it belongs in the final year.
+- GE: fill each MISSING GE category with a real, specific course from the "Real courses that count" list (or another real course in that GEN category). One course can't count for two GE categories. A Theme needs one 4-credit course, or two 3-credit courses from different subjects in the same Theme; Citizenship is required plus one other Theme.
+- Tech Innovation, if the student has it: Builders Studio I-IV run Autumn (3801), Spring (3802), Autumn (4803), Spring (4804) in consecutive terms, starting the Autumn after the immersion semester (BUSADM 2801/2802).
+- Never use made-up placeholder codes (like "GE-ARTS" or "IB-MINOR-1"). Every course must be a real Ohio State course code, except "ELECTIVE" for a free elective when the student needs more hours.
+- Keep each term at 12-18 credit hours.
 
 Keep the JSON compact: only the fields shown, short course titles, no extra commentary. The app computes term names, credit totals, and workload itself.
 

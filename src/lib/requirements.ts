@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { Course, Semester } from '../data/sampleData';
+import geData from '../data/geCourses.json';
 
 // ---------- Curriculum (public tables: programs, requirement_groups, requirement_courses) ----------
 
@@ -13,18 +14,21 @@ export interface RequirementCourse {
   equivalents: string[]; // codes that may substitute; confirm with advisor
   is_secondary: boolean;
   notes: string | null;
+  offered_terms?: string[]; // [] = Autumn and Spring; ['Autumn'] / ['Spring'] = that season only; ['None'] = not on the current schedule
+  min_standing?: number | null; // earned credit hours needed before taking it (30 sophomore, 60 junior, 90 senior)
 }
 
 export interface RequirementGroup {
   id: string;
   title: string;
-  kind: 'all' | 'choose_courses' | 'choose_credits' | 'manual';
+  kind: 'all' | 'choose_courses' | 'choose_credits' | 'manual' | 'ge';
   min_courses: number | null;
   min_credits: number | null;
   max_secondary_credits: number | null;
   code_pattern: string | null;
   exclude_codes: string[];
   notes: string | null;
+  ge_category?: string | null; // for kind 'ge': writing, math, sbs, arts, history, natsci, diversity, theme-citizenship, theme-other
   courses: RequirementCourse[];
 }
 
@@ -52,11 +56,11 @@ export async function loadCurriculum(): Promise<Curriculum> {
     supabase.from('programs').select('id, kind, name, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs').order('sort_order'),
     supabase
       .from('requirement_groups')
-      .select('id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes')
+      .select('id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes, ge_category')
       .order('sort_order'),
     supabase
       .from('requirement_courses')
-      .select('group_id, code, title, credits, prerequisites, min_grade, alternates, equivalents, is_secondary, notes')
+      .select('group_id, code, title, credits, prerequisites, min_grade, alternates, equivalents, is_secondary, notes, offered_terms, min_standing')
       .order('sort_order'),
   ]);
   const error = programs.error || groups.error || courses.error;
@@ -305,7 +309,183 @@ function checkGroup(group: RequirementGroup, taken: TakenCourse[], used: Set<Tak
 export function checkProgram(program: Program, semesters: Semester[]): ProgramProgress {
   const taken = flatten(semesters);
   const used = new Set<TakenCourse>();
-  return { program, groups: program.groups.map((g) => checkGroup(g, taken, used)) };
+  const ge = checkGe(program.groups.filter((g) => g.kind === 'ge'), taken);
+  return { program, groups: program.groups.map((g) => (g.kind === 'ge' ? ge.get(g)! : checkGroup(g, taken, used))) };
+}
+
+// ---------- General Education (GEN) ----------
+// Course categories come from the registrar's GEN tags and ASC's approved lists (src/data/geCourses.json,
+// built by scripts/build_ge_data.py). OSU rules applied here:
+// - each GE category needs its own course (one course can't fill two GE categories);
+// - GE Foundations may also count toward the business foundation (ENGLISH 1110, ECON 2001, ...);
+// - a Theme is one 4-credit course, or two courses of 3+ credits from different subjects, in that Theme;
+// - Citizenship is required, plus one other Theme.
+
+interface GeEntry {
+  title: string;
+  credits: number | null;
+  categories: string[];
+  terms: string[];
+}
+
+const GE_COURSES = (geData as unknown as { courses: Record<string, GeEntry> }).courses;
+const GE_BY_BASE = new Map<string, GeEntry[]>();
+for (const [code, entry] of Object.entries(GE_COURSES)) {
+  const base = code.replace(/\.\d{2}H?$/, '');
+  GE_BY_BASE.set(base, [...(GE_BY_BASE.get(base) ?? []), entry]);
+}
+
+export const GE_NAMES: Record<string, string> = {
+  writing: 'Writing & Information Literacy',
+  math: 'Mathematical & Quantitative Reasoning',
+  sbs: 'Social & Behavioral Sciences',
+  arts: 'Literary, Visual & Performing Arts',
+  history: 'Historical & Cultural Studies',
+  natsci: 'Natural Sciences',
+  diversity: 'Race, Ethnicity & Gender Diversity',
+  'theme-citizenship': 'Citizenship for a Diverse & Just World',
+  'theme-lived-environments': 'Lived Environments',
+  'theme-sustainability': 'Sustainability',
+  'theme-health': 'Health & Well-being',
+  'theme-traditions': 'Traditions, Cultures & Transformations',
+  'theme-origins': 'Origins & Evolution',
+  'theme-number-nature-mind': 'Number, Nature, Mind',
+  'theme-migration': 'Migration, Mobility & Immobility',
+};
+const OTHER_THEMES = Object.keys(GE_NAMES).filter((c) => c.startsWith('theme-') && c !== 'theme-citizenship');
+
+// GE categories for a course code. A code with a section number (ENGLISH 2367.01) must match exactly
+// (or its plain number); "ENGLISH 1110" without one gets only the categories every section shares,
+// since sections of one number can carry different GE tags.
+export function geCategories(code: string): string[] {
+  const c = norm(code);
+  const base = c.replace(/\.\d{2}H?$/, '');
+  if (GE_COURSES[c]) return GE_COURSES[c].categories;
+  if (c !== base) return GE_COURSES[base]?.categories ?? [];
+  const sections = GE_BY_BASE.get(base) ?? [];
+  return sections.length ? sections[0].categories.filter((cat) => sections.every((e) => e.categories.includes(cat))) : [];
+}
+
+export function geCourseInfo(code: string): GeEntry | null {
+  const c = norm(code);
+  return GE_COURSES[c] ?? GE_COURSES[c.replace(/\.\d{2}H?$/, '')] ?? GE_BY_BASE.get(c)?.[0] ?? null;
+}
+
+// Real GE courses in a category, for suggestions: ones offered both Autumn 2026 and Spring 2027 first,
+// then lower-level ones, one per subject so the list shows a range.
+export function geExamples(category: string, count = 6): string[] {
+  const cats = category === 'theme-other' ? OTHER_THEMES : [category];
+  const minCredits = category === 'natsci' ? 4 : 3;
+  const seen = new Set<string>();
+  return Object.entries(GE_COURSES)
+    // Engineering-only sections aren't useful suggestions for business students
+    .filter(([, e]) => e.categories.some((x) => cats.includes(x)) && (e.credits ?? 0) >= minCredits && e.terms.length && !/engineering/i.test(e.title))
+    .sort(([a, x], [b, y]) => y.terms.length - x.terms.length || Number(a.split(' ')[1]) - Number(b.split(' ')[1]))
+    .filter(([code]) => !seen.has(code.split(' ')[0]) && !!seen.add(code.split(' ')[0]))
+    .slice(0, count)
+    .map(([code, e]) => `${code} ${e.title} (${e.credits} cr${category === 'theme-other' ? `, ${GE_NAMES[e.categories.find((x) => cats.includes(x))!]}` : ''})`);
+}
+
+const subject = (code: string) => code.split(' ')[0];
+const theme = (cat: string) => GE_NAMES[cat] ?? cat;
+
+function checkGe(groups: RequirementGroup[], taken: TakenCourse[]): Map<RequirementGroup, GroupProgress> {
+  // GE-tagged courses the student has (passing or not yet graded)
+  const pool = taken
+    .filter((t) => !(t.state === 'done' && !passes(t.grade, null)))
+    .map((t) => ({ t, cats: geCategories(t.code), credits: t.credits || geCourseInfo(t.code)?.credits || 0 }))
+    .filter((x) => x.cats.length);
+  type Pick = typeof pool[number];
+  type Option = { picks: Pick[]; cat: string };
+
+  // Every way each group can be met, as sets of 1-2 courses
+  const optionsFor = (g: RequirementGroup): Option[] => {
+    const cat = g.ge_category ?? '';
+    const min = g.min_credits ?? 3;
+    const out: Option[] = [];
+    const cats = cat === 'theme-other' ? OTHER_THEMES : [cat];
+    for (const c of cats) {
+      const inCat = pool.filter((p) => p.cats.includes(c));
+      const isTheme = c.startsWith('theme-');
+      for (const p of inCat) if (p.credits >= (isTheme ? 4 : min)) out.push({ picks: [p], cat: c });
+      for (let i = 0; i < inCat.length; i++)
+        for (let j = i + 1; j < inCat.length; j++) {
+          const [a, b] = [inCat[i], inCat[j]];
+          if (isTheme ? a.credits >= 3 && b.credits >= 3 && subject(a.t.code) !== subject(b.t.code) : a.credits < min && a.credits + b.credits >= min)
+            out.push({ picks: [a, b], cat: c });
+        }
+    }
+    return out;
+  };
+  const options = groups.map(optionsFor);
+
+  // Pick the assignment that meets the most groups, preferring finished classes over planned ones.
+  const cost = (o: Option) => o.picks.reduce((n, p) => n + STATE_RANK[p.t.state] + 1, 0);
+  let best: { met: number; cost: number; choice: (Option | null)[] } = { met: -1, cost: Infinity, choice: [] };
+  const choice: (Option | null)[] = [];
+  const usedNow = new Set<Pick>();
+  const search = (i: number, met: number, c: number) => {
+    if (met + (groups.length - i) < best.met) return;
+    if (i === groups.length) {
+      if (met > best.met || (met === best.met && c < best.cost)) best = { met, cost: c, choice: [...choice] };
+      return;
+    }
+    for (const o of options[i]) {
+      if (o.picks.some((p) => usedNow.has(p))) continue;
+      o.picks.forEach((p) => usedNow.add(p));
+      choice.push(o);
+      search(i + 1, met + 1, c + cost(o));
+      choice.pop();
+      o.picks.forEach((p) => usedNow.delete(p));
+    }
+    choice.push(null);
+    search(i + 1, met, c);
+    choice.pop();
+  };
+  search(0, 0, 0);
+
+  const usedFinal = new Set(best.choice.flatMap((o) => o?.picks ?? []));
+  const result = new Map<RequirementGroup, GroupProgress>();
+  groups.forEach((g, i) => {
+    const o = best.choice[i];
+    const base = { group: g, creditsNeeded: g.min_credits, coursesNeeded: null };
+    const item = (p: Pick, cat: string, issue?: string): RequirementItem => ({
+      code: p.t.code,
+      title: geCourseInfo(p.t.code)?.title ?? p.t.code,
+      credits: p.credits,
+      state: issue ? 'missing' : p.t.state,
+      term: p.t.term,
+      issue,
+      notes: g.ge_category === 'theme-other' ? `${theme(cat)} Theme` : null,
+    });
+    if (o) {
+      result.set(g, {
+        ...base,
+        state: rollup(o.picks.map((p) => p.t.state)),
+        items: o.picks.map((p) => item(p, o.cat)),
+        creditsCounted: o.picks.reduce((n, p) => n + p.credits, 0),
+        coursesCounted: o.picks.length,
+      });
+      return;
+    }
+    // Not met: show a course that's partway there (e.g. one 3-credit Theme course), if any
+    const cats = g.ge_category === 'theme-other' ? OTHER_THEMES : [g.ge_category ?? ''];
+    const partial = pool.find((p) => !usedFinal.has(p) && p.cats.some((c) => cats.includes(c)));
+    const cat = partial?.cats.find((c) => cats.includes(c)) ?? '';
+    const issue = !partial
+      ? undefined
+      : cat.startsWith('theme-')
+      ? `Needs one more 3+ credit ${theme(cat)} course from a subject other than ${subject(partial.t.code)} (or one 4-credit course in a Theme)`
+      : `Needs ${g.min_credits ?? 3} credit hours in this category`;
+    result.set(g, {
+      ...base,
+      state: 'missing',
+      items: partial ? [item(partial, cat, issue)] : [],
+      creditsCounted: 0,
+      coursesCounted: 0,
+    });
+  });
+  return result;
 }
 
 // ---------- Prerequisites for current and planned classes ----------
@@ -386,12 +566,81 @@ export function checkPrerequisites(curriculum: Curriculum, semesters: Semester[]
   return warnings;
 }
 
+// ---------- When a class can be taken: season offered, class standing, real course codes ----------
+
+export interface ScheduleWarning {
+  code: string;
+  term: string;
+  message: string;
+  blocking: boolean; // false = advisory only (e.g. not on the current schedule yet)
+}
+
+const STANDING_NAMES: Record<number, string> = { 30: 'sophomore', 60: 'junior', 90: 'senior' };
+const REAL_CODE = /^[A-Z][A-Z&]{1,9} \d{4}(\.\d{2})?[A-Z]?$/;
+export const isPlaceholderCode = (code: string) => norm(code) !== 'ELECTIVE' && !REAL_CODE.test(norm(code));
+
+export function checkSchedule(curriculum: Curriculum, semesters: Semester[], earnedCredits: number): ScheduleWarning[] {
+  const reqs = new Map<string, RequirementCourse>();
+  for (const p of [curriculum.degree, ...curriculum.specializations])
+    for (const g of p.groups)
+      for (const c of g.courses) {
+        const prev = reqs.get(norm(c.code));
+        if (!prev || (!prev.offered_terms?.length && c.offered_terms?.length) || (prev.min_standing == null && c.min_standing != null))
+          reqs.set(norm(c.code), { ...prev, ...c, offered_terms: c.offered_terms?.length ? c.offered_terms : prev?.offered_terms, min_standing: c.min_standing ?? prev?.min_standing });
+      }
+
+  const warnings: ScheduleWarning[] = [];
+  let creditsBefore = earnedCredits; // hours finished before each upcoming term
+  for (const s of semesters) {
+    if (s.status === 'completed') continue;
+    const season = s.name.split(' ')[0];
+    for (const c of s.courses) {
+      const code = norm(c.code);
+      if (s.status === 'planned' && isPlaceholderCode(code)) {
+        warnings.push({ code, term: s.name, blocking: true, message: `"${c.code}" isn't a real course. Replace it with an actual course (or ELECTIVE for a free elective).` });
+        continue;
+      }
+      if (s.status !== 'planned') continue;
+      const req = [...reqs.values()].find((r) => codeMatches(r.code, code));
+      const offered = req?.offered_terms ?? [];
+      if (offered.includes('None'))
+        warnings.push({ code, term: s.name, blocking: false, message: `${code} isn't on the Autumn 2026 or Spring 2027 schedule; confirm with your advisor that it will be offered in ${s.name}.` });
+      else if (offered.length && !offered.includes(season))
+        warnings.push({ code, term: s.name, blocking: true, message: `${code} is offered ${offered.join('/')} only, but it's planned for ${s.name}.` });
+      if (req?.min_standing && creditsBefore < req.min_standing)
+        warnings.push({
+          code,
+          term: s.name,
+          blocking: true,
+          message: `${code} needs ${STANDING_NAMES[req.min_standing] ?? ''} standing (${req.min_standing}+ earned credit hours); the student will have about ${creditsBefore} before ${s.name}.`,
+        });
+    }
+    const load = s.courses.reduce((n, c) => n + (Number(c.credits) || 0), 0);
+    // Ohio State: 12+ hours is full time; more than 18 needs college approval
+    if (s.status === 'planned' && load > 18)
+      warnings.push({ code: '', term: s.name, blocking: true, message: `${s.name} has ${load} credit hours; keep it at 18 or fewer (more needs college approval).` });
+    else if (s.status === 'planned' && load > 0 && load < 12)
+      warnings.push({ code: '', term: s.name, blocking: false, message: `${s.name} has ${load} credit hours, below full time (12). That can affect financial aid; check with your advisor.` });
+    creditsBefore += load;
+  }
+  return warnings;
+}
+
+// Official credit hours for a course: Fisher's requirement data first, then the registrar's GE tags.
+export function catalogCredits(curriculum: Curriculum | null, code: string): number | null {
+  const c = norm(code);
+  for (const p of curriculum ? [curriculum.degree, ...curriculum.specializations, ...curriculum.minors] : [])
+    for (const g of p.groups) for (const r of g.courses) if (r.credits != null && norm(r.code) === c) return r.credits;
+  return GE_COURSES[c]?.credits ?? null;
+}
+
 // ---------- Whole-degree summary ----------
 
 export interface DegreeAudit {
   degree: ProgramProgress;
   specializations: ProgramProgress[]; // a student may have more than one
   prereqWarnings: PrereqWarning[];
+  scheduleWarnings: ScheduleWarning[];
   credits: { earned: number; inProgress: number; planned: number; required: number };
   specializationGpas: { name: string; gpa: number }[];
   // Courses counting toward more than one specialization. Fisher doesn't publish a rule for this,
@@ -440,6 +689,7 @@ export function auditDegree(
     degree: checkProgram(curriculum.degree, semesters),
     specializations: specProgress,
     prereqWarnings: checkPrerequisites(curriculum, semesters),
+    scheduleWarnings: checkSchedule(curriculum, semesters, earnedCredits),
     credits: {
       earned: earnedCredits,
       inProgress: sum('in-progress'),
@@ -461,19 +711,24 @@ export function describeAudit(audit: DegreeAudit): string {
         lines.push(`  - ${g.group.title}: not tracked automatically (${g.group.notes ?? 'confirm with advisor'})`);
         continue;
       }
+      if (g.group.kind === 'ge') {
+        const met = g.state !== 'missing';
+        const courses = g.items.map((i) => `${i.code}${i.notes ? ` – ${i.notes}` : ''}${i.issue ? ` (${i.issue})` : ''}`).join(', ');
+        lines.push(
+          `  - ${g.group.title}: ${met ? `${g.state.replace('_', ' ')} (${courses})` : `MISSING${courses ? `; has ${courses}` : ''}`}` +
+            (met ? '' : `; ${g.group.notes ? `${g.group.notes} ` : ''}Real courses that count: ${geExamples(g.group.ge_category ?? '').join('; ')}`),
+        );
+        continue;
+      }
       const missing =
         g.group.kind === 'all'
-          ? g.items.filter((i) => i.state === 'missing').map((i) => `${i.code}${i.issue ? ` (${i.issue})` : ''}`)
+          ? g.items.filter((i) => i.state === 'missing').map((i) => `${courseLabel(g.group.courses.find((c) => c.code === i.code))}${i.issue ? ` (${i.issue})` : ''}`)
           : [];
       const progress =
-        g.group.kind === 'choose_credits'
-          ? `${g.creditsCounted}/${g.creditsNeeded} credits`
-          : g.group.kind === 'choose_courses'
-          ? `${g.coursesCounted}/${g.coursesNeeded} courses`
-          : `${g.coursesCounted}/${g.coursesNeeded} courses`;
+        g.group.kind === 'choose_credits' ? `${g.creditsCounted}/${g.creditsNeeded} credits` : `${g.coursesCounted}/${g.coursesNeeded} courses`;
       const options =
         g.group.kind !== 'all' && g.state === 'missing'
-          ? `; options: ${g.group.courses.map((c) => c.code).join(', ') || g.group.notes}`
+          ? `; options: ${g.group.courses.map(courseLabel).join(', ') || g.group.notes}`
           : '';
       lines.push(
         `  - ${g.group.title}: ${g.state.replace('_', ' ')} (${progress})${missing.length ? `; still needs ${missing.join(', ')}` : ''}${options}`,
@@ -491,32 +746,50 @@ export function describeAudit(audit: DegreeAudit): string {
   lines.push(`Credits: ${c.earned} earned, ${c.inProgress} in progress, ${c.planned} planned, ${c.required} required.`);
   for (const g of audit.specializationGpas) lines.push(`${g.name} GPA so far: ${g.gpa} (2.00 required).`);
   for (const w of audit.prereqWarnings) lines.push(`Prerequisite warning: ${w.code} (${w.term}) needs ${w.missing.join('; ')} first.`);
+  for (const w of audit.scheduleWarnings) lines.push(`${w.blocking ? 'Scheduling problem' : 'Advisor note'}: ${w.message}`);
   return lines.join('\n');
 }
 
+// "BUSFIN 4201 (1.5 cr, Spring only)" for the AI prompts
+function courseLabel(c: RequirementCourse | undefined): string {
+  if (!c) return '';
+  const offered = c.offered_terms ?? [];
+  const when = offered.includes('None') ? ', not on the current schedule' : offered.length ? `, ${offered.join('/')} only` : '';
+  const standing = c.min_standing ? `, ${STANDING_NAMES[c.min_standing] ?? `${c.min_standing}+ hours`} standing` : '';
+  return `${c.code} (${c.credits ?? '?'} cr${when}${standing})`;
+}
+
 // Requirements a plan still leaves unmet, worded as instructions for fixing the plan.
-// Manual (GE choice) groups are left out because course codes can't show them.
 export function planGaps(audit: DegreeAudit): string[] {
   const gaps: string[] = [];
   for (const p of [audit.degree, ...audit.specializations]) {
     for (const g of p.groups) {
       if (g.state !== 'missing') continue;
       const where = `${p.program.name} – ${g.group.title}`;
-      if (g.group.kind === 'all') {
-        const missing = g.items.filter((i) => i.state === 'missing').map((i) => i.code);
-        gaps.push(`${where}: add ${missing.join(', ')}`);
+      // Prefer options on the current schedule
+      const scheduled = g.group.courses.filter((c) => !c.offered_terms?.includes('None'));
+      const choices = (scheduled.length ? scheduled : g.group.courses).map(courseLabel).join(', ');
+      if (g.group.kind === 'ge') {
+        const has = g.items.map((i) => `${i.code}: ${i.issue}`).join('; ');
+        gaps.push(`${where}: add a real GE course in this category${has ? ` (${has})` : ''}, e.g. ${geExamples(g.group.ge_category ?? '', 4).join('; ')}`);
+      } else if (g.group.kind === 'all') {
+        // Courses not on the current schedule are left to the advisor rather than forced into a term
+        const missing = g.items
+          .filter((i) => i.state === 'missing')
+          .map((i) => g.group.courses.find((c) => c.code === i.code))
+          .filter((c) => !c?.offered_terms?.includes('None'))
+          .map(courseLabel);
+        if (missing.length) gaps.push(`${where}: add ${missing.join(', ')}`);
       } else if (g.group.kind === 'choose_courses') {
-        gaps.push(`${where}: add ${(g.coursesNeeded ?? 1) - g.coursesCounted} more of ${g.group.courses.map((c) => c.code).join(', ')}`);
-      } else {
+        gaps.push(`${where}: add ${(g.coursesNeeded ?? 1) - g.coursesCounted} more of ${choices}`);
+      } else if (g.group.kind === 'choose_credits') {
         const short = (g.creditsNeeded ?? 0) - g.creditsCounted;
-        const options = g.group.courses.length
-          ? g.group.courses.map((c) => `${c.code} (${c.credits ?? '?'} cr)`).join(', ')
-          : g.group.notes ?? '';
-        gaps.push(`${where}: add ${short} more credit hours from ${options}`);
+        gaps.push(`${where}: add ${short} more credit hours from ${choices || g.group.notes || ''}`);
       }
     }
   }
   for (const w of audit.prereqWarnings) gaps.push(`Move ${w.code} after ${w.missing.join(' and ')} (prerequisites must be in an earlier term)`);
+  for (const w of audit.scheduleWarnings) if (w.blocking) gaps.push(w.message);
   const c = audit.credits;
   const total = c.earned + c.inProgress + c.planned;
   if (total < c.required) gaps.push(`Total is ${total} credit hours; add ${c.required - total} more to reach ${c.required} (electives or GE courses)`);

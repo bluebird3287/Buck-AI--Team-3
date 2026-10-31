@@ -68,34 +68,44 @@ PROGRAMS = [
             group("bsba-core", "Business Core", "all", [
                 c("BUSMHR 2292", "Business Skills & Environment", 3, "ENGLISH 1110 & admission to business major"),
                 c("BUSMHR 2000", "Introduction to International Business", 1.5, "ECON 2001; ECON 2002"),
-                c("BUSFIN 3500", "Legal Environment of Business", 1.5, "Sophomore standing"),
+                c("BUSFIN 3500", "Legal Environment of Business", 1.5, "Sophomore standing", min_standing=30),
                 c("BUSML 3380", "Logistics Management", 1.5, "ECON 2001; ECON 2002"),
                 c("BUSFIN 3220", "Business Finance", 3, "ECON 2001; ECON 2002; ACCTMIS 2200; prereq/concur ACCTMIS 2300"),
                 c("BUSOBA 3230", "Introduction to Operations Management", 3, "ECON 2001; ECON 2002; STAT 1430"),
                 c("BUSML 3250", "Marketing Management", 3, "ECON 2001; ECON 2002"),
                 c("BUSMHR 3200", "Organizational Behavior", 3, "ECON 2001; ECON 2002"),
                 c("BUSMHR 4490", "Strategic Management", 3,
-                  "BUSMHR 2000, 2292, 3200; BUSOBA 2320, 2321, 3230; BUSFIN 3500, 3220; BUSML 3250, 3380; Senior standing"),
+                  "BUSMHR 2000, 2292, 3200; BUSOBA 2320, 2321, 3230; BUSFIN 3500, 3220; BUSML 3250, 3380; Senior standing",
+                  min_standing=90, notes="Requires senior standing (90+ earned credit hours)"),
+            ]),
+            group("bsba-survey", "First-Year Survey", "all", [
+                c("BUSADM 1100", "College Survey (Business)", 1, None,
+                  notes="Fisher's first-year seminar (listed under Program Electives on the BSBA curriculum sheet). "
+                        "Students who transfer in may be exempt; confirm with your advisor."),
             ]),
             group("bsba-ge-bookends", "GE Launch Seminar & Reflection", "all", [
-                c("GENED 1201", "GE Launch Seminar", 1, None),
-                c("GENED 4001", "GE Reflection", 1, None),
+                c("GENED 1201", "GE Launch Seminar", 1, None, alternates=["GENED 2601.01", "GENED 2601.02"],
+                  notes="Transfer students take GENED 2601 instead."),
+                c("GENED 4001", "GE Reflection", 1, None, notes="Taken near the end of the degree."),
             ]),
-            # GE categories that business foundation courses already cover: ENGLISH 1110 (Writing & Information
-            # Literacy), calculus/STAT/CSE 2111 (Math & Quantitative Reasoning), ECON 2001/2002 (Social & Behavioral).
-            # The rest are student choice from Ohio State's GE course lists, so they're confirmed by hand.
-            group("ge-arts", "GE Foundation: Literary, Visual & Performing Arts", "manual", min_credits=3,
-                  notes="Student choice from the Ohio State GE list."),
-            group("ge-history", "GE Foundation: Historical & Cultural Studies", "manual", min_credits=3,
-                  notes="Student choice from the Ohio State GE list."),
-            group("ge-natsci", "GE Foundation: Natural Science", "manual", min_credits=4,
-                  notes="4-5 credit hours, student choice from the Ohio State GE list."),
-            group("ge-diversity", "GE Foundation: Race, Ethnic & Gender Diversity", "manual", min_credits=3,
-                  notes="Student choice from the Ohio State GE list."),
-            group("ge-theme-citizenship", "GE Theme: Citizenship for a Diverse & Just World", "manual", min_credits=4,
-                  notes="Required theme. One 4-credit course or two 3-credit courses."),
-            group("ge-theme-choice", "GE Theme: Student Choice", "manual", min_credits=4,
-                  notes="Any second GE Theme. One 4-credit course or two 3-credit courses."),
+            # GE Foundations and Themes, checked against Ohio State's GEN course lists (src/data/geCourses.json,
+            # built by scripts/build_ge_data.py). Each GE category needs its own course: one course can't fill
+            # two GE categories. Business foundation courses can count toward GE Foundations.
+            group("ge-writing", "GE Foundation: Writing & Information Literacy", "ge", ge_category="writing", min_credits=3,
+                  notes="Usually met by ENGLISH 1110 in the business foundation."),
+            group("ge-math", "GE Foundation: Mathematical & Quantitative Reasoning", "ge", ge_category="math", min_credits=3,
+                  notes="Usually met by calculus, STAT 1430, or CSE 2111 in the business foundation."),
+            group("ge-sbs", "GE Foundation: Social & Behavioral Sciences", "ge", ge_category="sbs", min_credits=3,
+                  notes="Usually met by ECON 2001 or 2002 in the business foundation."),
+            group("ge-arts", "GE Foundation: Literary, Visual & Performing Arts", "ge", ge_category="arts", min_credits=3),
+            group("ge-history", "GE Foundation: Historical & Cultural Studies", "ge", ge_category="history", min_credits=3),
+            group("ge-natsci", "GE Foundation: Natural Science", "ge", ge_category="natsci", min_credits=4,
+                  notes="4-5 credit hours (usually one course with a lab)."),
+            group("ge-diversity", "GE Foundation: Race, Ethnicity & Gender Diversity", "ge", ge_category="diversity", min_credits=3),
+            group("ge-theme-citizenship", "GE Theme: Citizenship for a Diverse & Just World", "ge", ge_category="theme-citizenship",
+                  min_credits=4, notes="Required theme: one 4-credit course, or two 3-credit courses from different subjects."),
+            group("ge-theme-choice", "GE Theme: Student Choice", "ge", ge_category="theme-other", min_credits=4,
+                  notes="One more Theme of your choice: one 4-credit course, or two 3-credit courses from different subjects in that Theme."),
         ],
     },
     {
@@ -353,7 +363,8 @@ PROGRAMS = [
                 c("BUSML 4254", "International Marketing", 3, UPPER + "; BUSML 3250"),
                 c("BUSML 4255", "Sustainability Marketing for Consumers, Firms and Society", 3, "BUSML 3250 or AEDECON 3102"),
                 c("BUSML 4256", "Brand Management", 3, "BUSML 4201; BUSML 4202"),
-                c("BUSML 4258", "eCommerce Digital Advertising", 1.5, "BUSML 3250; BUSML 4232 or 4233 (or concurrent)"),
+                c("BUSML 4258", "eCommerce Digital Advertising", 3, "BUSML 3250; BUSML 4232 or 4233 (or concurrent)",
+                  notes="3 credit hours per the OSU course catalog (Fisher's page lists 1.5)."),
                 c("BUSML 4259", "Entertainment Marketing", 3, "BUSML 3250"),
                 c("BUSML 4260", "Pricing Strategy and Analysis", 3, "BUSMHR 2292; BUSML 4201; BUSML 4202"),
                 c("BUSML 4383", "Supply Chain Management", 1.5, UPPER + "; BUSML 3380", notes="No priority; waitlist"),
@@ -419,18 +430,24 @@ PROGRAMS += [
                  "junior and senior year with corporate-sponsored projects. Takes at least 5 semesters.",
         "groups": [
             group("ti-immersion", "Sophomore Immersion (13 credit hours, one semester)", "all", [
-                c("BUSADM 2800", "Executive Lecture Series", 1, "Admission to specialization"),
-                c("BUSADM 2801", "Innovation Foundations: Discovery to Validation", 6, "Admission to specialization",
+                c("BUSADM 2800", "Executive Lecture Series", 1, "Admission to specialization", offered=["None"],
+                  notes="On the Tech Innovation curriculum sheet, but not on the Autumn 2026 or Spring 2027 schedule. "
+                        "Ask the Tech Innovation program office how the Executive Lecture Series is listed for your cohort."),
+                c("BUSADM 2801", "Innovation Foundations: Discovery to Validation", 6, "Admission to specialization", min_standing=30,
                   notes="First 7-week session of the immersion semester"),
                 c("BUSADM 2802", "Product Development: Build to Scale", 6,
                   "BUSADM 2801 (earlier 7-week session of the same semester, concurrent allowed)",
                   notes="Second 7-week session of the immersion semester"),
             ]),
             group("ti-studio", "Builders Studio (12 credit hours, junior and senior years)", "all", [
-                c("BUSADM 3801", "Builders Studio I: Corporate Technology Strategy", 3, "BUSADM 2802", notes="Junior autumn"),
-                c("BUSADM 3802", "Builders Studio II: Product Development & Implementation", 3, "BUSADM 3801", notes="Junior spring"),
-                c("BUSADM 4803", "Builders Studio III: Advanced Technology Consulting", 3, "BUSADM 3802", notes="Senior autumn"),
-                c("BUSADM 4804", "Builders Studio IV: Strategic Technology Leadership", 3, "BUSADM 4803", notes="Senior spring"),
+                c("BUSADM 3801", "Builders Studio I: Corporate Technology Strategy", 3, "BUSADM 2802", offered=["Autumn"],
+                  notes="Junior autumn, the autumn after the immersion year"),
+                c("BUSADM 3802", "Builders Studio II: Product Development & Implementation", 3, "BUSADM 3801", offered=["Spring"],
+                  notes="Junior spring"),
+                c("BUSADM 4803", "Builders Studio III: Advanced Technology Consulting", 3, "BUSADM 3802", offered=["Autumn"],
+                  notes="Senior autumn"),
+                c("BUSADM 4804", "Builders Studio IV: Strategic Technology Leadership", 3, "BUSADM 4803", offered=["Spring"],
+                  notes="Senior spring"),
             ]),
         ],
     },
@@ -741,6 +758,7 @@ def sql(v):
 
 
 def build(programs_in, scope, first_sort):
+    offerings = registrar_offerings()
     ids = ", ".join(sql(p["id"]) for p in programs_in)
     out = [
         f"-- Generated by scripts/fisher_requirements.py ({scope}). Edit that file, not this one.",
@@ -762,7 +780,7 @@ def build(programs_in, scope, first_sort):
                 id=g["id"], program_id=p["id"], sort_order=gi, title=g["title"], kind=g["kind"],
                 min_courses=g.get("min_courses"), min_credits=g.get("min_credits"),
                 max_secondary_credits=g.get("max_secondary_credits"), code_pattern=g.get("code_pattern"),
-                exclude_codes=g.get("exclude_codes", []), notes=g.get("notes"),
+                exclude_codes=g.get("exclude_codes", []), notes=g.get("notes"), ge_category=g.get("ge_category"),
             ))
             for ci, course in enumerate(g["courses"]):
                 courses.append(dict(
@@ -771,6 +789,7 @@ def build(programs_in, scope, first_sort):
                     alternates=course.get("alternates", []), equivalents=course.get("equivalents", []),
                     is_secondary=course.get("is_secondary", False),
                     notes=course.get("notes"),
+                    offered_terms=offered_for(course, offerings), min_standing=course.get("min_standing"),
                 ))
 
     def insert(table, rows, suffix=""):
@@ -788,6 +807,28 @@ def build(programs_in, scope, first_sort):
 
 def scope_kinds(scope):
     return "('degree', 'specialization')" if scope == "degree" else "('minor')"
+
+
+FISHER_SUBJECTS = ("ACCTMIS", "BUSADM", "BUSFIN", "BUSMHR", "BUSML", "BUSOBA")
+
+
+def registrar_offerings():
+    """Seasons each Fisher course is scheduled in, from src/data/fisherFaculty.json (OSU Class Search)."""
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), "..", "src", "data", "fisherFaculty.json")
+    data = json.load(open(path))
+    return {c["id"]: sorted({t["term"].split(" ")[0] for t in c.get("terms", [])}) for c in data["courses"]}
+
+
+def offered_for(course, offerings):
+    if "offered" in course:
+        return course["offered"]
+    if course["code"].split(" ")[0] not in FISHER_SUBJECTS:
+        return []  # not tracked: other colleges' schedules aren't in our data
+    seasons = offerings.get(course["code"])
+    if seasons is None:
+        return ["None"]  # not scheduled in Autumn 2026 or Spring 2027
+    return [] if set(seasons) >= {"Autumn", "Spring"} else seasons
 
 
 def main():
