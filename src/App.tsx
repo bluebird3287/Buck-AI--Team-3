@@ -23,7 +23,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, auditDegree, catalogCredits, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
+import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, planGaps, programIncludes } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -36,6 +36,21 @@ interface AppProps {
   curriculum: Curriculum | null;
   planTerms?: PlanTerms | null; // saved term choices; asked again before each roadmap build
   onPlanTermsChange?: (plan: PlanTerms) => void;
+  // Saves a specialization or minor change the student made from the chat
+  onProgramChange?: (change: { specialization_ids: string[]; major: string; minor: string | null }) => void;
+}
+
+// What the advising chat asks BuckAI to change about the student's programs
+interface ProgramChangeRequest {
+  specializations?: string[] | null; // the student's full new list of specializations
+  minor?: string | null; // a minor's name, "" to remove it
+}
+
+// The student's profile, plan, and requirements after a change, for building a plan right away
+interface PlanContext {
+  specIds: string[];
+  profile: StudentProfile;
+  plan: Semester[];
 }
 
 // "Build me a roadmap", "make my 4-year plan", "redo my schedule for next year"…
@@ -62,7 +77,7 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
   };
 }
 
-export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange }: AppProps) {
+export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
@@ -190,6 +205,13 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           studentProfile: profile,
           roadmap,
           requirementsSummary,
+          programOptions: curriculum
+            ? {
+                degree: curriculum.degree.name,
+                specializations: curriculum.specializations.map((p) => p.name),
+                minors: curriculum.minors.map((p) => p.name),
+              }
+            : null,
         }),
       });
 
@@ -199,10 +221,15 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       // Claude flags requests to build or change the roadmap; keywords are the backup.
       const wantsRoadmap = typeof data.roadmapRequest?.build === 'boolean' ? data.roadmapRequest.build : ROADMAP_REQUEST.test(text);
 
-      let highStakesDecision: HighStakesDecisionData | null = wantsRoadmap ? null : data.highStakesDecision || null;
+      // A specialization or minor change in the chat is applied to the student's BuckAI profile and plan
+      const changeRequested = !!data.programChange && (Array.isArray(data.programChange.specializations) || typeof data.programChange.minor === 'string');
+      const change = changeRequested ? applyProgramChange(data.programChange) : null;
+      const planning = wantsRoadmap || !!change?.applied;
+
+      let highStakesDecision: HighStakesDecisionData | null = planning ? null : data.highStakesDecision || null;
       const lower = text.toLowerCase();
       const isDrop = dropsAClass(lower);
-      if (!wantsRoadmap && !highStakesDecision && (isDrop || declaresMinor(lower))) {
+      if (!planning && !changeRequested && !highStakesDecision && (isDrop || declaresMinor(lower))) {
         const course = currentCourseMentioned(lower) ?? 'this class';
         const minorName = lower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
         highStakesDecision = {
@@ -233,9 +260,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       };
 
       setMessages((prev) => [...prev, aiMsg]);
-      if (wantsRoadmap) {
+      if (change) setMessages((prev) => [...prev, change.message]);
+
+      // Rebuild the plan when asked, or when a change took classes out of it or added a program to fill
+      const hasPlan = (change?.context.plan ?? roadmap).some((s) => s.status === 'planned' && s.courses.length);
+      if (wantsRoadmap || (change?.applied && hasPlan)) {
         setIsChatLoading(false);
-        await buildRoadmapFromChat(data.roadmapRequest?.instructions || text);
+        const instructions = data.roadmapRequest?.instructions || (change?.applied ? change.summary : text);
+        await buildRoadmapFromChat(instructions, change?.applied ? change.context : undefined);
       }
     } catch (err) {
       console.warn('API fallback:', err);
@@ -314,13 +346,21 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // Handle Dynamic Roadmap updates via Claude
   // Asks Claude for a plan, then checks it against the degree's requirements and sends any gaps back
   // to be fixed (up to two rounds), so the saved plan covers every requirement BuckAI can track.
-  const buildRoadmap = async (promptText: string, terms: PlanTerms): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
+  const buildRoadmap = async (
+    promptText: string,
+    terms: PlanTerms,
+    context?: PlanContext,
+  ): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
+    // A change made earlier in this chat turn hasn't reached this render's props yet
+    const specIds = context?.specIds ?? specializationIds;
+    const student = context?.profile ?? profile;
+    const start = context?.plan ?? roadmap;
     setIsRoadmapUpdating(true);
     try {
-      const locked = roadmap.filter((s) => s.status !== 'planned');
+      const locked = start.filter((s) => s.status !== 'planned');
       const lockedIds = new Set(locked.map((s) => s.id));
       // Only the terms the student chose (e.g. no summers), through their graduation term
-      const allowed = activePlanTerms(terms, roadmap);
+      const allowed = activePlanTerms(terms, start);
       const allowedIds = new Set(allowed.map((t) => t.id));
       const termRule = `Schedule classes ONLY in these terms: ${allowed.map((t) => t.label).join(', ')} (graduating ${
         parseTerm({ id: terms.graduation }) ? terms.graduation.replace('-', ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'on time'
@@ -330,7 +370,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         p
           .filter((s) => s.status === 'planned' && s.courses.length && !allowedIds.has(s.id))
           .map((s) => `Move every class out of ${s.name}; the student isn't taking classes that term (use only: ${allowed.map((t) => t.label).join(', ')})`);
-      let plan = roadmap;
+      let plan = start;
       let prompt = `${promptText}\n${termRule}`;
       let gaps: string[] = [];
 
@@ -341,12 +381,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             : `Fixing ${gaps.length} gap${gaps.length === 1 ? '' : 's'} in the plan (pass ${round + 1} of 3)`,
         );
         const summary = curriculum
-          ? describeAudit(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits))
+          ? describeAudit(auditDegree(curriculum, specIds, plan, student.earnedCredits))
           : requirementsSummary;
         const response = await fetch('/api/roadmap-generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, studentProfile: profile, currentRoadmap: plan, requirementsSummary: summary }),
+          body: JSON.stringify({ prompt, studentProfile: student, currentRoadmap: plan, requirementsSummary: summary }),
         });
         if (!response.ok) throw new Error('Roadmap API error');
         const data = await response.json();
@@ -377,12 +417,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           continue;
         }
         setRoadmapStage('Checking the plan against your requirements and prerequisites');
-        gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specializationIds, plan, profile.earnedCredits))];
+        gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits))];
         if (!gaps.length) break;
         prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}\n${termRule}`;
       }
 
-      if (plan === roadmap) return null;
+      if (plan === start) return null;
       setRoadmap(plan);
       onRoadmapChange(plan);
       return { plan, gaps };
@@ -428,7 +468,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
   // From the chat ("build me a roadmap"): build and save the plan, then summarize it in the chat
   // and open the 4-Year Plan tab.
-  const buildRoadmapFromChat = async (instructions: string) => {
+  const buildRoadmapFromChat = async (instructions: string, context?: PlanContext) => {
     const statusId = `msg-${Date.now()}-plan`;
     setMessages((prev) => [
       ...prev,
@@ -453,6 +493,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const result = await buildRoadmap(
       `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}) and specialization(s), respects prerequisites, and balances workload.`,
       terms,
+      context,
     );
     let reply: ChatMessage;
     if (!result) {
@@ -484,17 +525,125 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     setMessages((prev) => prev.map((m) => (m.id === statusId ? reply : m)));
   };
 
-  // A class code from this term's schedule that the student mentioned, if any.
+  // Applies a specialization or minor change the student asked for in the chat: saves it to their
+  // profile and takes classes that only served a dropped program out of their planned terms.
+  const applyProgramChange = (request: ProgramChangeRequest) => {
+    const say = (text: string): ChatMessage => ({
+      id: `msg-${Date.now() + 2}`,
+      role: 'assistant',
+      text,
+      sourceCitation: requirementsSource,
+      confidence: 'high',
+      confidenceExplanation: 'Updated in BuckAI only. Your official record changes when your advisor files it.',
+      escalationSuggested: true,
+      action: { label: 'View my 4-year plan', tab: 'roadmap' },
+    });
+    const unchanged = (text: string) => ({ applied: false, message: say(text), summary: '', context: { specIds: specializationIds, profile, plan: roadmap } });
+    if (!curriculum) return unchanged("I couldn't load your degree requirements, so I didn't change anything. Update it under **My classes** instead.");
+
+    let specIds = specializationIds;
+    const unmatched: string[] = [];
+    if (Array.isArray(request.specializations) && request.specializations.length) {
+      const found = request.specializations.map((name) => {
+        const p = findProgram(curriculum.specializations, String(name));
+        if (!p) unmatched.push(String(name));
+        return p?.id;
+      });
+      const ids = [...new Set(found.filter((id): id is string => !!id))];
+      if (ids.length && !unmatched.length) specIds = ids;
+    }
+    let minor = profile.minor || '';
+    if (typeof request.minor === 'string') {
+      const p = request.minor.trim() ? findProgram(curriculum.minors, request.minor) : undefined;
+      if (request.minor.trim() && !p) unmatched.push(request.minor);
+      else minor = p?.name ?? '';
+    }
+    if (unmatched.length)
+      return unchanged(
+        `I couldn't match ${unmatched.map((n) => `"${n}"`).join(' and ')} to a program in BuckAI, so I didn't change anything. You can pick it under **My classes**.`,
+      );
+    const sameSpecs = specIds.length === specializationIds.length && specIds.every((id) => specializationIds.includes(id));
+    if (sameSpecs && minor === (profile.minor || '')) return null;
+
+    const programs = (ids: string[]) => ids.map((id) => curriculum.specializations.find((p) => p.id === id)).filter((p): p is Program => !!p);
+    const oldMinor = profile.minor ? findProgram(curriculum.minors, profile.minor) : undefined;
+    const newMinor = minor ? findProgram(curriculum.minors, minor) : undefined;
+    const dropped = [...programs(specializationIds.filter((id) => !specIds.includes(id))), ...(oldMinor && oldMinor !== newMinor ? [oldMinor] : [])];
+    const added = [...programs(specIds.filter((id) => !specializationIds.includes(id))), ...(newMinor && newMinor !== oldMinor ? [newMinor] : [])];
+    const kept = [curriculum.degree, ...programs(specIds), ...(newMinor ? [newMinor] : [])];
+
+    // Planned classes that only counted toward a dropped program come out; completed ones stay as electives
+    const removed: string[] = [];
+    const plan = normalizeSemesters(
+      roadmap.map((s) =>
+        s.status !== 'planned'
+          ? s
+          : {
+              ...s,
+              courses: s.courses.filter((c) => {
+                const out = dropped.some((p) => programIncludes(p, c.code)) && !kept.some((p) => programIncludes(p, c.code));
+                if (out) removed.push(c.code);
+                return !out;
+              }),
+            },
+      ),
+    );
+
+    const major = majorLabel(curriculum, specIds) || profile.major;
+    onProgramChange?.({ specialization_ids: specIds, major, minor: minor || null });
+    if (removed.length) {
+      setRoadmap(plan);
+      onRoadmapChange(plan);
+    }
+
+    const names = (ps: Program[]) => ps.map((p) => p.name).join(' and ');
+    const summary = [
+      dropped.length && `The student dropped ${names(dropped)}; plan no classes for ${dropped.length > 1 ? 'them' : 'it'}.`,
+      added.length && `The student added ${names(added)}; include every requirement for ${added.length > 1 ? 'them' : 'it'}.`,
+      `Their programs are now: ${major}${minor ? ` with the ${minor} minor` : ''}.`,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const lines = [
+      `Done. Your BuckAI profile now lists **${major}**${minor ? ` with the **${minor}** minor` : ''}${dropped.length ? `, without ${names(dropped)}` : ''}.`,
+      removed.length
+        ? `I took ${removed.length} class${removed.length === 1 ? '' : 'es'} out of your planned terms that only counted toward ${names(dropped)}: ${removed.join(', ')}.`
+        : dropped.length
+        ? `None of your planned classes counted only toward ${names(dropped)}.`
+        : '',
+      'Your requirements check now uses your new programs. To make it official, your advisor files the change with your college.',
+    ];
+    return {
+      applied: true,
+      message: say(lines.filter(Boolean).join('\n\n')),
+      summary,
+      context: { specIds, profile: { ...profile, major, minor, specializationIds: specIds }, plan },
+    };
+  };
+
   // "Drop my Finance specialization" or "drop the minor" changes a program, not a class.
+  // "What if I dropped…" is a question, not a decision.
+  const isExploring = (textLower: string) => /\b(what if|what would|should i|would it|thinking about|considering)\b/.test(textLower);
+
   function dropsAClass(textLower: string): boolean {
-    const isAboutProgram = /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower);
-    return (textLower.includes('drop') || textLower.includes('withdraw')) && !isAboutProgram;
+    const programNames = curriculum
+      ? [...curriculum.specializations, ...curriculum.minors].map((p) => p.name.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
+      : [];
+    const isAboutProgram =
+      /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower) || programNames.some((n) => textLower.includes(n));
+    return (textLower.includes('drop') || textLower.includes('withdraw')) && !isAboutProgram && !isExploring(textLower);
   }
 
   function declaresMinor(textLower: string): boolean {
-    return textLower.includes('minor') && !textLower.includes('drop') && ['add', 'pick up', 'declare', 'real choice'].some((w) => textLower.includes(w));
+    return (
+      textLower.includes('minor') &&
+      !textLower.includes('drop') &&
+      !isExploring(textLower) &&
+      ['add', 'pick up', 'declare', 'real choice'].some((w) => textLower.includes(w))
+    );
   }
 
+  // A class code from this term's schedule that the student mentioned, if any.
   function currentCourseMentioned(textLower: string): string | undefined {
     const current = roadmap.find((s) => s.status === 'in-progress');
     return current?.courses.find((c) => textLower.includes(c.code.toLowerCase()))?.code;

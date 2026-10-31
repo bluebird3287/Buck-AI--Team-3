@@ -158,6 +158,46 @@ export function guessSpecializations(curriculum: Curriculum, major: string): str
   return ids;
 }
 
+// ---------- Changing a student's programs from the chat ----------
+
+const baseName = (name: string) => name.split(' (')[0].trim().toLowerCase();
+
+// The program a name like "Finance", "Tech Innovation", or "Technology Innovation (BSBA)" refers to.
+export function findProgram(list: Program[], name: string): Program | undefined {
+  const n = name.trim().toLowerCase();
+  if (!n) return undefined;
+  const words = (s: string) => s.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && w !== 'minor');
+  return (
+    list.find((p) => p.name.toLowerCase() === n) ??
+    list.find((p) => baseName(p.name) === baseName(n)) ??
+    list.find((p) => baseName(n).includes(baseName(p.name)) || baseName(p.name).includes(baseName(n))) ??
+    // "Tech Innovation" for "Technology Innovation": every word starts a word of the program's name
+    list.find((p) => {
+      const ws = words(baseName(n));
+      const pw = words(baseName(p.name));
+      return ws.length > 0 && ws.every((w) => pw.some((x) => x.startsWith(w) || w.startsWith(x)));
+    })
+  );
+}
+
+// Whether a course counts toward a program: listed (or an accepted alternate), or matches an elective pattern.
+export function programIncludes(program: Program, code: string): boolean {
+  const c = norm(code);
+  return program.groups.some(
+    (g) =>
+      g.kind !== 'ge' &&
+      (g.courses.some((r) => norm(r.code) === c || r.alternates.some((a) => norm(a) === c)) ||
+        (!!g.code_pattern && new RegExp(g.code_pattern, 'i').test(c) && !g.exclude_codes.some((x) => norm(x) === c))),
+  );
+}
+
+// How the major reads elsewhere in the app: "Finance + Tech Innovation (BSBA)" or "BS Mechanical Engineering: Design"
+export function majorLabel(curriculum: Curriculum, specializationIds: string[]): string {
+  const names = specializationIds.map((id) => curriculum.specializations.find((p) => p.id === id)?.name).filter(Boolean);
+  if (curriculum.degree.id === DEFAULT_DEGREE_ID) return names.length ? `${names.join(' + ')} (BSBA)` : '';
+  return names.length ? `${curriculum.degree.name}: ${names.join(' + ')}` : curriculum.degree.name;
+}
+
 // ---------- Matching a student's classes to requirements ----------
 
 export type ItemState = 'done' | 'in_progress' | 'planned' | 'missing';

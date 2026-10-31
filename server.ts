@@ -143,6 +143,10 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
     "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
     "instructions": "string or null (their preferences for the plan in one or two sentences, e.g. 'Graduate in Spring 2029, keep terms around 15 credits, add the Insurance minor')"
   },
+  "programChange": null or {
+    "specializations": ["array of exact specialization names: the student's full new list"] or null (no change),
+    "minor": "exact minor name, or \"\" to remove their minor" or null (no change)
+  },
   "roadmapRecommendation": {
     "targetSemester": "string or null (e.g. 'Spring 2027')",
     "courseAdjustment": "string or null",
@@ -150,21 +154,30 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   }
 }
 
-IMPORTANT: When a student asks to make a big decision like dropping a class (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) or picking up a new minor (e.g. CSE minor, Business Analytics minor) as a 'real choice' or asks the AI to actually execute it:
+IMPORTANT: When a student asks to make a big decision like dropping a class they're enrolled in (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) or picking up a new minor (e.g. CSE minor, Business Analytics minor) as a 'real choice' or asks the AI to actually execute it:
 - Keep the response clear, direct, and concise (not overly verbose).
-- You MUST set "highStakesDecision.isHighStakes" to true.
+- You MUST set "highStakesDecision.isHighStakes" to true (except for specialization and minor changes, which you apply with "programChange" as described above).
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
 - Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
 
-Specializations and majors (not classes):
-- The student's specialization(s) are in "Major" in their profile, and the requirements check covers each of them. Fisher students may have more than one (e.g. Finance + Tech Innovation).
-- "Drop", "remove", or "stop pursuing" a specialization, major, or minor means changing their program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
-- When a student wants to drop one specialization and keep another (e.g. "drop Finance, only pursue Tech Innovation"):
-  - Acknowledge exactly which one they keep and which one they drop.
-  - Use the requirements check to say what changes: the dropped specialization's remaining major-core courses no longer count toward their degree (completed ones become electives), and name what they still need for the one they keep.
-  - Tell them to update their specialization under "My classes" so BuckAI's requirements check and roadmap use only the one they keep; you can't change their profile yourself. If they also ask for a new plan, set "roadmapRequest.build" true and tell them to update "My classes" first so the plan drops the old requirements.
-  - Officially changing a declared specialization goes through their Fisher advisor, so set "highStakesDecision.isHighStakes" true with actionType "change_major", a title like "Drop the Finance specialization (keep Tech Innovation)", and consequences about requirements and graduation timing, not financial aid.
-- If they're only exploring ("what if I dropped Finance?"), answer the question without a high-stakes card.
+What BuckAI can do from this chat (set the matching field; never say something is done unless you set it):
+- Change the student's specializations or minor in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
+- Build or change their plan of future terms: set "roadmapRequest.build" true. This covers building a plan, adding, removing, moving, or swapping specific classes, lighter or heavier terms, graduating earlier or later, adding a minor's or specialization's classes, and fixing gaps. Put exactly what they asked for in "instructions".
+- Route a decision to their advisor: set "highStakesDecision" (see below).
+What BuckAI can't do from this chat (say so plainly and point them to the right place):
+- Change classes they've completed or are taking now, grades, GPA, or their degree/college: they edit those under "My classes".
+- Register, drop, or withdraw from a class in BuckeyeLink, or change their official record: only they (in BuckeyeLink) or their advisor can.
+- Seat alerts, after-hours building access, and advisor appointments have their own tabs in this panel.
+
+Specializations, majors, and minors (programs, not classes):
+- "Drop", "remove", "switch", or "stop pursuing" a specialization or minor means changing a program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
+- When the student says they want to add, drop, keep only, or switch a specialization or minor (e.g. "drop Finance and only pursue Tech Innovation"), apply it: set "programChange" using exact names from "Programs available" in the request.
+  - "programChange.specializations" is their FULL new list (e.g. ["Technology Innovation"]), not just the one that changed. A Fisher BSBA student must keep at least one specialization.
+  - "programChange.minor" is the new minor's exact name, or "" to remove their minor.
+  - In "answer", say in one or two lines what you're changing (which programs they keep, which they drop) and that BuckAI is updating their requirements and plan. Use the requirements check to name what they still need for the programs they keep. Mention once that the official change goes through their advisor.
+  - Leave "highStakesDecision" null and set "escalationSuggested" true with the advisor reason. Leave "roadmapRequest.build" false unless they asked for something else about the plan too; BuckAI rebuilds the plan itself after a program change.
+- If they're only exploring ("what if I dropped Finance?", "should I add a minor?"), answer the question and leave "programChange" null.
+- If the program they name isn't in "Programs available", leave "programChange" null and tell them which close options exist.
 
 When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against the student's degree requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
 
@@ -209,7 +222,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
-    const { message, history, studentProfile, roadmap, requirementsSummary } = req.body;
+    const { message, history, studentProfile, roadmap, requirementsSummary, programOptions } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -226,6 +239,11 @@ ${describeStudent(studentProfile, roadmap)}
 
 Degree requirements check (computed by BuckAI from the published requirements for the student's degree and specialization):
 ${requirementsSummary || 'Not available.'}
+
+Programs available (use these exact names in "programChange"):
+${programOptions
+  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors: ${(programOptions.minors || []).join('; ')}`
+  : 'Not available. Leave "programChange" null and point the student to "My classes".'}
 
 Conversation History:
 ${conversationContext}
@@ -259,13 +277,19 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 
     // Guardrail check: if student prompt asked to drop a class or declare/pick up a minor as a real choice, ensure highStakesDecision is attached
     const lowerPrompt = (message || '').toLowerCase();
-    // "Drop my Finance specialization" or "drop the minor" isn't dropping a class.
-    const isAboutProgram = /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(lowerPrompt);
-    const isDroppingClass = (lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw')) && !isAboutProgram;
-    const isDeclaringMinor = (lowerPrompt.includes('minor') && !lowerPrompt.includes('drop') && (lowerPrompt.includes('add')|| lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
+    // "Drop my Finance specialization", "drop finance", or "drop the minor" isn't dropping a class,
+    // and "what if I dropped…" is a question, not a decision.
+    const programNames: string[] = [...(programOptions?.specializations || []), ...(programOptions?.minors || [])]
+      .map((n: string) => n.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
+      .filter(Boolean);
+    const isAboutProgram =
+      /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(lowerPrompt) || programNames.some((n) => lowerPrompt.includes(n));
+    const isExploring = /\b(what if|what would|should i|would it|thinking about|considering)\b/.test(lowerPrompt);
+    const isDroppingClass = (lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw')) && !isAboutProgram && !isExploring;
+    const isDeclaringMinor = (lowerPrompt.includes('minor') && !lowerPrompt.includes('drop') && !isExploring && (lowerPrompt.includes('add')|| lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
 
     // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change.
-    const isPlanning = !!parsed.roadmapRequest?.build;
+    const isPlanning = !!parsed.roadmapRequest?.build || !!parsed.programChange;
     if (!isPlanning && (isDroppingClass || isDeclaringMinor) && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
       if (isDroppingClass) {
         const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
@@ -309,7 +333,13 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isHold = textLower.includes('hold') || textLower.includes('lock');
     const isMarcSmith = textLower.includes('marc smith') || textLower.includes('smith') || textLower.includes('evaluat') || (textLower.includes('accounting') && (textLower.includes('work') || textLower.includes('class') || textLower.includes('hard') || textLower.includes('recommend')));
     const isPrereq = textLower.includes('prereq') || textLower.includes('cse 2231') || (textLower.includes('acctmis 2300') && !isMarcSmith);
-    const isDrop = (textLower.includes('drop') || textLower.includes('withdraw')) && !/speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower);
+    const fallbackPrograms: string[] = [...(req.body?.programOptions?.specializations || []), ...(req.body?.programOptions?.minors || [])]
+      .map((n: string) => n.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
+      .filter(Boolean);
+    const isDrop =
+      (textLower.includes('drop') || textLower.includes('withdraw')) &&
+      !/speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b|\bwhat if\b/.test(textLower) &&
+      !fallbackPrograms.some((n) => textLower.includes(n));
     const isMinor = textLower.includes('minor') || textLower.includes('analytics');
 
     let answer = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
@@ -722,6 +752,7 @@ Rules for "semesters":
 - Respect class standing: sophomore = 30, junior = 60, senior = 90 earned credit hours before the term starts. BUSMHR 4490 needs senior standing, so it belongs in the final year.
 - GE: fill each MISSING GE category with a real, specific course from the "Real courses that count" list (or another real course in that GEN category). One course can't count for two GE categories. A Theme needs one 4-credit course, or two 3-credit courses from different subjects in the same Theme; Citizenship is required plus one other Theme.
 - Tech Innovation, if the student has it: Builders Studio I-IV run Autumn (3801), Spring (3802), Autumn (4803), Spring (4804) in consecutive terms, starting the Autumn after the immersion semester (BUSADM 2801/2802).
+- The requirements check lists the student's current programs. Don't keep planned classes that only served a program they no longer have (e.g. a dropped specialization or minor); replace them with unmet requirements or "ELECTIVE". Follow the preference request when it asks to add, remove, or move specific classes.
 - Never use made-up placeholder codes (like "GE-ARTS" or "IB-MINOR-1"). Every course must be a real Ohio State course code, except "ELECTIVE" for a free elective when the student needs more hours.
 - Keep each term at 12-18 credit hours.
 
