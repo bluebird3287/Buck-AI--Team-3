@@ -632,10 +632,20 @@ MECHANICAL = {
             c("ISE 4500", "Manufacturing Process Engineering", 3, "MECHENG 3670; prereq or concur MECHENG 3503"),
             c("MECHENG 4870", "Multidisciplinary Lab", 2, "MECHENG 3360; MECHENG 3671; MECHENG 3870; prereq or concur MECHENG 4510"),
         ]),
-        group("me-capstone-1", "Capstone Design 1 (MECHENG 490X.01)", "choose_credits", code_pattern=r"^MECHENG 490\d\.01",
-              min_credits=2.5, notes="Prereq: MECHENG 3360, 3671, 3503, 3870; prereq or concur 4510."),
-        group("me-capstone-2", "Capstone Design 2 (MECHENG 490X.02)", "choose_credits", code_pattern=r"^MECHENG 490\d\.02",
-              min_credits=2.5, notes="Prereq: the matching MECHENG 490X.01."),
+        # Capstone sections per the College of Engineering syllabi site (syllabi.engineering.osu.edu)
+        group("me-capstone-1", "Capstone Design 1 (MECHENG 490X.01)", "choose_credits", rows("""
+MECHENG 4903.01 | Capstone Design I: Industry-Sponsored Projects | 2.5 | | MECHENG 3360; MECHENG 3671; MECHENG 3503; MECHENG 3870; prereq or concur MECHENG 4510
+MECHENG 4904.01 | Capstone Design I | 2.5 | | MECHENG 3360; MECHENG 3671; MECHENG 3503; MECHENG 3870; prereq or concur MECHENG 4510
+MECHENG 4905.01 | Capstone Design I: Assistive Devices | 2.5 | | MECHENG 3360; MECHENG 3671; MECHENG 3503; MECHENG 3870; prereq or concur MECHENG 4510
+MECHENG 4906.01 | Capstone Design I: Product Design | 2.5 | | MECHENG 3360; MECHENG 3671; MECHENG 3503; MECHENG 3870; prereq or concur MECHENG 4510
+"""), code_pattern=r"^MECHENG 490\d\.01", min_credits=2.5,
+              notes="Choose one capstone track; prereq MECHENG 3360, 3671, 3503, 3870, and 4510 (or concurrent)."),
+        group("me-capstone-2", "Capstone Design 2 (MECHENG 490X.02)", "choose_credits", rows("""
+MECHENG 4903.02 | Capstone Design II: Industry-Sponsored Projects | 2.5 | | MECHENG 4903.01
+MECHENG 4904.02 | Capstone Design II | 2.5 | | MECHENG 4904.01
+MECHENG 4905.02 | Capstone Design II: Assistive Devices | 2.5 | | MECHENG 4905.01
+MECHENG 4906.02 | Capstone Design II: Product Design | 2.5 | | MECHENG 4906.01
+"""), code_pattern=r"^MECHENG 490\d\.02", min_credits=2.5, notes="The second half of the same capstone track."),
         group("me-tech-categories", "Technical Electives: Design, Computational & Applications (two courses)", "choose_courses",
               rows(ME_DESIGN) + rows(ME_COMPUTATIONAL) + rows(ME_APPLICATIONS), min_courses=2,
               notes="The two courses must come from different categories (Design, Computational, Applications), with at least "
@@ -2228,9 +2238,9 @@ add_cross_listings(PROGRAMS)
 def main():
     scope = sys.argv[1] if len(sys.argv) > 1 else "degree"
     if scope == "degree":
-        print(build(PROGRAMS, scope, 200, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG, offerings={}))
+        print(build(PROGRAMS, scope, 200, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG))
     elif scope == "minors":
-        print(build(MINORS, scope, 300, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG, offerings={}))
+        print(build(MINORS, scope, 300, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG))
     else:
         sys.exit("usage: engineering_requirements.py degree|minors")
 
