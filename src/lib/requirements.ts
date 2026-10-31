@@ -73,20 +73,32 @@ export function curriculumFor(library: CurriculumLibrary, degreeId?: string | nu
   };
 }
 
+// Supabase returns at most 1,000 rows per request, and there are over 2,000 requirement courses, so read in pages.
+// The tie-breaker column keeps the order stable from page to page.
+async function selectAll(table: string, columns: string, tieBreaker: string): Promise<{ data: any[]; error: any }> {
+  const PAGE = 1000;
+  const data: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const res = await supabase.from(table).select(columns).order('sort_order').order(tieBreaker).range(from, from + PAGE - 1);
+    if (res.error) return { data, error: res.error };
+    data.push(...(res.data ?? []));
+    if ((res.data ?? []).length < PAGE) return { data, error: null };
+  }
+}
+
 export async function loadCurriculum(): Promise<CurriculumLibrary> {
   const [programs, groups, courses] = await Promise.all([
-    supabase
-      .from('programs')
-      .select('id, kind, name, college, parent_id, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs')
-      .order('sort_order'),
-    supabase
-      .from('requirement_groups')
-      .select('id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes, ge_category')
-      .order('sort_order'),
-    supabase
-      .from('requirement_courses')
-      .select('group_id, code, title, credits, prerequisites, min_grade, alternates, equivalents, is_secondary, notes, offered_terms, min_standing')
-      .order('sort_order'),
+    selectAll('programs', 'id, kind, name, college, parent_id, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs', 'id'),
+    selectAll(
+      'requirement_groups',
+      'id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes, ge_category',
+      'id',
+    ),
+    selectAll(
+      'requirement_courses',
+      'group_id, code, title, credits, prerequisites, min_grade, alternates, equivalents, is_secondary, notes, offered_terms, min_standing',
+      'id',
+    ),
   ]);
   const error = programs.error || groups.error || courses.error;
   if (error) throw error;

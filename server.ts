@@ -263,8 +263,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
           decisionTitle: `Drop ${courseCode} from Autumn 2026 Active Enrollment`,
           warningSummary: `You are requesting to officially drop ${courseCode}. Per Ohio State University Academic Senate regulations, an AI assistant cannot alter your official registration record directly. Dropping this course carries immediate academic standing, financial aid, and graduation consequences.`,
           consequences: [
-            'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and triggering Title IV FAFSA / Fisher Merit Scholarship aid clawbacks.',
-            `Prerequisite Disruption: ${courseCode} is a foundational requirement for subsequent 3000-level Fisher finance and technical sequences, pushing your planned graduation back by up to two terms.`,
+            'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
+            `Prerequisite Disruption: ${courseCode} is a prerequisite for later courses in your major, pushing your planned graduation back by up to two terms.`,
             'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
           ],
           escalateRecommended: true
@@ -279,7 +279,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
           decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
           warningSummary: `You are requesting to declare the ${minorName} as your official secondary academic credential. While simulated roadmaps provide instant modeling, only an authorized human academic advisor can petition the college to update your SIS student master record.`,
           consequences: [
-            'Credit Load & Overlap Cap: Under Fisher College rules, no more than 6 credit hours may overlap between your Finance major core and an official minor program.',
+            'Credit Overlap Cap: Ohio State limits how many credit hours can overlap between your major and a minor (Fisher allows at most 6); your college checks this.',
             'College Committee Review: Inter-college minor additions (e.g. College of Engineering CSE Minor) require formal program coordinator audit and GPA check (minimum 2.50 CPHR).',
             'Time-to-Degree Audit: Adding this minor locks in 15-16 specific upper-division graded credit hours that must be completed prior to degree certification.'
           ],
@@ -301,7 +301,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isMinor = textLower.includes('minor') || textLower.includes('analytics');
 
     let answer = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
-    let sourceCitation = 'Fisher College of Business Curriculum Sheet 2026-2027';
+    let sourceCitation = 'OSU Course Bulletin 2026-2027';
     let escalationSuggested = false;
     let escalationReason: string | null = null;
     let highStakesDecision: any = null;
@@ -309,7 +309,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     if (isDrop) {
       const course = textLower.includes('acctmis') ? 'ACCTMIS 2300' : textLower.includes('math') ? 'MATH 1152' : textLower.includes('cse') ? 'CSE 2221' : 'ACCTMIS 2300';
       answer = `⚠️ **SERIOUS WARNING:** You have requested to drop **${course}** from your active semester schedule as a real academic choice.\n\nPer Ohio State University policy, automated AI systems cannot make unilateral modifications to your official student transcript. Dropping this course carries severe risks to your full-time student status (dropping below 12 credits risks immediate financial aid loss) and disrupts your prerequisite roadmap.\n\nPlease review the critical warnings below. You can escalate directly to your assigned advisor **Sarah Jenkins** or, if you choose to confirm your decision, your request will be immediately dispatched directly to her for human review and expedited sign-off.`;
-      sourceCitation = 'OSU Faculty Rule 3335-8-32 (Course Enrollment Alterations) & Fisher Undergraduate Handbook';
+      sourceCitation = 'OSU Faculty Rule 3335-8-32 (Course Enrollment Alterations)';
       escalationSuggested = true;
       escalationReason = `Course withdrawal requires certified advisor review to safeguard financial aid and prerequisite sequence.`;
       highStakesDecision = {
@@ -318,7 +318,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
         decisionTitle: `Drop ${course} from Autumn 2026 Active Enrollment`,
         warningSummary: `You are requesting to officially drop ${course}. Doing so carries irreversible financial aid and degree completion implications. Per university policy, an AI assistant cannot modify your official SIS transcript autonomously without certified advisor sign-off.`,
         consequences: [
-          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and triggering Title IV FAFSA / Fisher Merit Scholarship aid clawbacks.',
+          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
           `Prerequisite Disruption: ${course} is a hard prerequisite for next-term courses (such as BUSFIN 3220 or CSE 2231), delaying your graduation by up to two full semesters.`,
           'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
         ],
@@ -337,7 +337,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       sourceCitation = 'OSU Student Course Evaluations (SEI) & r/OSU Community Academic Consensus 2026-2027';
     } else if (isHold) {
       answer = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink; if you have one, your advisor can tell you what's needed to clear it, and you can pick a mutual free time in the Advisor tab.`;
-      sourceCitation = 'Office of the University Registrar & Fisher Advising Policy § 2.4';
+      sourceCitation = 'Office of the University Registrar registration hold policy';
       escalationSuggested = true;
       escalationReason = 'Registration lock removal requires advisor sign-off.';
     } else if (isPrereq) {
@@ -346,7 +346,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     } else if (isMinor) {
       const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
       answer = `⚠️ **SERIOUS WARNING: Official Curriculum Declaration Requested**\n\nYou asked to officially declare the **${minorName}** as your real academic credential in BuckeyeLink.\n\nWhile the Degree Planner provides instant simulations, declaring a minor permanently binds 15-16 credit hours to your graduation audit and must be formally filed through OnCourse SIS. You can escalate directly to your advisor **Sarah Jenkins**, or if you confirm your choice below, your declaration will be transmitted straight to her desk for official processing.`;
-      sourceCitation = 'Fisher Undergraduate Handbook: Minor Declarations & Inter-College Credential Policies';
+      sourceCitation = 'Ohio State minor declaration and inter-college policies';
       escalationSuggested = true;
       escalationReason = `Official declaration requires advisor sign-off in OnCourse SIS.`;
       highStakesDecision = {

@@ -35,7 +35,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = minors.find((m) => m.minor.id === selectedId) ?? minors[0];
 
-  if (!curriculum) return <div className="p-6 text-sm text-gray-600">Loading Fisher minors…</div>;
+  if (!curriculum) return <div className="p-6 text-sm text-gray-600">Loading minors…</div>;
   if (!selected) return <div className="p-6 text-sm text-gray-600">No minors found.</div>;
 
   const { minor, result } = selected;
@@ -56,8 +56,8 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
       <div>
         <h3 className="text-base sm:text-lg font-bold text-gray-900">What-If Minor Audit</h3>
         <p className="text-xs text-gray-600 mt-0.5">
-          Every Fisher minor, checked against the classes you&apos;ve taken, are taking, and have planned. Minor courses need a C- or
-          better and a 2.00 GPA across the minor.
+          Every minor BuckAI tracks (Fisher&apos;s minors so far), checked against the classes you&apos;ve taken, are taking, and have
+          planned. Minor courses need a C- or better and a 2.00 GPA across the minor.
         </p>
       </div>
 
