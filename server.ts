@@ -81,7 +81,7 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
     `- Name: ${profile?.name || 'Not provided'}`,
     `- Class standing: ${profile?.rank || 'Not provided'}`,
     `- College: ${profile?.college || 'Not provided'}`,
-    `- Major: ${profile?.major || 'Not provided'}`,
+    `- Major / specialization(s): ${profile?.major || 'Not provided'}`,
     `- Minor: ${profile?.minor || 'None'}`,
     `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
     `- Assigned advisor: ${profile?.advisorName || 'Not provided'}`,
@@ -132,7 +132,7 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   "escalationReason": "string or null (why an advisor meeting is recommended)",
   "highStakesDecision": {
     "isHighStakes": boolean,
-    "actionType": "'drop_class' | 'add_minor' | 'change_major' | 'withdraw' | null",
+    "actionType": "'drop_class' | 'add_minor' | 'change_major' | 'withdraw' | null (use 'change_major' for adding, dropping, or switching a major or specialization)",
     "decisionTitle": "string or null (e.g. 'Drop ACCTMIS 2300 (Intro to Accounting 2)' or 'Declare Computer Science (CSE) Minor')",
     "warningSummary": "string or null (concise 1-2 sentence notice: AI cannot modify transcripts; official changes require human advisor authorization)",
     "consequences": ["array of 2-3 short, concise consequences, e.g. 'Dropping drops enrolled hours to 12 cr (Full-Time FAFSA risk)', 'Interrupts core prerequisite chain for BUSFIN 3220, delaying graduation 1-2 terms', 'Dropping after the 4th Friday creates a permanent W mark on transcript'"],
@@ -155,6 +155,16 @@ IMPORTANT: When a student asks to make a big decision like dropping a class (e.g
 - You MUST set "highStakesDecision.isHighStakes" to true.
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
 - Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
+
+Specializations and majors (not classes):
+- The student's specialization(s) are in "Major" in their profile, and the requirements check covers each of them. Fisher students may have more than one (e.g. Finance + Tech Innovation).
+- "Drop", "remove", or "stop pursuing" a specialization, major, or minor means changing their program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
+- When a student wants to drop one specialization and keep another (e.g. "drop Finance, only pursue Tech Innovation"):
+  - Acknowledge exactly which one they keep and which one they drop.
+  - Use the requirements check to say what changes: the dropped specialization's remaining major-core courses no longer count toward their degree (completed ones become electives), and name what they still need for the one they keep.
+  - Tell them to update their specialization under "My classes" so BuckAI's requirements check and roadmap use only the one they keep; you can't change their profile yourself. If they also ask for a new plan, set "roadmapRequest.build" true and tell them to update "My classes" first so the plan drops the old requirements.
+  - Officially changing a declared specialization goes through their Fisher advisor, so set "highStakesDecision.isHighStakes" true with actionType "change_major", a title like "Drop the Finance specialization (keep Tech Innovation)", and consequences about requirements and graduation timing, not financial aid.
+- If they're only exploring ("what if I dropped Finance?"), answer the question without a high-stakes card.
 
 When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against the student's degree requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
 
@@ -249,8 +259,10 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 
     // Guardrail check: if student prompt asked to drop a class or declare/pick up a minor as a real choice, ensure highStakesDecision is attached
     const lowerPrompt = (message || '').toLowerCase();
-    const isDroppingClass = lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw') || lowerPrompt.includes('drop a class');
-    const isDeclaringMinor = (lowerPrompt.includes('minor') && (lowerPrompt.includes('add') || lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
+    // "Drop my Finance specialization" or "drop the minor" isn't dropping a class.
+    const isAboutProgram = /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(lowerPrompt);
+    const isDroppingClass = (lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw')) && !isAboutProgram;
+    const isDeclaringMinor = (lowerPrompt.includes('minor') && !lowerPrompt.includes('drop') && (lowerPrompt.includes('add')|| lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
 
     // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change.
     const isPlanning = !!parsed.roadmapRequest?.build;
@@ -297,7 +309,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isHold = textLower.includes('hold') || textLower.includes('lock');
     const isMarcSmith = textLower.includes('marc smith') || textLower.includes('smith') || textLower.includes('evaluat') || (textLower.includes('accounting') && (textLower.includes('work') || textLower.includes('class') || textLower.includes('hard') || textLower.includes('recommend')));
     const isPrereq = textLower.includes('prereq') || textLower.includes('cse 2231') || (textLower.includes('acctmis 2300') && !isMarcSmith);
-    const isDrop = textLower.includes('drop') || textLower.includes('withdraw');
+    const isDrop = (textLower.includes('drop') || textLower.includes('withdraw')) && !/speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower);
     const isMinor = textLower.includes('minor') || textLower.includes('analytics');
 
     let answer = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;

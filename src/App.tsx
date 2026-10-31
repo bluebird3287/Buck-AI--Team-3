@@ -201,8 +201,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
       let highStakesDecision: HighStakesDecisionData | null = wantsRoadmap ? null : data.highStakesDecision || null;
       const lower = text.toLowerCase();
-      if (!wantsRoadmap && !highStakesDecision && (lower.includes('drop') || lower.includes('withdraw') || (lower.includes('minor') && (lower.includes('add') || lower.includes('pick up') || lower.includes('declare') || lower.includes('real choice'))))) {
-        const isDrop = lower.includes('drop') || lower.includes('withdraw');
+      const isDrop = dropsAClass(lower);
+      if (!wantsRoadmap && !highStakesDecision && (isDrop || declaresMinor(lower))) {
         const course = currentCourseMentioned(lower) ?? 'this class';
         const minorName = lower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
         highStakesDecision = {
@@ -241,8 +241,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       console.warn('API fallback:', err);
       const textLower = text.toLowerCase();
       const isHold = textLower.includes('hold') || textLower.includes('lock');
-      const isDrop = textLower.includes('drop') || textLower.includes('withdraw');
-      const isMinor = textLower.includes('minor') && (textLower.includes('add') || textLower.includes('pick up') || textLower.includes('declare') || textLower.includes('real choice'));
+      const isDrop = dropsAClass(textLower);
+      const isMinor = declaresMinor(textLower);
 
       let fallbackText = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
       let fallbackEscalation = false;
@@ -485,6 +485,16 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   };
 
   // A class code from this term's schedule that the student mentioned, if any.
+  // "Drop my Finance specialization" or "drop the minor" changes a program, not a class.
+  function dropsAClass(textLower: string): boolean {
+    const isAboutProgram = /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower);
+    return (textLower.includes('drop') || textLower.includes('withdraw')) && !isAboutProgram;
+  }
+
+  function declaresMinor(textLower: string): boolean {
+    return textLower.includes('minor') && !textLower.includes('drop') && ['add', 'pick up', 'declare', 'real choice'].some((w) => textLower.includes(w));
+  }
+
   function currentCourseMentioned(textLower: string): string | undefined {
     const current = roadmap.find((s) => s.status === 'in-progress');
     return current?.courses.find((c) => textLower.includes(c.code.toLowerCase()))?.code;
