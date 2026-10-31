@@ -80,6 +80,26 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
   who can't take a minor (`fisher-bsba` = any BSBA student). Regenerate with
   `python3 scripts/fisher_requirements.py minors`.
 
+## College of Engineering curriculum data
+
+All 14 College of Engineering BS degrees (2026-2027 admits) live in the same tables, with
+`college = 'College of Engineering'`. Specializations name their degree in `programs.parent_id`
+(ECE: Electrical/Computer; FABE: Food/Agricultural/Biological/Ecological; Engineering Physics: eight
+concentrations; ISE: five tracks; Aviation: non-flight/flight). Each student picks a degree
+(`student_profiles.degree_id`; empty = the Fisher BSBA), and `curriculumFor()` in
+`src/lib/requirements.ts` gives them that degree's requirements.
+
+- Edit `scripts/engineering_requirements.py` and regenerate
+  `supabase/migrations/*_seed_engineering_requirements.sql` (`python3 scripts/engineering_requirements.py degree`).
+  It only replaces Engineering rows; don't hand-edit the SQL.
+- Sources are each major's 2026-2027 curriculum sheet (linked from
+  advising.engineering.osu.edu/current-students/curriculum-sheets-major) plus department elective pages;
+  each program's `source_url` names its page. Where a sheet allows two courses to replace one
+  (CHEM 1206 + 1208 for CHEM 1210), the pair is an `equivalent` (counted, flagged "confirm with advisor").
+- FABE electives and ISE "Connected Skills" lists exist only in the Buckeye Degree Planner, so those
+  groups accept engineering/science courses by pattern and tell students to confirm.
+- Not covered yet: Engineering minors and the Knowlton School (Architecture, CRP, Landscape Architecture).
+
 ## Advising requests
 
 Student requests to advisors live in `advising_requests` (RLS: students see their own,

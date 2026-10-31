@@ -684,7 +684,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             audit={audit}
             onAskForPlan={() => {
               setActiveTab('roadmap');
-              onUpdateRoadmap('Plan every remaining Fisher requirement through graduation, respecting prerequisites and balancing workload.');
+              onUpdateRoadmap('Plan every remaining degree requirement through graduation, respecting prerequisites and balancing workload.');
             }}
           />
         )}

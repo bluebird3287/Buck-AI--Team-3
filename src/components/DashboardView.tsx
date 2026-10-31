@@ -175,7 +175,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {audit.prereqWarnings.length} prerequisite {audit.prereqWarnings.length === 1 ? 'issue' : 'issues'}
                       </span>
                     )}
-                    {audit.specializations.length === 0 && (
+                    {audit.specializations.length === 0 && audit.specializationOptions > 0 && (
                       <span className="px-3 py-0.5 rounded-full border border-amber-300 text-xs text-amber-800 bg-amber-50">
                         Choose a specialization
                       </span>

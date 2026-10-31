@@ -73,7 +73,11 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // Student Profile & Data
   const [roadmap, setRoadmap] = useState<Semester[]>(initialRoadmap);
 
-  // Fisher requirements check, recomputed whenever the plan changes
+  // The student's degree requirements (Fisher BSBA, an Engineering BS, ...)
+  const degreeName = curriculum?.degree.name ?? 'your degree';
+  const requirementsSource = `${degreeName} requirements (${curriculum?.degree.catalog ?? 'published curriculum'})`;
+
+  // Requirements check, recomputed whenever the plan changes
   const specializationIds = useMemo(
     () =>
       !curriculum ? [] : profile.specializationIds.length ? profile.specializationIds : guessSpecializations(curriculum, profile.major),
@@ -209,7 +213,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             ? `You requested to drop ${course} as your real choice. An AI cannot unilaterally execute irreversible schedule drops. Dropping drops your enrolled credits below 12 credit hours, threatening financial aid and delaying prerequisite sequences.`
             : `You requested to declare the ${minorName} as your real academic credential. Automated AI bots cannot alter your SIS degree plan without certified human advisor sign-off.`,
           consequences: [
-            'Financial Aid Risk: Dropping lowers enrolled credits below 12 credit hours, jeopardizing full-time status and Title IV FAFSA / Fisher Excellence Scholarships.',
+            'Financial Aid Risk: Dropping lowers enrolled credits below 12 credit hours, jeopardizing full-time status and Title IV FAFSA and merit scholarships.',
             `Prerequisite Sequence: Disrupts mandatory prerequisite chains, postponing graduation by up to 2 semesters.`,
             'Permanent Record: Dropping past the 4th Friday generates a permanent "W" mark on your official transcript.'
           ],
@@ -248,7 +252,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       if (isDrop) {
         const course = currentCourseMentioned(textLower) ?? 'this class';
         fallbackText = `⚠️ Academic Record Guardrail: You requested to drop ${course} as a real academic choice.\n\nPer university policy, AI assistants cannot unilaterally alter transcripts. Dropping below 12 credit hours terminates full-time status (risking FAFSA & scholarships) and delays your prerequisite chain.\n\nPlease review the impacts below. You can escalate directly to Sarah Jenkins or submit for expedited advisor sign-off.`;
-        fallbackCitation = 'OSU Faculty Rule 3335-8-32 & Fisher Undergraduate Handbook';
+        fallbackCitation = 'OSU Faculty Rule 3335-8-32 & your college undergraduate handbook';
         fallbackEscalation = true;
         fallbackHighStakes = {
           isHighStakes: true,
@@ -265,7 +269,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       } else if (isMinor) {
         const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
         fallbackText = `⚠️ Curriculum Declaration Notice: You requested to declare the ${minorName} in BuckeyeLink.\n\nDeclaring a minor permanently binds 15–16 graded credits to your DARS degree audit and requires formal college advisor filing. Please review the requirements below to escalate or route to advisor Sarah Jenkins.`;
-        fallbackCitation = 'Fisher College Minor Declarations & Inter-College Policies';
+        fallbackCitation = 'Ohio State minor declaration and inter-college policies';
         fallbackEscalation = true;
         fallbackHighStakes = {
           isHighStakes: true,
@@ -282,7 +286,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       } else if (isHold) {
         fallbackText = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink, and if you have one, your advisor can tell you what's needed to clear it.`;
         fallbackEscalation = true;
-        fallbackCitation = 'University Registrar Registration Hold Policy & Fisher Milestone Guidelines';
+        fallbackCitation = 'University Registrar Registration Hold Policy';
       } else if (textLower.includes('building') || textLower.includes('access') || textLower.includes('after-hour') || textLower.includes('study') || textLower.includes('buckid') || textLower.includes('dreese') || textLower.includes('library')) {
         fallbackText = `Every Ohio State student already has automatic 24/7 access to 18th Avenue Library and daytime/evening access to Thompson Library on their BuckID.\n\nIf you need access to other academic buildings (like Mason Hall or Dreese Labs) after they lock in the evening or on weekends, you can request it right here in the **After-Hours Study Access** tab. Once approved, you just tap your BuckID at the door!`;
         fallbackCitation = 'OSU University Libraries & Public Safety Access Guidelines';
@@ -308,7 +312,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   };
 
   // Handle Dynamic Roadmap updates via Claude
-  // Asks Claude for a plan, then checks it against Fisher's requirements and sends any gaps back
+  // Asks Claude for a plan, then checks it against the degree's requirements and sends any gaps back
   // to be fixed (up to two rounds), so the saved plan covers every requirement BuckAI can track.
   const buildRoadmap = async (promptText: string, terms: PlanTerms): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
     setIsRoadmapUpdating(true);
@@ -333,7 +337,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       for (let round = 0; round < 3; round++) {
         setRoadmapStage(
           round === 0
-            ? 'Drafting your plan around your remaining Fisher requirements'
+            ? `Drafting your plan around your remaining ${degreeName} requirements`
             : `Fixing ${gaps.length} gap${gaps.length === 1 ? '' : 's'} in the plan (pass ${round + 1} of 3)`,
         );
         const summary = curriculum
@@ -414,9 +418,9 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         id: `msg-${Date.now()}`,
         role: 'assistant',
         text: `I updated your plan, but it still doesn't cover everything:\n\n- ${gaps.join('\n- ')}\n\nCheck the Degree Requirements tab, or bring this to your advisor.`,
-        sourceCitation: 'Fisher BSBA curriculum requirements',
+        sourceCitation: requirementsSource,
         confidence: 'moderate',
-        confidenceExplanation: 'Checked against Fisher\'s published requirements for students who entered before Autumn 2027.',
+        confidenceExplanation: `Checked against the published ${degreeName} requirements.`,
         escalationSuggested: true,
       },
     ]);
@@ -442,12 +446,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     setMessages((prev) =>
       prev.map((m) =>
         m.id === statusId
-          ? { ...m, text: 'Building your 4-year plan in the terms you chose and checking it against Fisher’s requirements… this can take up to a minute.' }
+          ? { ...m, text: 'Building your 4-year plan in the terms you chose and checking it against your degree requirements… this can take up to a minute.' }
           : m,
       ),
     );
     const result = await buildRoadmap(
-      `${instructions}\nBuild a complete plan through graduation that covers every remaining Fisher requirement for the student's specialization(s), respects prerequisites, and balances workload.`,
+      `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}) and specialization(s), respects prerequisites, and balances workload.`,
       terms,
     );
     let reply: ChatMessage;
@@ -470,9 +474,9 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         id: statusId,
         role: 'assistant',
         text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${status}`,
-        sourceCitation: 'Fisher BSBA curriculum requirements',
+        sourceCitation: requirementsSource,
         confidence: result.gaps.length ? 'moderate' : 'high',
-        confidenceExplanation: 'Checked against Fisher’s published requirements and the classes you entered. Your advisor has the final word.',
+        confidenceExplanation: `Checked against the published ${degreeName} requirements and the classes you entered. Your advisor has the final word.`,
         escalationSuggested: result.gaps.length > 0,
         action: { label: 'View my 4-year plan', tab: 'roadmap', autoOpen: true },
       };

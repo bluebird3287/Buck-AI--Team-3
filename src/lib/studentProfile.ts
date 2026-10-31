@@ -11,6 +11,7 @@ export interface StudentRecord {
   class_standing: string | null;
   gpa: number | null;
   semesters: Semester[];
+  degree_id?: string | null; // a degree in public.programs; none = the Fisher BSBA
   specialization_id?: string | null; // older rows; use specialization_ids
   specialization_ids?: string[];
   plan_terms?: PlanTerms | null; // which future terms they want to take classes in
@@ -149,7 +150,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
   const { data, error } = await supabase
     .from('student_profiles')
-    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, specialization_id, specialization_ids, plan_terms')
+    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, degree_id, specialization_id, specialization_ids, plan_terms')
     .maybeSingle();
   if (error) throw error;
   return data as StudentRecord | null;

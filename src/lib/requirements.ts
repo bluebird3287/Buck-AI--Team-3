@@ -10,7 +10,7 @@ export interface RequirementCourse {
   credits: number | null;
   prerequisites: string | null;
   min_grade: string | null;
-  alternates: string[]; // codes Fisher officially accepts
+  alternates: string[]; // codes the program officially accepts
   equivalents: string[]; // codes that may substitute; confirm with advisor
   is_secondary: boolean;
   notes: string | null;
@@ -36,24 +36,49 @@ export interface Program {
   id: string;
   kind: 'degree' | 'specialization' | 'minor';
   name: string;
+  college: string;
+  parent_id: string | null; // the degree a specialization belongs to
   catalog: string;
   min_total_credits: number | null;
   min_gpa: number | null;
   notes: string | null;
   source_url: string | null;
-  excluded_programs: string[]; // students in these programs can't add this minor ('fisher-bsba' = any BSBA student)
+  excluded_programs: string[]; // students in these programs can't add this minor (a degree id = anyone in that degree)
   groups: RequirementGroup[];
 }
 
+// One student's requirements: their degree, its specializations, and every minor.
 export interface Curriculum {
   degree: Program;
   specializations: Program[];
   minors: Program[];
 }
 
-export async function loadCurriculum(): Promise<Curriculum> {
+// Every college's programs (Fisher, Engineering, ...), loaded once.
+export interface CurriculumLibrary {
+  degrees: Program[];
+  specializations: Program[];
+  minors: Program[];
+}
+
+export const DEFAULT_DEGREE_ID = 'fisher-bsba'; // students who haven't picked a degree (the original Fisher pilot)
+
+export function curriculumFor(library: CurriculumLibrary, degreeId?: string | null): Curriculum {
+  const degree =
+    library.degrees.find((p) => p.id === degreeId) ?? library.degrees.find((p) => p.id === DEFAULT_DEGREE_ID) ?? library.degrees[0];
+  return {
+    degree,
+    specializations: library.specializations.filter((p) => (p.parent_id ?? DEFAULT_DEGREE_ID) === degree.id),
+    minors: library.minors,
+  };
+}
+
+export async function loadCurriculum(): Promise<CurriculumLibrary> {
   const [programs, groups, courses] = await Promise.all([
-    supabase.from('programs').select('id, kind, name, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs').order('sort_order'),
+    supabase
+      .from('programs')
+      .select('id, kind, name, college, parent_id, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs')
+      .order('sort_order'),
     supabase
       .from('requirement_groups')
       .select('id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes, ge_category')
@@ -88,13 +113,22 @@ export async function loadCurriculum(): Promise<Curriculum> {
     min_gpa: num(p.min_gpa),
     groups: byProgram.get(p.id) ?? [],
   }));
-  const degree = all.find((p) => p.kind === 'degree');
-  if (!degree) throw new Error('Curriculum is missing the BSBA degree program.');
+  const degrees = all.filter((p) => p.kind === 'degree');
+  if (!degrees.length) throw new Error('Curriculum has no degree programs.');
   return {
-    degree,
+    degrees,
     specializations: all.filter((p) => p.kind === 'specialization'),
     minors: all.filter((p) => p.kind === 'minor'),
   };
+}
+
+// Best guess at the degree named in free text such as "Mechanical Engineering" or "Finance (BS Business Admin)".
+export function guessDegree(library: CurriculumLibrary, major: string): string | null {
+  const text = major.toLowerCase();
+  const match = library.degrees.find(
+    (p) => p.id !== DEFAULT_DEGREE_ID && text.includes(p.name.replace(/^BS\s+/i, '').toLowerCase()),
+  );
+  return match?.id ?? null;
 }
 
 // Best guess at specializations named in free text such as "Finance (BS Business Admin)"
@@ -217,10 +251,12 @@ function bestMatch(req: RequirementCourse, taken: TakenCourse[], used: Set<Taken
 function itemFrom(req: RequirementCourse, match: ReturnType<typeof bestMatch>): RequirementItem {
   if (!match) return { code: req.code, title: req.title, credits: req.credits, state: 'missing', notes: req.notes };
   const { t, viaEquivalent, ok } = match;
+  const sameCourse = norm(req.code) === t.code || codeMatches(req.code, t.code);
   return {
     code: req.code,
     title: req.title,
-    credits: req.credits ?? t.credits,
+    // An accepted alternate can carry different hours (CHEM 1210 for CHEM 1250); count what the student took
+    credits: sameCourse ? req.credits ?? t.credits : t.credits || req.credits,
     state: ok ? t.state : 'missing',
     takenAs: norm(req.code) === t.code ? undefined : t.code,
     term: t.term,
@@ -285,7 +321,7 @@ function checkGroup(group: RequirementGroup, taken: TakenCourse[], used: Set<Tak
   for (const { req, m } of candidates) {
     if (group.kind === 'choose_courses' && items.length >= (group.min_courses ?? 1)) break;
     if (group.kind === 'choose_credits' && credits >= (group.min_credits ?? 0)) break;
-    const c = req.credits ?? m.t.credits;
+    const c = codeMatches(req.code, m.t.code) ? req.credits ?? m.t.credits : m.t.credits || req.credits || 0;
     if (req.is_secondary && group.max_secondary_credits != null) {
       if (secondary + c > group.max_secondary_credits) continue;
       secondary += c;
@@ -626,7 +662,7 @@ export function checkSchedule(curriculum: Curriculum, semesters: Semester[], ear
   return warnings;
 }
 
-// Official credit hours for a course: Fisher's requirement data first, then the registrar's GE tags.
+// Official credit hours for a course: the program requirement data first, then the registrar's GE tags.
 export function catalogCredits(curriculum: Curriculum | null, code: string): number | null {
   const c = norm(code);
   for (const p of curriculum ? [curriculum.degree, ...curriculum.specializations, ...curriculum.minors] : [])
@@ -639,6 +675,7 @@ export function catalogCredits(curriculum: Curriculum | null, code: string): num
 export interface DegreeAudit {
   degree: ProgramProgress;
   specializations: ProgramProgress[]; // a student may have more than one
+  specializationOptions: number; // how many specializations the degree offers (0 = none to choose)
   prereqWarnings: PrereqWarning[];
   scheduleWarnings: ScheduleWarning[];
   credits: { earned: number; inProgress: number; planned: number; required: number };
@@ -680,7 +717,9 @@ export function auditDegree(
       }
     }
     for (const code of used) usedBy.set(code, (usedBy.get(code) ?? 0) + 1);
-    if (hours) specializationGpas.push({ name: sp.program.name, gpa: Math.round((points / hours) * 100) / 100 });
+    // Fisher requires a 2.00 GPA in each specialization; other colleges don't have this rule
+    if (hours && curriculum.degree.id === DEFAULT_DEGREE_ID)
+      specializationGpas.push({ name: sp.program.name, gpa: Math.round((points / hours) * 100) / 100 });
   }
   const sum = (status: Semester['status']) =>
     semesters.filter((s) => s.status === status).reduce((n, s) => n + s.courses.reduce((m, c) => m + (Number(c.credits) || 0), 0), 0);
@@ -688,6 +727,7 @@ export function auditDegree(
   return {
     degree: checkProgram(curriculum.degree, semesters),
     specializations: specProgress,
+    specializationOptions: curriculum.specializations.length,
     prereqWarnings: checkPrerequisites(curriculum, semesters),
     scheduleWarnings: checkSchedule(curriculum, semesters, earnedCredits),
     credits: {
@@ -726,9 +766,13 @@ export function describeAudit(audit: DegreeAudit): string {
           : [];
       const progress =
         g.group.kind === 'choose_credits' ? `${g.creditsCounted}/${g.creditsNeeded} credits` : `${g.coursesCounted}/${g.coursesNeeded} courses`;
+      // Long elective lists (some engineering majors list 70+ courses) are trimmed to keep the prompt short
+      const MAX_OPTIONS = 25;
+      const listed = g.group.courses.slice(0, MAX_OPTIONS).map(courseLabel).join(', ');
+      const more = g.group.courses.length > MAX_OPTIONS ? `, …and ${g.group.courses.length - MAX_OPTIONS} more` : '';
       const options =
         g.group.kind !== 'all' && g.state === 'missing'
-          ? `; options: ${g.group.courses.map(courseLabel).join(', ') || g.group.notes}`
+          ? `; options: ${listed ? listed + more : ''}${g.group.notes ? `${listed ? '. ' : ''}${g.group.notes}` : ''}`
           : '';
       lines.push(
         `  - ${g.group.title}: ${g.state.replace('_', ' ')} (${progress})${missing.length ? `; still needs ${missing.join(', ')}` : ''}${options}`,
@@ -737,7 +781,7 @@ export function describeAudit(audit: DegreeAudit): string {
   };
   program(audit.degree);
   if (audit.specializations.length) audit.specializations.forEach(program);
-  else lines.push('Specialization: not chosen yet.');
+  else if (audit.specializationOptions) lines.push('Specialization: not chosen yet (this degree requires one).');
   if (audit.specializations.length > 1)
     lines.push(`The student has ${audit.specializations.length} specializations (${audit.specializations.map((p) => p.program.name).join(' and ')}); each must be completed.`);
   if (audit.sharedCourses.length)
@@ -768,7 +812,8 @@ export function planGaps(audit: DegreeAudit): string[] {
       const where = `${p.program.name} – ${g.group.title}`;
       // Prefer options on the current schedule
       const scheduled = g.group.courses.filter((c) => !c.offered_terms?.includes('None'));
-      const choices = (scheduled.length ? scheduled : g.group.courses).map(courseLabel).join(', ');
+      const pool = scheduled.length ? scheduled : g.group.courses;
+      const choices = pool.slice(0, 15).map(courseLabel).join(', ') + (pool.length > 15 ? `, or ${pool.length - 15} other approved courses` : '');
       if (g.group.kind === 'ge') {
         const has = g.items.map((i) => `${i.code}: ${i.issue}`).join('; ');
         gaps.push(`${where}: add a real GE course in this category${has ? ` (${has})` : ''}, e.g. ${geExamples(g.group.ge_category ?? '', 4).join('; ')}`);
@@ -813,11 +858,15 @@ export interface MinorAudit {
 export function auditMinor(minor: Program, specializationIds: string[], semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
   const progress = checkProgram(minor, semesters);
   const excluded = minor.excluded_programs;
-  const eligible = !excluded.includes('fisher-bsba') && !specializationIds.some((id) => excluded.includes(id));
+  const degree = degreeAudit?.degree.program;
+  const degreeId = degree?.id ?? DEFAULT_DEGREE_ID;
+  const eligible = !excluded.includes(degreeId) && !specializationIds.some((id) => excluded.includes(id));
   const ineligibleReason = eligible
     ? null
-    : excluded.includes('fisher-bsba')
-    ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
+    : excluded.includes(degreeId)
+    ? degreeId === DEFAULT_DEGREE_ID
+      ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
+      : `Students in the ${degree?.name ?? 'your degree'} program can’t add this minor.`
     : 'A minor must be in a different subject than your specialization.';
 
   // Courses the student's major requirements already use

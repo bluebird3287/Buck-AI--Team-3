@@ -14,7 +14,7 @@ import {
   ParsedAdvisingReport,
   semestersFromReport,
 } from '../lib/studentProfile';
-import { Curriculum, guessSpecializations } from '../lib/requirements';
+import { CurriculumLibrary, DEFAULT_DEGREE_ID, curriculumFor, guessDegree, guessSpecializations } from '../lib/requirements';
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
@@ -46,7 +46,7 @@ const STANDINGS = ['Freshman (Year 1)', 'Sophomore (Year 2)', 'Junior (Year 3)',
 const YEARS = Array.from({ length: 9 }, (_, i) => CURRENT_TERM.year - 5 + i);
 
 interface MyClassesEditorProps {
-  curriculum: Curriculum | null;
+  library: CurriculumLibrary | null;
   initial: StudentRecord | null;
   onSave: (record: StudentRecord) => Promise<void>;
   onCancel?: () => void;
@@ -54,11 +54,14 @@ interface MyClassesEditorProps {
 
 // First-run setup and the "My classes" editor. Students type in the classes they
 // already have, since the prototype isn't connected to BuckeyeLink.
-export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, initial, onSave, onCancel }) => {
+export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initial, onSave, onCancel }) => {
   const [fullName, setFullName] = useState(initial?.full_name ?? '');
   const [major, setMajor] = useState(initial?.major ?? '');
   const [minor, setMinor] = useState(initial?.minor ?? '');
-  // The pilot is Fisher-only, so everyone is a Fisher BSBA student with a specialization.
+  // Degree (Fisher BSBA or an Engineering BS); its specializations come from the curriculum
+  const [degreeId, setDegreeId] = useState<string>(initial?.degree_id ?? DEFAULT_DEGREE_ID);
+  const curriculum = library ? curriculumFor(library, degreeId) : null;
+  const isFisher = degreeId === DEFAULT_DEGREE_ID;
   const [college, setCollege] = useState(initial?.college ?? 'Fisher College of Business');
   // A student can have a second specialization (e.g. Finance + Tech Innovation)
   const initialSpecs = initial?.specialization_ids?.length
@@ -88,9 +91,20 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
 
   const isFirstRun = !initial;
 
+  // How the major reads elsewhere in the app: "Finance (BSBA)" or "BS Electrical and Computer Engineering: Computer Engineering"
   const specializationName = (...ids: string[]) => {
     const names = ids.map((id) => curriculum?.specializations.find((p) => p.id === id)?.name).filter(Boolean);
-    return names.length ? `${names.join(' + ')} (BSBA)` : '';
+    if (isFisher) return names.length ? `${names.join(' + ')} (BSBA)` : '';
+    const degreeName = curriculum?.degree.name ?? '';
+    return names.length ? `${degreeName}: ${names.join(' + ')}` : degreeName;
+  };
+
+  const chooseDegree = (id: string) => {
+    setDegreeId(id);
+    setSpecializationId('');
+    setSecondSpecializationId('');
+    const chosen = library?.degrees.find((p) => p.id === id);
+    if (chosen) setCollege(chosen.college);
   };
 
   // Reads the advising report on the server and fills in the form for the student to review.
@@ -118,7 +132,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
       if (report.fullName) setFullName(report.fullName);
       if (report.major) {
         setMajor(report.major);
-        const guesses = curriculum ? guessSpecializations(curriculum, report.major) : [];
+        const reportDegree = library ? guessDegree(library, report.major) ?? DEFAULT_DEGREE_ID : degreeId;
+        if (reportDegree !== degreeId) chooseDegree(reportDegree);
+        const guesses = library ? guessSpecializations(curriculumFor(library, reportDegree), report.major) : [];
         if (guesses[0]) setSpecializationId(guesses[0]);
         if (guesses[1]) setSecondSpecializationId(guesses[1]);
       }
@@ -174,8 +190,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!fullName.trim() || !specializationId) {
-      setError('Please enter your name and choose your Fisher specialization.');
+    const needsSpecialization = !!curriculum?.specializations.length;
+    if (!fullName.trim() || (needsSpecialization && !specializationId)) {
+      setError(needsSpecialization ? 'Please enter your name and choose your specialization.' : 'Please enter your name.');
       return;
     }
     const gpaNum = gpa.trim() ? Number(gpa) : null;
@@ -188,6 +205,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
       await onSave({
         full_name: fullName.trim(),
         major: specializationName(specializationId, secondSpecializationId) || major.trim(),
+        degree_id: degreeId,
         specialization_id: specializationId || null,
         specialization_ids: [specializationId, secondSpecializationId].filter((id, i, all) => id && all.indexOf(id) === i),
         minor: minor.trim() || null,
@@ -302,7 +320,23 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
               <input className={inputCls} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Alex" />
             </label>
             <label className="text-xs font-semibold text-gray-700 space-y-1">
-              <span>Fisher specialization *</span>
+              <span>Degree *</span>
+              <select className={inputCls} value={degreeId} onChange={(e) => chooseDegree(e.target.value)}>
+                {!library && <option value={degreeId}>Loading…</option>}
+                {[...new Set(library?.degrees.map((p) => p.college))].map((col) => (
+                  <optgroup key={col} label={col}>
+                    {library!.degrees
+                      .filter((p) => p.college === col)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {!!curriculum?.specializations.length && (
+            <label className="text-xs font-semibold text-gray-700 space-y-1">
+              <span>{isFisher ? 'Fisher specialization' : 'Specialization'} *</span>
               <select
                 className={inputCls}
                 value={specializationId}
@@ -311,12 +345,14 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
                   setMajor(specializationName(e.target.value, secondSpecializationId));
                 }}
               >
-                <option value="">{curriculum ? 'Select…' : 'Loading…'}</option>
-                {curriculum?.specializations.map((p) => (
+                <option value="">Select…</option>
+                {curriculum.specializations.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </label>
+            )}
+            {isFisher && (
             <label className="text-xs font-semibold text-gray-700 space-y-1">
               <span>Second specialization</span>
               <select
@@ -335,6 +371,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ curriculum, in
                   ))}
               </select>
             </label>
+            )}
             <label className="text-xs font-semibold text-gray-700 space-y-1">
               <span>Minor</span>
               <input className={inputCls} value={minor} onChange={(e) => setMinor(e.target.value)} placeholder="Optional" />

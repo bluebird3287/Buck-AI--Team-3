@@ -98,8 +98,8 @@ You are the Ohio State University (OSU) Native BuckeyeLink AI Academic Advising 
 Your audience is undergraduate students navigating BuckeyeLink, course registration, prerequisite chains, 4-year degree planning, and advisor scheduling.
 
 Key OSU Context:
-- Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (CSE).
-- Pilot scope: Fisher College of Business students in the BSBA. Each request includes a requirements check computed from Fisher's published Business Foundation, Business Core, General Education, and specialization (major core) requirements. Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. Fisher's published requirements and the student's advisor have the final say.
+- Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
+- Pilot scope: Fisher BSBA students and College of Engineering BS students. Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
@@ -156,7 +156,7 @@ IMPORTANT: When a student asks to make a big decision like dropping a class (e.g
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
 - Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
 
-When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against Fisher's requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
+When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against the student's degree requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
 
 Do not wrap the JSON in extra text outside the JSON object.
 `;
@@ -214,7 +214,7 @@ app.post('/api/advising-chat', async (req, res) => {
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, roadmap)}
 
-Fisher degree requirements check (computed by BuckAI from Fisher's published BSBA and specialization requirements):
+Degree requirements check (computed by BuckAI from the published requirements for the student's degree and specialization):
 ${requirementsSummary || 'Not available.'}
 
 Conversation History:
@@ -674,7 +674,7 @@ You are the OSU Degree Audit & Academic Planning Engine.
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, currentRoadmap)}
 
-Fisher degree requirements check (what is complete, in progress, planned, and still unmet):
+Degree requirements check (what is complete, in progress, planned, and still unmet):
 ${requirementsSummary || 'Not available.'}
 Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
 
@@ -686,7 +686,7 @@ Return a JSON with:
   "summary": "Brief 1-2 sentence explanation of adjustments made to satisfy prerequisites and workload balance.",
   "workloadBalanced": true,
   "confidence": "high" | "moderate" | "uncertain",
-  "sourceCitation": "Fisher College of Business / Arts & Sciences 4-Year Curriculum Guide 2026",
+  "sourceCitation": "the student's degree curriculum (e.g. Fisher BSBA curriculum, or the College of Engineering 2026-2027 curriculum sheet for their major)",
   "confidenceExplanation": "string (honest reason for the confidence level)",
   "semesters": [
     {
@@ -703,7 +703,7 @@ Rules for "semesters":
 - Use ids of the form "autumn-2027", "spring-2028", "summer-2028".
 - Never plan a course they've already taken. Respect prerequisites against the classes they entered.
 - "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
-- Plan through graduation at 121 total credits (Fisher's BSBA minimum).
+- Plan through graduation at the total credit hours the requirements check lists as required (121 for the Fisher BSBA; 121-132 for Engineering majors).
 - Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options, preferring ones on the current schedule.
 - Use the credit hours shown in the requirements check (several Finance electives are 1.5 credits, not 3).
 - Place every course after its prerequisites (in an earlier term). A course marked "Autumn only" goes in an Autumn term and "Spring only" in a Spring term.

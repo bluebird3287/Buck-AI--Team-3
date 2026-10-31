@@ -122,7 +122,7 @@ const ProgramSection: React.FC<{ p: ProgramProgress }> = ({ p }) => {
           <span>{met} of {tracked.length} requirements complete</span>
           {p.program.source_url && (
             <a href={p.program.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[#ba0c2f] hover:underline">
-              Fisher source <ExternalLink className="w-3 h-3" />
+              Official source <ExternalLink className="w-3 h-3" />
             </a>
           )}
         </div>
@@ -144,7 +144,7 @@ interface DegreeRequirementsViewProps {
 
 export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ audit, onAskForPlan }) => {
   if (!audit) {
-    return <div className="p-6 text-sm text-gray-600">Loading Fisher requirements…</div>;
+    return <div className="p-6 text-sm text-gray-600">Loading degree requirements…</div>;
   }
   const { credits } = audit;
   const pct = Math.min(100, Math.round(((credits.earned + credits.inProgress) / credits.required) * 100));
@@ -157,7 +157,7 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
           <div>
             <h3 className="text-base font-bold text-gray-900">Degree requirements check</h3>
             <p className="text-xs text-gray-600">
-              Your classes checked against Fisher&apos;s published BSBA requirements. Your advisor and official degree audit have the final word.
+              Your classes checked against the published requirements for {audit.degree.program.name}. Your advisor and official degree audit have the final word.
             </p>
           </div>
           <button onClick={onAskForPlan} className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-2 rounded">
@@ -218,11 +218,11 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
 
       {audit.specializations.length ? (
         audit.specializations.map((p) => <ProgramSection key={p.program.id} p={p} />)
-      ) : (
+      ) : audit.specializationOptions ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
-          Choose your Fisher specialization under <strong>My classes</strong> to see its major core requirements.
+          Choose your specialization under <strong>My classes</strong> to see its requirements.
         </div>
-      )}
+      ) : null}
       <ProgramSection p={audit.degree} />
     </div>
   );

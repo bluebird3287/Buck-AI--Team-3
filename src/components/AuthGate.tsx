@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, BookOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -9,7 +9,7 @@ import { AdvisorView } from './AdvisorView';
 import { MyClassesEditor } from './MyClassesEditor';
 import { PlanTerms, StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
 import { Semester } from '../data/sampleData';
-import { Curriculum, loadCurriculum } from '../lib/requirements';
+import { CurriculumLibrary, curriculumFor, loadCurriculum } from '../lib/requirements';
 import App from '../App';
 
 // Gates the whole app behind email-link sign-in and routes by role:
@@ -45,10 +45,10 @@ export const AuthGate: React.FC = () => {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  // Fisher curriculum (public reference data), loaded once
-  const [curriculum, setCurriculum] = useState<Curriculum | null>(null);
+  // Every college's degree requirements (public reference data), loaded once
+  const [library, setLibrary] = useState<CurriculumLibrary | null>(null);
   useEffect(() => {
-    loadCurriculum().then(setCurriculum).catch((err) => console.warn('Could not load curriculum:', err));
+    loadCurriculum().then(setLibrary).catch((err) => console.warn('Could not load curriculum:', err));
   }, []);
 
   // Bumped after the student edits their classes so the app reloads with the new data.
@@ -64,6 +64,9 @@ export const AuthGate: React.FC = () => {
       .catch((err) => setRecordError(err?.message || 'Could not load your profile.'))
       .finally(() => setLoadedFor(userId));
   }, [userId, role]);
+
+  // The signed-in student's own degree and its specializations
+  const curriculum = useMemo(() => (library ? curriculumFor(library, record?.degree_id) : null), [library, record?.degree_id]);
 
   const handleSaveRecord = async (next: StudentRecord) => {
     await saveStudentRecord(userId, next);
@@ -121,7 +124,7 @@ export const AuthGate: React.FC = () => {
   if (role === 'student' && (!record || editing)) {
     return (
       <MyClassesEditor
-        curriculum={curriculum}
+        library={library}
         initial={record}
         onSave={handleSaveRecord}
         onCancel={record ? () => setEditing(false) : () => supabase.auth.signOut()}
