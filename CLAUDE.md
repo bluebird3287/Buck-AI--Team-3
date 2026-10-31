@@ -50,3 +50,66 @@ Notes:
 
 Email magic links via Supabase Auth. No passwords, ever. Collect only an email,
 never an OSU password or student ID. Sketch: `docs/wireframes/sign-in.png`.
+
+## Fisher curriculum data
+
+The pilot is Fisher College of Business only. Degree requirements live in Supabase
+(`programs`, `requirement_groups`, `requirement_courses`; public read-only) and come from
+Fisher's published BSBA curriculum for students who entered Spring 2027 or earlier:
+Business Foundation, Advanced Writing, Business Core, General Education, and each
+specialization's major core (https://fisher.osu.edu/undergraduate/academics/curriculum-requirements).
+
+- Edit `scripts/fisher_requirements.py`, regenerate the seed SQL in `supabase/migrations/`,
+  and apply it. Don't hand-edit the generated SQL.
+- Students can have more than one specialization (`student_profiles.specialization_ids`).
+  Fisher doesn't publish a double-counting rule, so a course shared by two specializations
+  counts for both and is flagged for the advisor. Tech Innovation (new Autumn 2026) comes from
+  the OAA proposal's curriculum sheet.
+- `src/lib/requirements.ts` checks a student's classes against those requirements (grades,
+  "choose N" and credit-hour electives, prerequisites) and feeds the result to the AI.
+- GE Foundations and Themes (requirement group kind `ge`) are checked against the registrar's
+  GEN tags in `src/data/geCourses.json` (refresh each term with `python3 scripts/build_ge_data.py`).
+  One course fills one GE category; a Theme is one 4-credit course or two 3-credit courses from
+  different subjects; Citizenship plus one other Theme.
+- `requirement_courses.offered_terms` (from the Autumn 2026/Spring 2027 schedule; `None` = not
+  scheduled) and `min_standing` (30/60/90 earned hours) drive the plan's timing checks.
+  Planned courses must be real course codes; only `ELECTIVE` is allowed as a placeholder.
+- Fisher's Autumn 2027 redesigned curriculum isn't published yet; add it as new programs
+  when it is.
+- Fisher minors (kind `minor`) power the What-If Minor Audit. `excluded_programs` marks
+  who can't take a minor (`fisher-bsba` = any BSBA student). Regenerate with
+  `python3 scripts/fisher_requirements.py minors`.
+
+## College of Engineering curriculum data
+
+All 14 College of Engineering BS degrees (2026-2027 admits) live in the same tables, with
+`college = 'College of Engineering'`. Specializations name their degree in `programs.parent_id`
+(ECE: Electrical/Computer; FABE: Food/Agricultural/Biological/Ecological; Engineering Physics: eight
+concentrations; ISE: five tracks; Aviation: non-flight/flight). Each student picks a degree
+(`student_profiles.degree_id`; empty = the Fisher BSBA), and `curriculumFor()` in
+`src/lib/requirements.ts` gives them that degree's requirements.
+
+- Edit `scripts/engineering_requirements.py` and regenerate
+  `supabase/migrations/*_seed_engineering_requirements.sql` (`python3 scripts/engineering_requirements.py degree`).
+  It only replaces Engineering rows; don't hand-edit the SQL.
+- Sources are each major's 2026-2027 curriculum sheet (linked from
+  advising.engineering.osu.edu/current-students/curriculum-sheets-major) plus department elective pages;
+  each program's `source_url` names its page. Where a sheet allows two courses to replace one
+  (CHEM 1206 + 1208 for CHEM 1210), the pair is an `equivalent` (counted, flagged "confirm with advisor").
+- FABE electives and ISE "Connected Skills" lists exist only in the Buckeye Degree Planner, so those
+  groups accept engineering/science courses by pattern and tell students to confirm.
+- Not covered yet: Engineering minors and the Knowlton School (Architecture, CRP, Landscape Architecture).
+
+## Advising requests
+
+Student requests to advisors live in `advising_requests` (RLS: students see their own,
+advisors see all and decide) and advisor blocked-off times in `advisor_closed_slots`.
+`booked_slot_keys()` exposes taken times without names. There is no sample data.
+
+## Chat log
+
+Students keep separate chats, like ChatGPT/Claude: `chat_conversations` is the list shown in
+the chat tab's sidebar, and each row in `chat_messages` belongs to one (RLS: students read, add,
+rename and delete only their own; advisors can't see chats). A new chat isn't saved until its
+first message; a trigger names it after the first question and bumps `updated_at`. Opening a
+chat reloads its last 200 messages; temporary placeholders (`pending`) aren't saved.

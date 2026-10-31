@@ -7,12 +7,14 @@ export interface Course {
   prereqMet: boolean;
   prereqInfo?: string;
   notes?: string;
+  grade?: string;
 }
 
 export interface Semester {
   id: string;
   name: string;
   status: 'completed' | 'in-progress' | 'planned';
+  year?: number; // academic year of the student's degree (1 = first year)
   courses: Course[];
   totalCredits: number;
   workloadRating: 'Light' | 'Moderate' | 'Balanced' | 'Heavy' | 'Overload';
@@ -25,6 +27,7 @@ export interface StudentProfile {
   rank: string;
   college: string;
   major: string;
+  specializationIds: string[];
   minor: string;
   gpa: number;
   earnedCredits: number;
@@ -48,151 +51,14 @@ export interface AdvisorSlot {
   formatOptions: ('In-Person' | 'Zoom Virtual' | 'Phone')[];
 }
 
-export const INITIAL_STUDENT_PROFILE: StudentProfile = {
-  name: 'Tyler',
-  osuId: '#03847291',
-  nameDotNum: 'rez.24@osu.edu',
-  rank: 'Sophomore (Year 2)',
-  college: 'Fisher College of Business',
-  major: 'Finance (BSBA)',
-  minor: 'Business Analytics & Computer Information Systems',
-  gpa: 3.68,
-  earnedCredits: 45,
-  totalRequiredCredits: 121,
+// The prototype's placeholder advisor. Every student is assigned to this advisor
+// until we have a real advisor directory.
+export const DEFAULT_ADVISOR = {
   advisorName: 'Sarah Jenkins, M.Ed.',
   advisorEmail: 'jenkins.892@osu.edu',
-  advisorTitle: 'Senior Academic Advisor - Fisher & Arts/Sciences Dual Track',
-  advisorOffice: 'Mason Hall 120 (Fisher Campus)',
-  holds: ['Registration Lock (2nd-Year Advising Plan Milestone Check)'],
-  toDos: [
-    'Complete FAFSA Verification Form',
-    'Financial Responsibility Statement 2026-2027',
-    'Second-Year Career & Internship Assessment',
-    'Degree Audit (DARS) Self-Review'
-  ]
+  advisorTitle: 'Senior Academic Advisor',
+  advisorOffice: 'Mason Hall 120',
 };
-
-export const INITIAL_ROADMAP: Semester[] = [
-  {
-    id: 'sem-1',
-    name: 'Autumn 2025 (Year 1)',
-    status: 'completed',
-    totalCredits: 15,
-    workloadRating: 'Moderate',
-    courses: [
-      { code: 'MATH 1151', name: 'Calculus I', credits: 5, type: 'GE Foundation', difficulty: 4, prereqMet: true, prereqInfo: 'Placement score met' },
-      { code: 'ECON 2001.01', name: 'Principles of Microeconomics', credits: 3, type: 'GE Foundation', difficulty: 2, prereqMet: true },
-      { code: 'ENGLISH 1110.01', name: 'First-Year English Composition', credits: 3, type: 'GE Foundation', difficulty: 1, prereqMet: true },
-      { code: 'ARTSSCI 1100.01', name: 'University Survey', credits: 1, type: 'General', difficulty: 1, prereqMet: true },
-      { code: 'GE-SBS', name: 'Social & Behavioral Science Elective', credits: 3, type: 'GE Foundation', difficulty: 2, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-2',
-    name: 'Spring 2026 (Year 1)',
-    status: 'completed',
-    totalCredits: 14,
-    workloadRating: 'Moderate',
-    courses: [
-      { code: 'ECON 2002.01', name: 'Principles of Macroeconomics', credits: 3, type: 'Major Prereq', difficulty: 2, prereqMet: true },
-      { code: 'ACCTMIS 2200', name: 'Intro to Accounting 1', credits: 3, type: 'Major Prereq', difficulty: 4, prereqMet: true, notes: 'Instructor: Marc Smith • Workload: Heavy (Grade: A)' },
-      { code: 'STAT 1430.01', name: 'Statistics for Business', credits: 4, type: 'GE Foundation', difficulty: 3, prereqMet: true },
-      { code: 'GE-NAT', name: 'Natural Science with Lab', credits: 4, type: 'GE Foundation', difficulty: 3, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-3',
-    name: 'Autumn 2026 (Year 2 - In Progress)',
-    status: 'in-progress',
-    totalCredits: 15,
-    workloadRating: 'Heavy',
-    courses: [
-      { code: 'ACCTMIS 2300', name: 'Intro to Accounting 2', credits: 3, type: 'Major Core', difficulty: 4, prereqMet: true, notes: 'Instructor: Marc Smith • High Workload (12-15 hrs/wk) • Current grade: A-' },
-      { code: 'CSE 2221', name: 'Software I: Software Components', credits: 4, type: 'Minor/Technical', difficulty: 4, prereqMet: true, notes: 'Current grade: B+' },
-      { code: 'MATH 1152', name: 'Calculus 2', credits: 5, type: 'Major/Math', difficulty: 5, prereqMet: true, notes: 'Midterm 1: 89%' },
-      { code: 'BUSMHR 2292', name: 'Business Communication', credits: 3, type: 'Major Core', difficulty: 2, prereqMet: true, notes: 'Current grade: A' }
-    ]
-  },
-  {
-    id: 'sem-4',
-    name: 'Spring 2027 (Year 2 - Planned)',
-    status: 'planned',
-    totalCredits: 14,
-    workloadRating: 'Balanced',
-    courses: [
-      { code: 'BUSFIN 3220', name: 'Business Finance', credits: 3, type: 'Major Core', difficulty: 4, prereqMet: true, prereqInfo: 'Prereq ACCTMIS 2200 & ECON 2001/2002 satisfied' },
-      { code: 'CSE 2231', name: 'Software II: Development & Components', credits: 4, type: 'Minor/Technical', difficulty: 4, prereqMet: true, prereqInfo: 'Prereq CSE 2221 in progress' },
-      { code: 'BUSOBA 2320', name: 'Decision Sciences', credits: 3, type: 'Major Core', difficulty: 3, prereqMet: true, prereqInfo: 'Prereq STAT 1430 satisfied' },
-      { code: 'GE-THEME-1', name: 'Citizenship for Diverse & Just World', credits: 4, type: 'GE Theme', difficulty: 2, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-5',
-    name: 'Autumn 2027 (Year 3 - Planned)',
-    status: 'planned',
-    totalCredits: 15,
-    workloadRating: 'Balanced',
-    courses: [
-      { code: 'BUSFIN 4211', name: 'Corporate Finance', credits: 3, type: 'Major Specialization', difficulty: 4, prereqMet: true },
-      { code: 'CSE 2321', name: 'Foundations I: Discrete Structures', credits: 3, type: 'Minor Core', difficulty: 4, prereqMet: true },
-      { code: 'BUSMGT 3230', name: 'Operations Management', credits: 3, type: 'Major Core', difficulty: 3, prereqMet: true },
-      { code: 'BUSML 3250', name: 'Principles of Marketing', credits: 3, type: 'Major Core', difficulty: 2, prereqMet: true },
-      { code: 'GE-CULT', name: 'Historical & Cultural Studies', credits: 3, type: 'GE Foundation', difficulty: 2, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-6',
-    name: 'Spring 2028 (Year 3 - Planned)',
-    status: 'planned',
-    totalCredits: 14,
-    workloadRating: 'Balanced',
-    courses: [
-      { code: 'BUSFIN 4221', name: 'Investments', credits: 3, type: 'Major Specialization', difficulty: 4, prereqMet: true },
-      { code: 'BUSFIN 4230', name: 'Advanced Corporate Finance', credits: 3, type: 'Major Specialization', difficulty: 4, prereqMet: true },
-      { code: 'CSE 3241', name: 'Intro to Database Systems', credits: 3, type: 'Minor Elective', difficulty: 3, prereqMet: true },
-      { code: 'GE-THEME-2', name: 'Theme Elective: Health & Well-being', credits: 4, type: 'GE Theme', difficulty: 2, prereqMet: true },
-      { code: 'EXP-3990', name: 'Fisher Internship Prep Seminar', credits: 1, type: 'Experiential', difficulty: 1, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-summer',
-    name: 'Summer 2028 (Internship)',
-    status: 'planned',
-    totalCredits: 1,
-    workloadRating: 'Light',
-    courses: [
-      { code: 'BUSFIN 4191', name: 'Summer Finance / Analytics Internship', credits: 1, type: 'Experiential', difficulty: 1, prereqMet: true, notes: 'Targeting Financial Analyst / Quant Tech' }
-    ]
-  },
-  {
-    id: 'sem-7',
-    name: 'Autumn 2028 (Year 4 - Planned)',
-    status: 'planned',
-    totalCredits: 15,
-    workloadRating: 'Moderate',
-    courses: [
-      { code: 'BUSFIN 4250', name: 'International Finance', credits: 3, type: 'Major Specialization', difficulty: 3, prereqMet: true },
-      { code: 'BUSMHR 4490', name: 'Strategic Management (Fisher Capstone)', credits: 3, type: 'Major Capstone', difficulty: 4, prereqMet: true },
-      { code: 'CSE 3461', name: 'Computer Networking & Cloud', credits: 3, type: 'Minor Elective', difficulty: 3, prereqMet: true },
-      { code: 'GE-LIT', name: 'Literary, Visual & Performing Arts', credits: 3, type: 'GE Foundation', difficulty: 2, prereqMet: true },
-      { code: 'FREE-ELEC-1', name: 'University Free Elective', credits: 3, type: 'Elective', difficulty: 1, prereqMet: true }
-    ]
-  },
-  {
-    id: 'sem-8',
-    name: 'Spring 2029 (Year 4 - Graduation)',
-    status: 'planned',
-    totalCredits: 13,
-    workloadRating: 'Balanced',
-    courses: [
-      { code: 'BUSFIN 4260', name: 'Financial Modeling & Valuation', credits: 3, type: 'Major Specialization', difficulty: 4, prereqMet: true },
-      { code: 'BUSOBA 4240', name: 'Applied Business Analytics & AI', credits: 3, type: 'Minor Capstone', difficulty: 3, prereqMet: true },
-      { code: 'GRAD-4999', name: 'Senior Transition & Post-Graduation Launch', credits: 1, type: 'Career', difficulty: 1, prereqMet: true },
-      { code: 'FREE-ELEC-2', name: 'Upper Division Elective', credits: 3, type: 'Elective', difficulty: 2, prereqMet: true },
-      { code: 'FREE-ELEC-3', name: 'General Elective', credits: 3, type: 'Elective', difficulty: 1, prereqMet: true }
-    ]
-  }
-];
 
 export const MUTUAL_ADVISOR_SLOTS: AdvisorSlot[] = [
   {
@@ -211,7 +77,7 @@ export const MUTUAL_ADVISOR_SLOTS: AdvisorSlot[] = [
     date: 'Oct 14, 2026',
     time: '2:15 PM - 2:45 PM',
     advisorAvailable: true,
-    studentFree: false, // Tyler has BUSMHR 2292 lecture at 2:15 PM!
+    studentFree: false, // student has class at this time
     mutualMatch: false,
     formatOptions: ['In-Person']
   },
@@ -289,22 +155,3 @@ export const SURVEY_DATA_HIGHLIGHTS = {
     }
   ]
 };
-
-export const INITIAL_AI_CONVERSATION = [
-  {
-    id: 'msg-1',
-    role: 'assistant' as const,
-    text: "Hello Tyler! I'm your native BuckeyeLink Advising Assistant. I see you're currently in your 2nd year pursuing a Finance BSBA with a Business Analytics & CIS minor. \n\n⚠️ **Notice:** You currently have a **Registration Lock** hold for your Second-Year Academic Plan check-in. I can help you review your requirements, optimize your 4-year plan, and coordinate with your advisor Sarah Jenkins to clear your hold.",
-    sourceCitation: 'BuckeyeLink Student Center Status & Fisher Advising Milestone Rules 2026',
-    confidence: 'high' as const,
-    confidenceExplanation: 'Loaded directly from Ohio State SIS Records and DARS Degree Audit rules.',
-    escalationSuggested: true,
-    escalationReason: 'Registration Lock hold requires mutual advisor confirmation to lift prior to Spring 2027 enrollment.',
-    suggestedActions: [
-      'Explain my Registration Lock hold',
-      'Check my Spring 2027 prerequisite readiness',
-      'Optimize 4-year roadmap for workload balance',
-      'Match availability with Sarah Jenkins'
-    ]
-  }
-];

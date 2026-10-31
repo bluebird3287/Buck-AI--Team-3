@@ -1,11 +1,11 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
+import { supabase } from './supabase';
 import type { AdvisorSlot, StudentProfile } from '../data/sampleData';
 
 // Shared advising data for both sides of the app: student requests that the AI checks
 // first and an advisor approves last, plus the availability both parties schedule from.
-// Prototype storage: kept in this browser's localStorage so a request a student submits
-// shows up in the advisor portal on the same machine. Swap this module for Supabase
-// tables (with row-level security per CLAUDE.md) when requests are saved for real.
+// Stored in Supabase (advising_requests, advisor_closed_slots) with row-level security:
+// students see only their own requests; advisors see and act on all of them.
 
 export type RequestCategory =
   | 'appointment'
@@ -15,7 +15,7 @@ export type RequestCategory =
   | 'change_major'
   | 'withdraw';
 
-export type RequestStatus = 'ai_review' | 'pending_advisor' | 'needs_info' | 'approved' | 'denied';
+export type RequestStatus = 'ai_review' | 'pending_advisor' | 'needs_info' | 'scheduled' | 'approved' | 'denied';
 
 export type AiVerdict = 'supported' | 'needs_attention' | 'not_supported';
 
@@ -37,7 +37,17 @@ export interface AiReview {
   recommendation: string;
   source: 'claude' | 'rules';
   reviewedAt: string;
+  // A detailed, plain-language account of the student's problem and circumstances, for
+  // advisors who already know the requirements. Falls back to `summary` when missing.
+  situation?: string;
 }
+
+// Where advisors open a student's official records (OSU login required). Ohio State has no
+// separate unofficial transcript; the Advising Report in BuckeyeLink is the full record.
+export const RECORD_LINKS = {
+  degreePlanner: 'https://registrar.osu.edu/buckeye-degree-planner/',
+  transcript: 'https://buckeyelink.osu.edu/',
+};
 
 export interface RequestStudent {
   name: string;
@@ -102,12 +112,13 @@ interface Block {
   end: number;
 }
 
-// Tyler's Autumn 2026 classes (the prototype student).
+// A sample weekly class schedule. Meeting times aren't synced from BuckeyeLink yet,
+// so every student is matched against this schedule for now.
 export const STUDENT_CLASSES: Block[] = [
-  { label: 'ACCTMIS 2300 lecture', days: [1, 3, 5], start: 8 * 60, end: 8 * 60 + 55 },
-  { label: 'CSE 2221 lecture', days: [2, 4], start: 9 * 60 + 35, end: 10 * 60 + 55 },
-  { label: 'MATH 1152 lecture', days: [1, 3, 5], start: 11 * 60 + 30, end: 12 * 60 + 45 },
-  { label: 'BUSMHR 2292 lecture', days: [3], start: 14 * 60 + 15, end: 15 * 60 + 35 },
+  { label: 'Class', days: [1, 3, 5], start: 8 * 60, end: 8 * 60 + 55 },
+  { label: 'Class', days: [2, 4], start: 9 * 60 + 35, end: 10 * 60 + 55 },
+  { label: 'Class', days: [1, 3, 5], start: 11 * 60 + 30, end: 12 * 60 + 45 },
+  { label: 'Class', days: [3], start: 14 * 60 + 15, end: 15 * 60 + 35 },
 ];
 
 // The advisor's standing commitments.
@@ -128,6 +139,7 @@ export interface MatchSlot {
   status: SlotStatus;
   reason?: string;
   bookedBy?: string;
+  requestId?: string; // the appointment request a booked time belongs to
 }
 
 export interface MatchDay {
@@ -184,10 +196,11 @@ function overlapping(blocks: Block[], dow: number, start: number, end: number): 
 
 export function buildWeek(offset: number, state: AdvisingState, now = new Date()): MatchDay[] {
   const monday = weekStart(offset, now);
-  const booked = new Map<string, string>();
+  const booked = new Map<string, { name: string; id: string }>();
   for (const r of state.requests) {
-    if (r.appointment && r.status !== 'denied') booked.set(r.appointment.slotKey, r.student.name);
+    if (r.appointment && r.status !== 'denied') booked.set(r.appointment.slotKey, { name: r.student.name, id: r.id });
   }
+  for (const key of state.bookedSlots) if (!booked.has(key)) booked.set(key, { name: 'another student', id: '' });
   const closed = new Set(state.closedSlots);
 
   return Array.from({ length: 5 }, (_, i) => {
@@ -205,7 +218,10 @@ export function buildWeek(offset: number, state: AdvisingState, now = new Date()
       const studentClass = overlapping(STUDENT_CLASSES, dow, start, end);
       const commitment = overlapping(ADVISOR_COMMITMENTS, dow, start, end);
       if (slotTime < now) slots.push({ ...base, status: 'past', reason: 'Time has passed' });
-      else if (booked.has(key)) slots.push({ ...base, status: 'booked', reason: `Booked: ${booked.get(key)}`, bookedBy: booked.get(key) });
+      else if (booked.has(key)) {
+        const b = booked.get(key)!;
+        slots.push({ ...base, status: 'booked', reason: `Booked: ${b.name}`, bookedBy: b.name, requestId: b.id });
+      }
       else if (studentClass) slots.push({ ...base, status: 'student_busy', reason: `Student in ${studentClass.label}` });
       else if (commitment) slots.push({ ...base, status: 'advisor_busy', reason: `Advisor: ${commitment.label}` });
       else if (closed.has(key)) slots.push({ ...base, status: 'advisor_closed', reason: 'Advisor marked unavailable' });
@@ -229,244 +245,84 @@ export function buildWeek(offset: number, state: AdvisingState, now = new Date()
 export interface AdvisingState {
   requests: AdvisingRequest[];
   closedSlots: string[];
-}
-
-const STORAGE_KEY = 'buckai.advising.v1';
-
-function hoursAgo(h: number): string {
-  return new Date(Date.now() - h * 3_600_000).toISOString();
+  bookedSlots: string[]; // every booked time, without who booked it (students can't see others' requests)
+  loaded: boolean;
 }
 
 function ticket(): string {
   return `OSU-ADV-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
-// The first open slot on the given weekday (1-5) of the coming week, for seed bookings.
-function seedSlot(dow: number, start: number): string {
-  const monday = weekStart(0);
-  const d = new Date(monday);
-  d.setDate(monday.getDate() + dow - 1);
-  return slotKeyOf(toDateKey(d), start);
+// ---------------------------------------------------------------------------
+// Store (Supabase)
+// ---------------------------------------------------------------------------
+
+interface RequestRow {
+  id: string;
+  ticket_id: string;
+  category: RequestCategory;
+  title: string;
+  student_message: string;
+  details: AdvisingRequest['details'] | null;
+  student: RequestStudent;
+  status: RequestStatus;
+  ai_review: AiReview | null;
+  appointment: RequestAppointment | null;
+  decision: AdvisingRequest['decision'] | null;
+  submitted_at: string;
 }
 
-function seedRequests(): AdvisingRequest[] {
-  const reviewedAt = hoursAgo(1);
-  return [
-    {
-      id: 'req-seed-1',
-      ticketId: 'OSU-ADV-418203',
-      category: 'drop_class',
-      title: 'Drop MATH 1152 (Calculus 2)',
-      studentMessage:
-        "I failed the first midterm in Calc 2 and I'm working 20 hours a week. I want to drop it this term and retake it in the spring when my schedule is lighter.",
-      details: { course: 'MATH 1152', credits: 5 },
-      student: {
-        name: 'Maya Patel',
-        email: 'patel.412@osu.edu',
-        osuId: '#05512984',
-        rank: 'Sophomore (Year 2)',
-        major: 'Finance (BSBA)',
-        gpa: 3.12,
-        earnedCredits: 41,
-        enrolledCredits: 15,
-        holds: [],
-      },
-      submittedAt: hoursAgo(3),
-      status: 'pending_advisor',
-      aiReview: {
-        verdict: 'needs_attention',
-        confidence: 'high',
-        summary:
-          'Maya wants to drop MATH 1152 after a failed first midterm and a 20 hr/week job. Dropping takes her from 15 to 10 credit hours, below full-time status.',
-        reasonForAppointment: 'Decide whether to drop Calculus 2 now or stay enrolled with academic support.',
-        studentNeeds: [
-          'A decision on dropping MATH 1152 before the withdrawal deadline',
-          'Guidance on keeping full-time status and financial aid',
-          'A plan to retake Calculus 2 without delaying BUSFIN 3220',
-        ],
-        riskFlags: [
-          'Drops to 10 credit hours: below 12-hour full-time minimum (financial aid risk)',
-          'Past the 4th-Friday deadline: a "W" will appear on the transcript',
-        ],
-        checks: [
-          { label: 'Student is your advisee', passed: true, detail: 'Assigned to Sarah Jenkins in the Fisher advising roster.' },
-          { label: 'Course is on current schedule', passed: true, detail: 'MATH 1152, 5 credits, Autumn 2026.' },
-          { label: 'Stays full-time (12+ credits)', passed: false, detail: '15 − 5 = 10 credit hours after the drop.' },
-          { label: 'Within no-"W" drop window', passed: false, detail: 'Autumn 2026 4th Friday has passed; a W grade will be recorded.' },
-        ],
-        suggestedAgenda: [
-          'Review financial-aid impact with Student Financial Aid before approving',
-          'Consider adding a 2-credit GE to stay at 12 hours',
-          'Refer to MSLC math tutoring if she stays enrolled',
-        ],
-        recommendation: 'Meet before approving: the drop is allowed but has financial-aid and transcript consequences.',
-        source: 'rules',
-        reviewedAt,
-      },
-    },
-    {
-      id: 'req-seed-2',
-      ticketId: 'OSU-ADV-552190',
-      category: 'add_minor',
-      title: 'Declare the Computer Science (CSE) minor',
-      studentMessage:
-        "I've taken CSE 2221 and loved it. I'd like to add the CSE minor so I can take databases and networking before I graduate.",
-      details: { minor: 'Computer Science (CSE) Minor' },
-      student: {
-        name: 'Jordan Lee',
-        email: 'lee.3307@osu.edu',
-        osuId: '#04471023',
-        rank: 'Junior (Year 3)',
-        major: 'Information Systems (BSBA)',
-        gpa: 3.54,
-        earnedCredits: 68,
-        enrolledCredits: 14,
-        holds: [],
-      },
-      submittedAt: hoursAgo(20),
-      status: 'pending_advisor',
-      aiReview: {
-        verdict: 'supported',
-        confidence: 'high',
-        summary:
-          'Jordan wants to declare the CSE minor. GPA and completed coursework meet the entry requirements, and the minor fits within the remaining credits.',
-        reasonForAppointment: 'Confirm the CSE minor plan and file the declaration.',
-        studentNeeds: [
-          'Official minor declaration filed in SIS',
-          'A course sequence for CSE 2231, 2321 and 3241 over three terms',
-        ],
-        riskFlags: ['No more than 6 credits may overlap with the Information Systems major'],
-        checks: [
-          { label: 'Student is your advisee', passed: true, detail: 'Assigned to Sarah Jenkins.' },
-          { label: 'Minimum 2.50 CPHR', passed: true, detail: 'Cumulative GPA 3.54.' },
-          { label: 'Prerequisite completed', passed: true, detail: 'CSE 2221 completed with a B+.' },
-          { label: 'Fits before graduation', passed: true, detail: '53 credits remaining; minor adds 9 net new credits.' },
-        ],
-        suggestedAgenda: ['Confirm overlap credits with the IS major', 'Map CSE courses to Spring 2027 – Autumn 2027'],
-        recommendation: 'Approve: all entry requirements are met. Confirm the overlap limit when filing.',
-        source: 'rules',
-        reviewedAt,
-      },
-    },
-    {
-      id: 'req-seed-3',
-      ticketId: 'OSU-ADV-603377',
-      category: 'hold_clearance',
-      title: 'Clear Registration Lock (2nd-year plan review)',
-      studentMessage:
-        "I have a registration lock and Spring registration opens soon. I've drafted my 4-year plan and want to review it so the hold can be lifted.",
-      student: {
-        name: 'Aaliyah Brooks',
-        email: 'brooks.981@osu.edu',
-        osuId: '#05290417',
-        rank: 'Sophomore (Year 2)',
-        major: 'Accounting (BSBA)',
-        gpa: 3.81,
-        earnedCredits: 46,
-        enrolledCredits: 16,
-        holds: ['Registration Lock (2nd-Year Advising Plan Milestone Check)'],
-      },
-      submittedAt: hoursAgo(26),
-      status: 'pending_advisor',
-      appointment: { slotKey: seedSlot(4, 13 * 60 + 30), format: 'In-Person' },
-      aiReview: {
-        verdict: 'supported',
-        confidence: 'high',
-        summary:
-          'Aaliyah needs her 2nd-year plan review to lift a Registration Lock before Spring 2027 registration. Her draft 4-year plan is complete and on track.',
-        reasonForAppointment: 'Required 2nd-year plan review to lift the Registration Lock.',
-        studentNeeds: ['Registration Lock lifted before her enrollment window', 'Feedback on her draft 4-year plan'],
-        riskFlags: ['Enrollment window opens soon: delaying the review could cost seats'],
-        checks: [
-          { label: 'Student is your advisee', passed: true, detail: 'Assigned to Sarah Jenkins.' },
-          { label: 'Hold on record', passed: true, detail: 'Registration Lock (2nd-Year Advising Plan Milestone Check).' },
-          { label: 'Draft plan submitted', passed: true, detail: '4-year plan uploaded through BuckAI.' },
-        ],
-        suggestedAgenda: ['Walk through the Spring 2027 cart', 'Confirm graduation term', 'Lift the hold in SIS at the end of the meeting'],
-        recommendation: 'Approve the appointment and lift the hold after the plan review.',
-        source: 'rules',
-        reviewedAt,
-      },
-    },
-    {
-      id: 'req-seed-4',
-      ticketId: 'OSU-ADV-377841',
-      category: 'change_major',
-      title: 'Change major from Marketing to Finance',
-      studentMessage: "After my internship I realized I want to go into corporate finance, so I'd like to switch from Marketing to Finance.",
-      student: {
-        name: 'Chris Nguyen',
-        email: 'nguyen.1840@osu.edu',
-        osuId: '#04918266',
-        rank: 'Sophomore (Year 2)',
-        major: 'Marketing (BSBA)',
-        gpa: 3.33,
-        earnedCredits: 52,
-        enrolledCredits: 15,
-        holds: [],
-      },
-      submittedAt: hoursAgo(70),
-      status: 'approved',
-      decision: {
-        by: ADVISOR.name,
-        note: 'Approved. Filed the major change in SIS; first Finance core course is BUSFIN 3220 in Spring 2027.',
-        at: hoursAgo(48),
-      },
-      aiReview: {
-        verdict: 'supported',
-        confidence: 'high',
-        summary: 'Chris wants to switch from Marketing to Finance. Both are Fisher BSBA majors with shared core courses, so graduation timing is unchanged.',
-        reasonForAppointment: 'Switch majors within Fisher.',
-        studentNeeds: ['Major change filed in SIS', 'Updated 4-year plan for Finance'],
-        riskFlags: [],
-        checks: [
-          { label: 'Student is your advisee', passed: true, detail: 'Assigned to Sarah Jenkins.' },
-          { label: 'Same college (Fisher)', passed: true, detail: 'No inter-college transfer needed.' },
-          { label: 'Graduation term unchanged', passed: true, detail: 'Shared business core already complete.' },
-        ],
-        suggestedAgenda: ['File the major change', 'Update the 4-year plan'],
-        recommendation: 'Approve: no graduation delay.',
-        source: 'rules',
-        reviewedAt: hoursAgo(69),
-      },
-    },
-  ];
-}
+const fromRow = (r: RequestRow): AdvisingRequest => ({
+  id: r.id,
+  ticketId: r.ticket_id,
+  category: r.category,
+  title: r.title,
+  studentMessage: r.student_message,
+  details: r.details ?? undefined,
+  student: r.student,
+  submittedAt: r.submitted_at,
+  status: r.status,
+  aiReview: r.ai_review,
+  appointment: r.appointment ?? undefined,
+  decision: r.decision ?? undefined,
+});
 
-function load(): AdvisingState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as AdvisingState;
-      if (Array.isArray(parsed.requests)) return { requests: parsed.requests, closedSlots: parsed.closedSlots ?? [] };
-    }
-  } catch {
-    // Storage unavailable (private window etc.): fall through to fresh sample data.
-  }
-  return { requests: seedRequests(), closedSlots: [] };
-}
-
-let state: AdvisingState = load();
+let state: AdvisingState = { requests: [], closedSlots: [], bookedSlots: [], loaded: false };
 const listeners = new Set<() => void>();
 
 function setState(next: AdvisingState) {
   state = next;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Keep working in memory if storage is blocked.
-  }
   listeners.forEach((l) => l());
 }
 
-// Keep a second tab (e.g. student in one, advisor in another) in sync.
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === STORAGE_KEY) {
-      state = load();
-      listeners.forEach((l) => l());
-    }
+// Reload requests and calendar data the signed-in user is allowed to see.
+export async function refreshAdvisingData() {
+  const { data: session } = await supabase.auth.getSession();
+  if (!session.session) {
+    setState({ requests: [], closedSlots: [], bookedSlots: [], loaded: true });
+    return;
+  }
+  const [requests, closed, booked] = await Promise.all([
+    supabase.from('advising_requests').select('*').order('submitted_at', { ascending: false }),
+    supabase.from('advisor_closed_slots').select('slot_key'),
+    supabase.rpc('booked_slot_keys'),
+  ]);
+  if (requests.error || closed.error || booked.error) {
+    console.warn('Could not load advising data:', requests.error || closed.error || booked.error);
+    setState({ ...state, loaded: true });
+    return;
+  }
+  setState({
+    requests: (requests.data as RequestRow[]).map(fromRow),
+    closedSlots: (closed.data ?? []).map((r: { slot_key: string }) => r.slot_key),
+    bookedSlots: ((booked.data as string[] | null) ?? []).filter(Boolean),
+    loaded: true,
   });
+}
+
+if (typeof window !== 'undefined') {
+  void refreshAdvisingData();
+  supabase.auth.onAuthStateChange(() => void refreshAdvisingData());
 }
 
 function subscribe(listener: () => void) {
@@ -479,25 +335,110 @@ export function getState(): AdvisingState {
 }
 
 export function useAdvisingState(): AdvisingState {
+  useEffect(() => {
+    const id = window.setInterval(() => void refreshAdvisingData(), 20_000);
+    return () => window.clearInterval(id);
+  }, []);
   return useSyncExternalStore(subscribe, getState);
 }
 
+// Save a change locally right away, then in Supabase.
 function updateRequest(id: string, patch: Partial<AdvisingRequest>) {
   setState({ ...state, requests: state.requests.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  const row: Partial<RequestRow> & { updated_at: string } = { updated_at: new Date().toISOString() };
+  if (patch.status) row.status = patch.status;
+  if ('aiReview' in patch) row.ai_review = patch.aiReview ?? null;
+  if ('appointment' in patch) row.appointment = patch.appointment ?? null;
+  if ('decision' in patch) row.decision = patch.decision ?? null;
+  void supabase
+    .from('advising_requests')
+    .update(row)
+    .eq('id', id)
+    .then(({ error }) => {
+      if (error) console.warn('Could not save request change:', error);
+      void refreshAdvisingData();
+    });
 }
 
-export function resetAdvisingData() {
-  setState({ requests: seedRequests(), closedSlots: [] });
-}
-
-export function toggleAdvisorSlot(key: string) {
+export async function toggleAdvisorSlot(key: string) {
   const closed = new Set(state.closedSlots);
-  if (closed.has(key)) closed.delete(key);
+  const reopening = closed.has(key);
+  if (reopening) closed.delete(key);
   else closed.add(key);
   setState({ ...state, closedSlots: [...closed] });
+  const { error } = reopening
+    ? await supabase.from('advisor_closed_slots').delete().eq('slot_key', key)
+    : await supabase.from('advisor_closed_slots').insert({ slot_key: key });
+  if (error) console.warn('Could not save availability:', error);
+  void refreshAdvisingData();
 }
 
-export function decideRequest(id: string, status: 'approved' | 'denied' | 'needs_info', note: string, by: string) {
+// Advisor-initiated scheduling: get the student in as soon as both calendars allow.
+// Aim for within 3 days; never book further out than a week.
+export const SCHEDULE_TARGET_DAYS = 3;
+export const SCHEDULE_MAX_DAYS = 7;
+const SCHEDULE_LEAD_MINUTES = 60; // don't book a slot that starts in under an hour
+const DAY_MS = 86_400_000;
+
+function slotStart(key: string): Date {
+  const { date, start } = parseSlotKey(key);
+  const d = new Date(date);
+  d.setHours(Math.floor(start / 60), start % 60, 0, 0);
+  return d;
+}
+
+// The earliest time that is free for both the student and the advisor within the next week.
+export function findEarliestMutualSlot(s: AdvisingState = state, now = new Date()): MatchSlot | null {
+  const earliest = now.getTime() + SCHEDULE_LEAD_MINUTES * 60_000;
+  const latest = now.getTime() + SCHEDULE_MAX_DAYS * DAY_MS;
+  for (let week = 0; week < 3; week++) {
+    for (const day of buildWeek(week, s, now)) {
+      for (const slot of day.slots) {
+        if (slot.status !== 'open') continue;
+        const t = slotStart(slot.key).getTime();
+        if (t > latest) return null;
+        if (t >= earliest) return slot;
+      }
+    }
+  }
+  return null;
+}
+
+export interface ScheduleResult {
+  slotKey: string;
+  daysAway: number;
+  withinTarget: boolean;
+  keptStudentChoice: boolean;
+}
+
+// Book the meeting: keep the time the student already picked if it is within a week,
+// otherwise take the earliest mutual opening. Returns null if nothing is free this week.
+export function scheduleAppointment(id: string, by: string, note: string): ScheduleResult | null {
+  const request = state.requests.find((r) => r.id === id);
+  if (!request) return null;
+  const now = new Date();
+  let slotKey: string | null = null;
+  let keptStudentChoice = false;
+  if (request.appointment) {
+    const t = slotStart(request.appointment.slotKey).getTime();
+    if (t > now.getTime() && t <= now.getTime() + SCHEDULE_MAX_DAYS * DAY_MS) {
+      slotKey = request.appointment.slotKey;
+      keptStudentChoice = true;
+    }
+  }
+  if (!slotKey) slotKey = findEarliestMutualSlot(state, now)?.key ?? null;
+  if (!slotKey) return null;
+
+  const daysAway = (slotStart(slotKey).getTime() - now.getTime()) / DAY_MS;
+  updateRequest(id, {
+    status: 'scheduled',
+    appointment: { slotKey, format: request.appointment?.format ?? 'In-Person' },
+    decision: { by, note: note || `Let’s meet ${describeSlot(slotKey)} to work through this together.`, at: now.toISOString() },
+  });
+  return { slotKey, daysAway, withinTarget: daysAway <= SCHEDULE_TARGET_DAYS, keptStudentChoice };
+}
+
+export function decideRequest(id: string, status: 'approved' | 'denied', note: string, by: string) {
   updateRequest(id, { status, decision: { by, note, at: new Date().toISOString() } });
 }
 
@@ -533,10 +474,10 @@ async function runAiReview(request: AdvisingRequest) {
   }
 }
 
-// The prototype student (Tyler) as he appears on a request.
+// The signed-in student as they appear on a request.
 export function studentFromProfile(p: StudentProfile): RequestStudent {
   return {
-    name: p.name === 'Tyler' ? 'Tyler Rez' : p.name,
+    name: p.name,
     email: p.nameDotNum,
     osuId: p.osuId,
     rank: p.rank,
@@ -572,15 +513,25 @@ export interface NewRequestInput {
   appointment?: RequestAppointment;
 }
 
-export function submitRequest(input: NewRequestInput): AdvisingRequest {
-  const request: AdvisingRequest = {
-    ...input,
-    id: `req-${Date.now()}`,
-    ticketId: ticket(),
-    submittedAt: new Date().toISOString(),
-    status: 'ai_review',
-    aiReview: null,
-  };
+export async function submitRequest(input: NewRequestInput): Promise<AdvisingRequest | null> {
+  const { data, error } = await supabase
+    .from('advising_requests')
+    .insert({
+      ticket_id: ticket(),
+      category: input.category,
+      title: input.title,
+      student_message: input.studentMessage,
+      details: input.details ?? null,
+      student: input.student,
+      appointment: input.appointment ?? null,
+    })
+    .select('*')
+    .single();
+  if (error || !data) {
+    console.warn('Could not submit request:', error);
+    return null;
+  }
+  const request = fromRow(data as RequestRow);
   setState({ ...state, requests: [request, ...state.requests] });
   void runAiReview(request);
   return request;

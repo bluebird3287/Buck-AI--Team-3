@@ -40,65 +40,8 @@ export interface WatchedCourse {
   notes?: string;
 }
 
-export const INITIAL_WATCHED_COURSES: WatchedCourse[] = [
-  {
-    id: 'watch-1',
-    code: 'ACCTMIS 2300',
-    title: 'Introductory Accounting II',
-    instructor: 'Marc Smith',
-    section: '0010 (Lecture)',
-    meetingTime: 'MWF 10:20 AM – 11:15 AM',
-    location: 'Schoenbaum Hall 105',
-    enrolled: 180,
-    capacity: 180,
-    waitlistPosition: 4,
-    waitlistTotal: 19,
-    status: 'full_waitlist',
-    dropProbability: '94% (Very High - avg 28 drops during syllabus week)',
-    smsAlerts: true,
-    emailAlerts: true,
-    autoSnipeReady: true,
-    notes: 'Heavy workload class; multiple students drop after the Sunday walkthrough quiz 1.'
-  },
-  {
-    id: 'watch-2',
-    code: 'CSE 2231',
-    title: 'Software II: Software Development',
-    instructor: 'Dr. Paolo Bucci',
-    section: '0020 (Lecture + Lab)',
-    meetingTime: 'TR 1:00 PM – 2:20 PM',
-    location: 'Caldwell Lab 120',
-    enrolled: 40,
-    capacity: 40,
-    waitlistPosition: 2,
-    waitlistTotal: 8,
-    status: 'full_waitlist',
-    dropProbability: '98% (Extremely High - usually clears within 48 hrs)',
-    smsAlerts: true,
-    emailAlerts: true,
-    autoSnipeReady: true,
-    notes: 'Required prerequisite for CSE minor and CIS specializations.'
-  },
-  {
-    id: 'watch-3',
-    code: 'BUSFIN 3220',
-    title: 'Business Finance',
-    instructor: 'Tad Brinkerhoff',
-    section: '0015 (Lecture)',
-    meetingTime: 'MW 3:00 PM – 4:20 PM',
-    location: 'Gerlach Hall 275',
-    enrolled: 179,
-    capacity: 180,
-    waitlistPosition: 0,
-    waitlistTotal: 0,
-    status: 'seat_opened',
-    dropProbability: '100% - Seat Open Right Now!',
-    smsAlerts: true,
-    emailAlerts: true,
-    autoSnipeReady: true,
-    notes: '1 seat opened at 2:14 PM today! Grab it before someone else claims it.'
-  }
-];
+// Each student starts with an empty watch list and adds the classes they want.
+export const INITIAL_WATCHED_COURSES: WatchedCourse[] = [];
 
 interface SeatAlertsViewProps {
   onSimulateSeatDrop: (course: WatchedCourse) => void;
@@ -112,8 +55,8 @@ export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
   initialAddCourse
 }) => {
   const [courses, setCourses] = useState<WatchedCourse[]>(INITIAL_WATCHED_COURSES);
-  const [phoneNumber, setPhoneNumber] = useState('(614) 555-0194');
-  const [emailAddress, setEmailAddress] = useState('rez.4@osu.edu');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [emailAddress, setEmailAddress] = useState('');
   const [isAddingCourse, setIsAddingCourse] = useState(false);
   const [newCode, setNewCode] = useState(initialAddCourse || '');
   const [newSection, setNewSection] = useState('0010');
