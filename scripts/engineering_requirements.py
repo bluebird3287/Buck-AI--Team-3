@@ -10,7 +10,7 @@ Edit the data below, then run:
 and apply that file to Supabase. Each replaces only the College of Engineering's rows for its scope.
 
 Course lists are written as pipe-separated rows copied from the source tables:
-  "CODE | Title | credits | offered | prerequisites"
+  "CODE | Title | credits | offered | prerequisites | notes"
 offered: A = autumn only, S = spring only, none = not on the 2026-2027 schedule, blank = autumn and spring.
 """
 
@@ -29,14 +29,18 @@ OFFERED = {"": [], "A/S": [], "A": ["Autumn"], "S": ["Spring"], "none": ["None"]
 
 
 def rows(text, **kw):
-    """Courses from "CODE | Title | credits | offered | prerequisites" lines (trailing fields optional)."""
+    """Courses from "CODE | Title | credits | offered | prerequisites | notes" lines (trailing fields optional)."""
     out = []
     for line in text.strip().splitlines():
-        parts = [p.strip() for p in line.split("|")] + [""] * 5
-        code, title, credits, offered, prereqs = parts[:5]
+        if not line.strip():
+            continue  # where two lists are joined
+        parts = [p.strip() for p in line.split("|")] + [""] * 6
+        code, title, credits, offered, prereqs, notes = parts[:6]
         extra = dict(kw)
         if offered:
             extra["offered"] = OFFERED.get(offered, [])  # "varies by year" etc.: not checked
+        if notes:
+            extra["notes"] = notes
         out.append(c(code, title, float(credits) if credits else None, prereqs or None, **extra))
     return out
 
@@ -2196,7 +2200,575 @@ GEOG 5900 | Weather, Climate, and Global Warming | 3
 
 PROGRAMS = [CIVIL, ENVIRONMENTAL, MECHANICAL, AEROSPACE, WELDING, ECE, ECE_EE, ECE_CE, ENGPHYS, *EP_SPECS, MATERIALS,
             FABE, *FABE_SPECS, CSE_BS, CHEMICAL, INDUSTRIAL, *ISE_TRACKS, BIOMEDICAL, AVIATION, AVIATION_NONFLIGHT, AVIATION_FLIGHT]
-MINORS = []
+# ---------- Minors ----------
+# Sources (read October 2026): the College of Engineering minors list
+#   https://engineering.osu.edu/students/undergraduate-students/minors
+# and each minor's official advising sheet on the Arts and Sciences minors pages (MINOR_URL + <name>),
+# which the departments link to. Titles, credit hours, terms, and prerequisites the sheets leave out
+# come from OSU Class Search for Autumn 2026 and Spring 2027 (offered "none" = not scheduled in either).
+
+MINOR_URL = "https://artsandsciences.osu.edu/academics/programs/minors/"
+MINOR_CATALOG = "College of Engineering minor advising sheets (2026)"
+ALL_ENGINEERING = [p["id"] for p in PROGRAMS if p["kind"] == "degree"]
+
+
+def minor_rules(ge="up to two courses, if the minor has at least 4 courses"):
+    """The guidelines every Ohio State minor sheet repeats."""
+    return ("Minimum C- in each course and a 2.00 GPA across all minor coursework; no Pass/Non-Pass, and at most 3 credit hours "
+            "graded S/U or from X193 individual studies. Up to 6 hours of transfer or exam credit. At least 6 credit hours at the "
+            f"3000 level or above; 1000-level courses don't count. GE overlap: {ge}. The minor must be in a different subject than "
+            "the major and contain at least 12 credit hours distinct from the major and other minors.")
+
+
+def mrows(text, **kw):
+    """Minor courses: every minor sheet requires C- or better."""
+    return rows(text, min_grade="C-", **kw)
+
+
+def minor(mid, name, credits, url, notes, groups, excluded=(), ge=None):
+    return {"catalog": MINOR_CATALOG, "id": "minor-" + mid, "kind": "minor", "name": name, "min_total_credits": credits,
+            "min_gpa": 2.0, "source_url": url, "excluded_programs": list(excluded),
+            "notes": notes + " " + (minor_rules(ge) if ge else minor_rules()), "groups": groups}
+
+
+ARCH_ELECTIVES = """
+ARCH 2220 | Sustainability in the Built Environment | 3 | S
+ARCH 2610 | Introduction to Digital Design Software | 3 | A/S
+ARCH 4798 | Domestic Study Tour |  | none
+ARCH 4880 | Interdepartmental Seminar |  | none
+ARCH 5110 | History of Architecture I | 3 | A
+ARCH 5120 | History of Architecture II | 3 | S
+ARCH 5210 | Forms of Architectural Theory | 3 | S | ARCH 5110 and 5120 (600, 601, and 602), or permission of instructor
+ARCH 5290 | Topics in Architectural Theory | 3 | A/S | Enrollment in Architecture major, or permission of instructor
+ARCH 5510 | Materials and Envelope 1 | 3 | A
+ARCH 5520 | Materials and Envelope 2 | 3 | S
+ARCH 5590 | Topics in Building Technology | 3 | A/S | Enrollment in Architecture major, or permission of instructor
+ARCH 5798 | Study Tour |  | none
+ARCH 5810 | Architectural Environments | 3 | S | Math 1118 or 1151 or above, and Physics 1200; or Grad standing in Arch; or permission of instructor
+"""
+KNOW_INTRO = """
+KNOW 2300 | Outlines of the Built Environment | 3 | A/S
+KNOW 2310 | Seeing and Making | 4 | A/S
+"""
+
+AVIATION_INTERESTS = """
+AVIATN 2200 | Aviation Organization Analysis and Writing | 3 | A/S
+AVIATN 2220 | Aviation Organization Analysis, Writing, and Research | 3 | A/S
+AVIATN 2300 | Aviation Weather | 3 | A/S | AVIATN 2100 or 2150
+AVIATN 2400 | Fundamentals in Unmanned Aircraft Systems | 3 | A/S
+AVIATN 2401 | UAS Ground and Flight Operations | 3 | A/S | Permission of instructor
+AVIATN 2850 | Applied Aircraft Performance I | 3 | A/S | AVIATN 2100 or 2150, and Physics 1250 or 1260
+AVIATN 2900 | Air Traffic Control Fundamentals | 3 | A/S | AVIATN 2100 and 2300; or permission of instructor
+AVIATN 2901 | Air Traffic Control Fundamentals Lab | 1 | A/S | AVIATN 2900
+AVIATN 3000 | Aviation Management and Marketing | 3 | A/S | AVIATN 2000; and 2100 or 2150; and 2200
+AVIATN 3300 | Aviation Human Factors and Safety | 3 | A/S | AVIATN 2300
+AVIATN 3400 | Aviation Accident Investigation | 3 | A/S | AVIATN 2300
+AVIATN 3600 | Business and Corporate Aviation Management | 3 | A/S | AVIATN 3000
+AVIATN 3800 | Advanced Uncrewed Aviation Operations Beyond Visual Line of Sight | 3 | A/S | AVIATN 2401
+AVIATN 3850 | Applied Aircraft Performance II | 3 | none
+AVIATN 3900 | Air Traffic Management Systems and Environment | 3 | S | AVIATN 2900
+AVIATN 4000 | Air Transportation Analysis I | 3 | A/S | AVIATN 3000
+AVIATN 4200 | Aircraft Dispatch Fundamentals | 3 | A/S | AVIATN 2100 or 2150; 2300; and permission of instructor
+AVIATN 4201 | Applied Dispatching | 3 | A/S | AVIATN 4200; and permission of instructor
+"""
+
+BME_PHYSIOLOGY = """
+ANATOMY 2300 | Human Anatomy | 4 | A/S
+ANATOMY 3300 | Advanced Human Anatomy | 5 | A/S
+ANATOMY 4600 | Human Embryonic Development and Birth Defects | 3 | A/S | ANATOMY 2100, 2300, or 3300, or permission of instructor
+ANATOMY 4700 | Undergraduate Histology | 4 | A/S | ANATOMY 2100, 2300, or 3300, or permission of instructor
+ANATOMY 5710 | Listed on the minor sheet (not on recent class schedules) | 3 | none
+BIOCHEM 4511 | Introduction to Biological Chemistry | 4 | A/S | Chem 1220, 1250, 1620, or 1920H, and 2510, 2310, 2610, or 2910H and one semester of Biological Sciences
+BIOLOGY 2105 | Human Biology in Cinema | 3 | A/S | Soph standing, or permission of instructor
+BIOLOGY 2360 | Zombie Biology | 3 | A/S
+BIOLOGY 2750 | Scientific Thought in an Anecdotal World | 3 | S
+BIOLOGY 3401 | Listed on the minor sheet (not on recent class schedules) | 4 | none
+BIOLOGY 3501 | Integrative Skills in Biology | 3 | A/S | BIOLOGY 1113.xx, 1113E, or 1113H; and 1114.xx, 1114E, or 1114H; and Chem 1220, 1620, or 1920H; or permission of instructor
+BIOLOGY 3730 | Humans vs Germs: An Arms Race between Medicine and Evolution | 3 | A | BIOLOGY 1101 or 1110; or 1112, 1113.xx, 1113H or 1113E and 1114.xx, 1114H or 1114E
+BIOLOGY 3870 | Evolution of Sex | 3 | S | BIOLOGY 1101 or 1110; or 1112, 1113.xx, 1113H or 1113E and 1114.xx, 1114H or 1114E
+BIOLOGY 4210 | Undergraduate Research in Biology Education | 3 | S | Biology 1113.xx, 1114.xx and 3501.xx; or permission of instructor
+BIOMEDE 2200 | Quantitative Principles of Cellular and Molecular Systems | 3 | A/S | Biology 1113. Concur: 2000
+BIOMEDE 2800 | Anatomy for Engineers | 3 | A/S | Enrollment in BiomedE pre-major or major; or permission of instructor. Concur: Physics 1250, or permission of instructor
+EEOB 2520 | Human Physiology | 3 | A/S | 3 sem cr hrs in Biological Sciences
+EEOB 2911 | The Climate Crisis: Mechanisms, Impacts, and Mitigation | 4 | A
+EEOB 3270 | Infectious Disease Ecology, Evolution, and Transmission | 3 | none | Soph standing or above
+EEOB 3310 | Evolution | 4 | A/S | Biology 1114 or 1114H, or permission of instructor
+EEOB 3410 | Ecology | 4 | A/S | Biology 1114 or 1114H, or permission of instructor
+EEOB 3420 | Behavioral Ecology | 4 | A | Biology 1114 or 1114H, or permission of instructor
+EEOB 3520 | Microscopic Anatomy | 3 | A | Biology 1113, 1114, 1113H, or 1114H
+EEOB 3610 | Evolutionary Genomics | 3 | S
+EEOB 4240 | Focused Study of Ecology and Evolution - Plants and People | 3 | A | 1 course in Biological Sciences (Plant Biology Preferred)
+EEOB 4510 | Comparative Vertebrate Anatomy | 3 | A/S | 2 courses in Biological Sciences
+EEOB 4520 | Comparative Physiology | 4 | A | Biology 1114 or 1114H, and 1 course in Biological Sciences
+EEOB 4550 | Neurobiology of Behavior | 3 | A | 2 courses in Biological Sciences
+EEOB 5340 | Listed on the minor sheet (not on recent class schedules) | 4 | none
+EEOB 5490 | Listed on the minor sheet (not on recent class schedules) | 3 | none
+EEOB 5505 | Listed on the minor sheet (not on recent class schedules) | 3 | none
+EEOB 5510 | Interdisciplinary Team Science | 3 | A | Sr standing, and permission of instructor; or Grad standing
+EEOB 5610 | Listed on the minor sheet (not on recent class schedules) | 3 | none
+EEOB 5911 | Listed on the minor sheet (not on recent class schedules) | 4 | none
+EEOB 5930 | Listed on the minor sheet (not on recent class schedules) |  | none
+EEOB 5940 | Listed on the minor sheet (not on recent class schedules) |  | none
+MICRBIO 4000 | Basic and Practical Microbiology | 4 | A/S | 3 cr hrs in Biology
+MOLGEN 4500 | General Genetics | 3 | A/S | Biology 1101, 1113, or 1113H, and 3 additional sem cr hrs in Biological Sciences
+PHYSIO 3200 | Human Physiology | 5 | A/S | 6 credits total consisting of Biology, Chemistry, Organic Chemistry, Biochemistry; or Anatomy 2300 or Anatomy 3300
+PHYSIO 3201 | Listed on the minor sheet (not on recent class schedules) | 5 | none
+"""
+BME_DOMAINS = """
+BIOMEDE 4110 | Bioimaging | 3 | A/S | BIOMEDE 2000; and Physics 1251 or 1261; and Math 2174 or 2415; and BiomedE 2800, EEOB 2510 or Anatomy 2300; or permission of instructor
+BIOMEDE 4210 | Biotransport | 3 | A/S | BIOMEDE 2000; and Math 2174 or 2415; or permission of instructor
+BIOMEDE 4310 | Biomaterials | 3 | A/S | BIOMEDE 2000, 2200 or Biology 1114.xx; or permission of instructor
+BIOMEDE 4410 | Biomechanics | 3 | A/S | BIOMEDE 2000; and Math 2174 or 2415; and MechEng 2040; or permission of instructor
+BIOMEDE 4510 | Cell, Molecular, and Tissue Engineering | 3 | A/S | BIOMEDE 2000; and Math 2174 or 2415. Concur: BiomedE 2200 or Biology 1114; or permission of instructor
+BIOMEDE 4610 | Biomedical Micro/Nanotechnology | 3 | A/S | BIOMEDE 2000; and 2200 or Biology 1114; or permission of instructor
+BIOMEDE 4710 | Introduction to Machine Learning in Biomedical Engineering | 3 | S | BIOMEDE 2700 or equivalent; or permission of instructor
+"""
+
+ENVENG_MINOR_ELECTIVES = """
+CBE 5772 | Principles of Sustainable Engineering | 3 | none
+CIVILEN 3160 | Water Resources Engineering | 3 | A/S | CIVILEN 3130; and CSE 1222, 1223, 1224, Engr 1221 or Engr 1281.xxH; and enrollment in CivilEn or EnvEng major; or permission of instructor
+CIVILEN 4210 | Physics of Sustainable Buildings | 3 | none
+CIVILEN 5220 | Open Channel Hydraulics | 3 | none
+CIVILEN 5230 | Transport Phenomena in Water Resource Engineering | 3 | S | CIVILEN 3160 (516) or EnvEng 516, and Math 2173, 2177, 2255 (255), or 2415 (415)
+CIVILEN 5610.01 | Sustainable WaSH Infrastructure for Developing Rural Communities | 3 | A | Permission of instructor
+CIVILEN 5610.02 | Safe Water On Tap | 3 | S | CIVILEN 3130, FABEng 2110, CBE 2420, or MechEng 3503; and Engr 1221 or CSE 1222; or permission of instructor
+EARTHSC 5651 | Hydrogeology | 4 | A | EARTHSC 1100, 1105, 1108, 1121, 1151, 2203, or 2205; and Math 1152 or above
+ENR 3000 | Soil Science | 3 | A/S
+ENR 3001 | Soil Science Laboratory | 1 | A/S
+ENVENG 2100 | Environmental Engineering Analytical Methods | 3 | S | Chem 1220 (122) or 1250 (125), and enrollment in CivilEn major or EnvEng major or minor
+ENVENG 3210 | Environmental Engineering Unit Operations | 3 | S | ENVENG 3200 and CivilEn 3130
+ENVENG 4218 | Measurement and Modeling of Climate Change | 3 | S | CivilEn 2060, or permission of instructor
+ENVENG 4400 | Integrated Environmental Chemical Fate and Transport | 3 | none
+ENVENG 5110 | Environmental Engineering Bioprocesses | 3 | A | ENVENG 3200 (511), or Grad standing
+ENVENG 5120 | Bioremediation in Groundwater and Soil | 3 | none
+ENVENG 5140 | Air Quality Engineering | 3 | A | Chem 1220,1250, or equiv, and Math 2177, 2174, or 2415, and enrollment in CivilEn or EnvEng major; or Grad standing; or permission of instructor
+ENVENG 5195 | Engineering Design for Public Health | 3 | none
+ENVENG 5600 | Science, Technology, and Public Policy | 3 | none
+ENVENG 5718 | Aquatic Chemistry | 3 | none
+ENVENG 5760 | Design of Urban Stormwater Control Measures | 3 | S | CivilEn 3160 or FABEng 2720, or Grad standing in Engineering, or permission of instructor
+FABENG 5310 | Ecological Engineering and Science | 4 | S | At least one course in Biology, Ecology, Engineering, or Geology, and Jr standing
+FABENG 5520 | Phytotechnology and Phytoremediation | 3 | S | FABENG 3500 or EnvEng 3200, or Grad standing, or permission of instructor
+MICRBIO 4000 | Basic and Practical Microbiology | 4 | A/S | 3 cr hrs in Biology
+"""
+
+HE_GLOBAL = """
+AEDECON 2500 | Listed on the minor sheet (not on recent class schedules) |  | none
+AEDECON 4535 | International Economic Development | 3 | S | AEDECON 2001 (200) or Econ 2001 (200)
+BUSMHR 5530 | Listed on the minor sheet (not on recent class schedules) |  | none
+ECON 4130 | World Economic Development in Historical Perspective | 3 | A/S | ECON 2001.01, 2001.02 (200), or 2001.03H (200H), or 2002.01, 2002.02 (201) or 2002.03H (201H), or equiv
+GEOG 5700 | Geography of Development | 3 | A
+RURLSOC 3580 | Listed on the minor sheet (not on recent class schedules) |  | none
+AEDECON 2580 | Feast or Famine: The Global Business of Food | 3 | A
+AEDECON 4532 | Food Security and Globalization | 3 | A | AEDECON 2001 (200) or Econ 2001 (200), or permission of instructor
+EARTHSC 3411 | Water Security for the 21st Century | 3 | S | EARTHSC 2245 or other GE coursework (see the course catalog)
+INTSTDS 4532 | Food Security and Globalization | 3 | A | AEDEcon 2001 (200) or Econ 2001 (200); or permission of instructor
+PUBHLTH 2010 | Critical Issues in Global Public Health | 3 | A/S
+ESHESA 2577 | Diversity and Social Justice in Leadership | 3 | A/S
+GEOG 3701 | The Making of the Modern World | 3 | S
+GEOG 3800 | Geographical Perspectives on Environment and Society | 3 | S
+POLITSC 4282 | Listed on the minor sheet (not on recent class schedules) |  | none
+SOCIOL 3302 | Technology and Global Society | 3 | A/S
+SOCIOL 3306 | Sociology of Poverty | 3 | A/S
+SOCIOL 3463 | Listed on the minor sheet (not on recent class schedules) |  | none
+SOCIOL 3597.01 | World Problems in Global Context | 3 | A/S
+"""
+
+LARCH_2300 = mrows("""
+LARCH 2300 | Outlines of the Built Environment | 3 | none
+""", alternates=["KNOW 2300"])  # now taught as KNOW 2300
+LARCH_REQUIRED = """
+LARCH 2367 | Making and Meaning of the American Landscape | 3 | A | English 1110, or equiv
+LARCH 2600 | Outlines of Landscape Architecture: Visual Literacy in the Built Environment | 3 | A/S
+LARCH 5610 | History and Theory of Gardens | 3 | A
+LARCH 5620 | History and Theory of Parks | 3 | S | LARCH 5610; or permission of instructor
+LARCH 5630 | History and Theory of Urbanism | 3 | none
+"""
+LARCH_ELECTIVES = """
+LARCH 2000 | Introduction to Landscape Architecture | 1 | none
+LARCH 2310 | Introduction to Design | 4 | none
+LARCH 2410 | Landscape Architecture Workshop I | 3 | A
+LARCH 2420 | Landscape Architecture Workshop II | 3 | A
+LARCH 2780 | Landscape Architecture Topics Seminar | 3 | none
+LARCH 3189 | Ecological Field Exploration |  | none
+LARCH 3194 | Group Studies in Landscape Architecture |  | none
+LARCH 3430 | Landscape Architecture Workshop III | 3 | S
+LARCH 3440 | Landscape Architecture Workshop IV | 3 | S
+LARCH 3597 | Sustainability and You | 3 | none
+LARCH 4798 | International Studies in Landscape Architecture | 6 | none
+LARCH 5798 | Study Tour in Landscape Architecture | 6 | S
+LARCH 5960 | Design Competition |  | none
+"""
+
+NUCLEAR_ELECTIVES = """
+NUCLREN 4506 | Undergraduate Nuclear Engineering Laboratory | 3 | A | NUCLREN 4505 (505) or MechEng 4505 (505); or permission of instructor
+NUCLREN 4536 | Nuclear Reactor Systems | 3 | S | NUCLREN 4505 (505) or MechEng 4505 (505); or permission of instructor
+NUCLREN 5001 | Interactions of Radiation with Matter | 3 | A | NUCLREN 4505, or Grad standing in Nuclear Engineering, or permission of instructor
+NUCLREN 5002 | Reactor Physics | 3 | A | NUCLREN 4505 or MechEng 4505, or Grad standing, or permission of instructor
+NUCLREN 5003 | Nuclear Reactor Systems and Analysis | 3 | S | NUCLREN 4505 or MechEng 4505, and MechEng 3501 or equiv; or Grad standing in MechEng or NuclrEn; or permission of instructor
+NUCLREN 5004 | Materials in Nuclear Systems | 3 | S | Grad standing, or permission of instructor
+NUCLREN 5606 | Radiation Protection and Shielding | 3 | A | Math 2153, 2173, 2177 or 153, and Physics 1250 or 133; or Grad standing
+NUCLREN 5610 | Reactor Safety | 3 | S | NUCLREN 4505 (505) or MechEng 4505 (505); or Grad standing; or permission of instructor
+NUCLREN 5735 | Nuclear Power Plant Operations | 3 | S | NUCLREN 4505 (505) or MechEng 4505 (505); or Grad standing; or permission of instructor
+NUCLREN 5742 | Nuclear Instrumentation, Radiation Sensor and Detection | 3 | S
+NUCLREN 5776 | Nuclear Fuel Cycle and Radioactive Waste Management | 3 | A | NUCLREN 4505 (505) or MechEng 4505 (505); or Grad standing; or permission of instructor
+"""
+
+RAS_ELECTIVES = """
+AEROENG 5620 | Stability and Control of Flight Vehicles |  | none
+AEROENG 5621 | Guidance, Navigation and Control of Aerospace Vehicles | 3 | A | AEROENG 3521 (521)
+CSE 3521 | Survey of Artificial Intelligence I: Basic Techniques | 3 | A/S | CSE 2331 or 5331; and Math 2174 or 2568 or 4568 or 5520H; and Stat 3201 or 3450 or 3460 or 3470 or 4201 or Math 4530 or 5530H; and enrollment in CSE, CIS, ECE or Data Analytics major
+CSE 5052 | Survey of Artificial Intelligence for Non-Majors | 3 | A/S | CSE 1211, 1221, 1222, 1223, 1224 or 2221; or Grad standing
+CSE 5524 | Computer Vision for Human-Computer Interaction | 3 | A/S | CSE 2331, or Sr or Grad standing
+ECE 3551 | Introduction to Feedback Control Systems | 3 | A/S | ECE 3050
+ECE 4194.02 | Group Study in Machine Learning |  | none
+ECE 5200 | Introduction to Digital Signal Processing | 3 | S | ECE 3050, and Stat 3470 or Math 4530; or Grad standing
+ECE 5553 | Autonomy in Vehicles | 3 | S | ECE 3551, 5551, or Grad standing in Engineering
+ISE 5520 | Industrial Automation | 1.5 | A/S | Rank 3 or 4 in engineering; or Grad standing in Engineering
+ISE 5525 | Industrial Robotics | 1.5 | A/S | Engr 1182.01, 1182.02, 1182.04, 1282.01H, 1282.02H, 1282.04H, or 1188, and Jr or Sr standing. Grad Prereq: Grad standing in Engineering
+ISE 5740 | Cognitive Engineering Systems: Human-Centered Automation |  | none
+ISE 5760 | Visual Analytics for Sensemaking | 3 | A/S | Jr, Sr, or Grad standing
+MECHENG 5194 | Smart Product Design |  | S | Permission of instructor
+MECHENG 5372 | Theory and Applications of Feedback Control | 3 | S | MECHENG 3360 or 3361, or Grad standing in MechEng, or permission of instructor
+MECHENG 5751 | Design and Manufacturing of Compliant Mechanisms and Robots |  | none
+MECHENG 5775 | Machine Learning for Engineers | 3 | A | Math 2177 or 2174, or 2415 and 2568; and Physics 1250, 1250H, 1260 or 2300; and CSE 1221, 1222, Engr 1181.xx, 1281.01H, 1281.02H, 1221 or 1222; and AeroEng 3581, MechEng 2850.xx or 5463; or Grad standing in Engineering
+"""
+
+SEMI_LABS = """
+ECE 5037 | Solid State Electronics and Photonics Laboratory | 4 | A/S | ECE 3030 or MatScEn 3271; or Grad standing in Engineering, Biological Sciences, or Math and Physical Sciences
+ECE 5537 | Semiconductor Device Characterization and Modeling Lab | 4 | none
+MATSCEN 5532 | Electronic and Optical Materials Lab | 1 | A | MATSCEN 2010, 2241, or 3271, or permission of instructor
+"""
+SEMI_ADDITIONAL = """
+ECE 5031 | Semiconductor Process Technology | 3 | S | ECE 3030, or Grad standing in Engineering, Biological Sciences, or Math and Physical Sciences
+ECE 5033 | Surfaces and Interfaces of Electronic Materials | 3 | none
+ECE 5131 | Lasers | 3 | none
+ECE 5132 | Photonics | 3 | A | ECE 3010, 3010.01, or 3010.02, and 3030 or 3030.01; or Grad standing in Engineering, Biological Sciences, or Math and Physical Sciences
+ECE 5244 | Si and Wide Band Gap Power Devices | 3 | A | ECE 3030, or MatScEn 3271; or Grad standing in Engr or Physics
+ECE 5832 | Photovoltaics and Energy Conversion | 3 | none
+ECE 5833 | Organic and Printed Flexible Electronics | 3 | A | ECE 3030, or MatScEn 3271, permission of instructor for non-ECE majors; or Grad standing in engineering, biological sciences, or math and physical sciences
+MATSCEN 5571 | Electroceramics II | 1.5 | S | MATSCEN 3271, or permission of instructor
+MATSCEN 5572 | Failure Analysis of Materials | 3 | A | MATSCEN 2241, and 3271 or ECE 2300; and enrollment as MatScEn-BS major; or Grad standing; or permission of instructor
+STAT 3470 | Introduction to Probability and Statistics for Engineers | 3 | A/S | Math 1152, 1161.xx, 1172, 1181H, or equiv, or permission of instructor
+PHYSICS 3700 | Experimental Physics Instrumentation and Data Analysis Lab | 3 | A/S | PHYSICS 1251, 1251H, 1261, or 1271; and CSE 1222, 1223, 1224, Engr 1221, Engr 1281H, or Astron 1221
+MECHENG 3500 | Engineering Thermal Sciences | 3 | A/S | Math 2174 or 2177 or 2255 (255) or 2415 (415), and Physics 1250 (131)
+MECHENG 4510 | Heat Transfer | 3 | A/S | MECHENG 3503; and MechEng-BS student; or permission of department
+ISE 4120 | Quality and Reliability Engineering | 3 | A/S | Stat 3470.01 or 3470.02; and ISE 3200; or permission of instructor
+ISE 5110 | Design of Engineering Experiments | 3 | A/S | ISE 4210; or Stat 3470 or equiv, and Grad standing
+"""
+
+COMPSCI_DISCIPLINE = """
+CHEM 5440 | Listed on the minor sheet (not on recent class schedules) |  | none
+MICRBIO 5161H | Listed on the minor sheet (not on recent class schedules) |  | none
+CSE 3521 | Survey of Artificial Intelligence I: Basic Techniques | 3 | A/S | CSE 2331 or 5331; and Math 2174 or 2568 or 4568 or 5520H; and Stat 3201 or 3450 or 3460 or 3470 or 4201 or Math 4530 or 5530H; and enrollment in CSE, CIS, ECE or Data Analytics major
+CSE 3341 | Principles of Programming Languages | 3 | A/S | CSE 2231, 2331 (680), and 2421, and 3901 (560), 3902, or 3903
+BMI 5730 | Introduction to Bioinformatics | 3 | A/S
+MATH 5651 | Mathematical Modeling of Biological Processes | 3 | S | Grad standing; or either 4512 (512) or 557, and 4556 (556), and either 2568 (568) or 572
+PHYSICS 6810 | Listed on the minor sheet (not on recent class schedules) |  | none
+LING 5801 | Computational Linguistics I | 3 | A | LING 2001, 3802, 3802H, 4200, 4400, or 5050, or any 5000-level Ling course, or any CSE course, or Grad standing, or permission of instructor
+LING 5802 | Computational Linguistics II | 3 | S | Ling 5801 (Linguist 684.01)
+ECON 4050 | Listed on the minor sheet (not on recent class schedules) |  | none
+ECON 5001 | Game Theory in Economics | 3 | A/S | ECON 4001.01 (501.01), 4001.02 (501.02), or 4001.03, and Math 1131 (132), 1151 (151 and 152), 1152 (153), 1161 (161 and 162), or 2182H (263H), or equiv
+GEOG 5221 | Listed on the minor sheet (not on recent class schedules) |  | none
+PSYCH 5608 | Introduction to Mathematical Psychology | 3 | A | A grade of C- or above in 2300 and 3321; a grade of C- or above in 3321 and a grade of B or above in 3313 and Neurosc 3000, and Neuroscience major; or Grad standing
+PSYCH 5609 | Listed on the minor sheet (not on recent class schedules) |  | none
+PSYCH 5618 | Introduction to Computational Cognitive Neuroscience | 3 | S | A grade of C- or above in 2220 and 2300; or a grade of B or above in 3313 and Neurosc 3000, and Neuroscience major; or Grad standing
+EARTHSC 5642 | Geomathematical Analysis | 3 | S | Grad standing, or Math 1152 (153) or above, or written permission of instructor
+"""
+
+MINORS = [
+    minor("architectural-studies", "Architectural Studies Minor", 12, MINOR_URL + "architectural-studies-eng",
+          "Offered by the Knowlton School. No approval needed to declare; tell your advisor. Courses not on the sheet need "
+          "Knowlton's approval (Jessica Baer-Graves).", [
+              group("march-intro", "Required: one introductory course", "choose_courses", mrows(KNOW_INTRO), min_courses=1),
+              group("march-elec", "Electives (at least 9 credit hours)", "choose_credits", mrows(ARCH_ELECTIVES + KNOW_INTRO),
+                    min_credits=9, notes="The introductory course you don't use above can count here."),
+          ]),
+    minor("aviation", "Aviation Minor", 15, MINOR_URL + "aviation-eng",
+          "For students outside the Aviation major; flight training isn't available in the minor. Many courses have "
+          "prerequisites beyond the minor. The department's site suggests interest areas (drones/UAS, air traffic control, "
+          "aviation management, weather and performance, dispatching, safety and human factors); none is required.", [
+              group("mavn-req", "Required: Introduction to the Aviation Industry", "all", mrows("""
+AVIATN 2000 | Introduction to the Aviation Industry | 3 | A/S
+""")),
+              group("mavn-flight", "Required: one flight course", "choose_courses", mrows("""
+AVIATN 2100 | Private Pilot Fundamentals | 5 | A/S
+AVIATN 2150 | Introduction to Flight Operations | 3 | A
+"""), min_courses=1),
+              group("mavn-elec", "Electives (9 credit hours)", "choose_credits", mrows(AVIATION_INTERESTS), min_credits=9,
+                    code_pattern=r"^AVIATN [2-5]\d{3}|^ENGR 5797\.2[578]",
+                    notes="Any AVIATN course at the 2000-5000 level, or ENGR 5797.25, 5797.27, 5797.28. Individual studies, "
+                          "group studies, and research count for at most 3 credit hours."),
+          ], excluded=["eng-aviation"]),
+    minor("biomedical-engineering", "Biomedical Engineering Minor", 12, MINOR_URL + "biomedical-engineering-eng",
+          "For students outside the BME major. Prerequisites: calculus (MATH 1151 and 1172, or an equivalent sequence), "
+          "MATH 2568, 2173, or 2177; CHEM 1210 and 1220 (or equivalent); PHYSICS 1250 (or equivalent); BIOLOGY 1113; "
+          "ENGR 1181 and 1182 (or equivalent); MECHENG 2010 or 2040. Declare with Melissa Crohen, who also enrolls you in "
+          "BIOMEDE 2000. Plan early; the minor can take two years. No substitutions for listed courses.", [
+              group("mbme-req", "Required: Introduction to Biomedical Engineering", "all", mrows("""
+BIOMEDE 2000 | Introduction to Biomedical Engineering | 3 | A/S | MATH 1172; ENGR 1182; CHEM 1220; PHYSICS 1250; concurrent BIOLOGY 1113, MECHENG 2040, MATH 2173
+""", notes="Enrollment is restricted; contact Melissa Crohen (crohen.2@osu.edu).")),
+              group("mbme-bio", "One physiology or biological sciences course", "choose_courses", mrows(BME_PHYSIOLOGY),
+                    min_courses=1),
+              group("mbme-domain", "One BME domain course", "choose_courses", mrows(BME_DOMAINS), min_courses=1),
+              group("mbme-adv", "One more domain course or a 5000-level BIOMEDE course", "choose_courses", mrows(BME_DOMAINS),
+                    min_courses=1, code_pattern=r"^BIOMEDE 5\d{3}", exclude_codes=["BIOMEDE 5193"],
+                    notes="Any 3-credit BIOMEDE course at the 5000 level except 5193."),
+          ], excluded=["eng-biomedical"]),
+    minor("city-and-regional-planning", "City and Regional Planning Minor", 12, MINOR_URL + "city-and-regional-planning-eng",
+          "Offered by the Knowlton School. No approval needed; tell your advisor so it's tracked on your degree audit. "
+          "Substitutions need the section's approval.", [
+              group("mcrp-intro", "Required: one introductory course", "choose_courses", mrows("""
+CRPLAN 2000 | Introduction to City and Regional Planning | 3 | A
+CRPLAN 2110 | Creating Innovative Cities and Regions | 3 | S
+"""), min_courses=1),
+              group("mcrp-req", "Required: The Global Environment in Planning", "all", mrows("""
+CRPLAN 4597 | The Global Environment in Planning | 3 | A/S
+""")),
+              group("mcrp-elec", "Electives (6 credit hours)", "choose_credits", min_credits=6, code_pattern=r"^CRPLAN [2-5]\d{3}",
+                    notes="Any City and Regional Planning course at the 2000-5000 level; some have prerequisites."),
+          ]),
+    minor("computer-science", "Computer Science Minor", 16, MINOR_URL + "computer-science",
+          "Offered by Computer Science and Engineering for students in other majors (formerly the Computer and Information "
+          "Science minor). Prerequisites: MATH 1151 or 1161.01, and CSE 1222, 1223, or 1224. Minor students don't get priority "
+          "enrollment in CSE courses. Courses not on the sheet need CSE's approval (compsciadvising@osu.edu).", [
+              group("mcs-software", "Software: one data structures course", "choose_courses", mrows("""
+CSE 2122 | Data Structures Using C++ | 3 | A/S | CSE 1222 (202)
+CSE 2123 | Data Structures Using Java | 3 | A/S | CSE 1223
+CSE 2124 | Intermediate Python Programming | 3 | A/S | CSE 1224
+"""), min_courses=1),
+              group("mcs-core", "Foundations and systems", "all", mrows("""
+CSE 2321 | Foundations I: Discrete Structures | 3 | A/S | CSE 2122, 2123, 2124 or 2221; and Math 1151 or 1161. Concur (for students with credit for 2221): 2231
+CSE 3430 | Overview of Computer Systems for Non-Majors | 4 | A/S | CSE 2122, 2123, 2124 or 2231; and 2321; and enrollment in Data Analytics major or CS minor
+""")),
+              group("mcs-elec", "Electives (at least 2 courses, 6 credit hours)", "choose_credits", mrows("""
+CSE 2331 | Foundations II: Data Structures and Algorithms | 3 | A/S | CSE 2122, 2123, 2124 or 2231; and 2321; and Stat 3460, 3470 or 3201; and enrollment in CSE, CIS, ECE, Data Analytics, Math majors or CS minor
+CSE 3241 | Introduction to Database Systems | 3 | A/S | CSE 2122, 2123, 2124 or 2231; and 2321, or 2111 and Math 2366; and enrollment in CSE, CIS, ISE, Data Analytics, ECE, Engr Physics, Business Info Sys majors, or CS minor
+CSE 4471 | Information Security | 3 | A/S | CSE 2122, 2123, 2124, or 2231; and 2321; and enrollment in CSE, CIS, ECE, or Data Analytics major, or Information Security or CS minor
+CSE 5052 | Survey of Artificial Intelligence for Non-Majors | 3 | A/S | CSE 1211, 1221, 1222, 1223, 1224 or 2221; or Grad standing
+BIOMEDE 5710 | Machine Learning in Biomedical Engineering | 3 | S | Sr or Grad standing in BME, or College of Medicine; or permission of instructor
+"""), min_credits=6, code_pattern=r"^CSE [3-7]\d{3}",
+                    notes="CSE 2331, any CSE course at the 3000 level or above, or BIOMEDE 5710; at most 2 credit hours of "
+                          "CSE 425X. Recommended: CSE 2331, 3241, 4471, 5052."),
+          ], excluded=["eng-cse"]),
+    minor("computational-science", "Computational Science Minor", 18, MINOR_URL + "computational-science",
+          "Interdisciplinary minor administered by Arts and Sciences Advising (Ralph Regula School of Computational Science); "
+          "file the minor form with an ASC advisor. All courses except CSE 1221 must be 2000-level or above. Requests for "
+          "other courses go to Greg Kilcup (kilcup.1@osu.edu).", [
+              group("mcomp-sim", "Simulation and modeling (one course)", "choose_courses", mrows("""
+CSE 2021 | Listed on the minor sheet (not on recent class schedules) |  | none
+ISE 5100 | Listed on the minor sheet (not on recent class schedules) |  | none
+MECHENG 5372 | Theory and Applications of Feedback Control | 3 | S | MECHENG 3360 or 3361, or Grad standing in MechEng, or permission of instructor
+MATSCEN 4321 | Modeling and Simulation-Based Design | 3 | A | MATSCEN 2321, 3321, and enrollment as MatScEn-BS major; or permission of instructor
+"""), min_courses=1),
+              group("mcomp-prog", "Programming (one course)", "choose_courses", mrows("""
+CSE 1221 | Listed on the minor sheet (not on recent class schedules) |  | none
+CSE 2221 | Software I: Software Components | 4 | A/S | CSE 1212, 1221, 1222, 1223, 1224, Engr 1221, 1281.01H, 1281.02H, or CSE Placement Level A. Prereq or concur: Math 1151, 1161.01, or 1161.02
+"""), min_courses=1),
+              group("mcomp-num", "Numerical methods (one course)", "choose_courses", mrows("""
+CSE 5361 | Numerical Methods | 3 | S | CSE 2231, and Math 2568 (268) or 571, and 1151 (151)
+ECE 5510 | Listed on the minor sheet (not on recent class schedules) |  | none
+MATH 3607 | Beginning Scientific Computing | 3 | A/S | Both a C- or better in 2255, 2415, or 5520H, or credit for 255, 415.xx, or 521H; and also a C- or better in 2568 or 5520H, or credit for 568, 571, or 520H
+MATH 5401 | Listed on the minor sheet (not on recent class schedules) |  | none
+AEROENG 3581 | Numerical Methods in Aerospace Engineering | 3 | A | Math 2174; or Math 2568 and 2415; and enrollment as AeroEng-BS student
+MECHENG 2850 | Numerical Methods in Mechanical Engineering | 3 | A/S | MECHENG 2010 or 2040; and enrollment as MechEng-BS student; Prereq or concur: Math 2174, 2568, or 2415 or equiv.; or permission of department
+"""), min_courses=1),
+              group("mcomp-cap", "Capstone research or internship", "manual",
+                    notes="A research or internship course under an approved departmental research designation."),
+              group("mcomp-disc", "Discipline-specific computational modeling (one course)", "choose_courses",
+                    mrows(COMPSCI_DISCIPLINE), min_courses=1),
+              group("mcomp-elec", "Elective (one course)", "choose_courses", mrows("""
+MATH 2255 | Differential Equations and Their Applications | 3 | A/S | A grade of C- or above in 2153, 2162.xx, 2173, 2182H, or 4182H, or credit for 254.xx, 263.xx, 263.01H, or 264H
+MATH 2415 | Ordinary and Partial Differential Equations | 3 | A/S | MATH 2153, 2162.xx, 2173, 2182H, 4182H, 254.xx, 263.xx, 263.01H, or 264H; or 2568 and either 1172 or 1544 (154)
+MATH 2568 | Linear Algebra | 3 | A/S | A grade of C- or above in 1172, 1544, 2153, 2162.xx, 2182H, or 4182H; or a grade of C- or above in both 1152 and CSE 2321
+CSE 5441 | Introduction to Parallel Computing | 3 | A/S | CSE 2231, 2321, and 2421; or 2231, 2321, and 3430; or 2231, 2321, 2451, and ECE 2560; or Grad standing
+CSE 5544 | Introduction to Data Visualization | 3 | A/S | CSE 5361, Stat 3301, 3541, or 5541
+CIVILEN 4760 | Listed on the minor sheet (not on recent class schedules) |  | none |  | Listed on the sheet as CEG 4760; confirm the course number with your advisor.
+ECE 5759 | Listed on the minor sheet (not on recent class schedules) |  | none
+ISE 3200 | Linear and Integer Programming | 3 | A/S | C- or above in Math 2568 or 2174; and CSE 1224, or 2221, or Engr 1281.01H or 1281.02H; and enrollment in ISE or Engineering Physics major. Additional prereq or concur for students enrolled in ISE major: ISE 2400 and CSE 
+MATSCEN 4181 | Materials Selection | 2 | A | MATSCEN 2241, 2331, 2251, 2321, and enrollment as MatScEn-BS major; or permission of instructor
+"""), min_courses=1),
+          ], ge="up to two courses, if the minor has at least 4 courses. The minor is open to any major, but still needs 12 "
+                "credit hours distinct from the major"),
+    minor("engineering-sciences", "Engineering Sciences Minor", 15, MINOR_URL + "engineering-sciences-eng",
+          "For non-engineering students. Requires a first calculus course (MATH 1131 or 1151). The program advisor, Dr. Dale "
+          "Masel (masel.2@osu.edu), approves your course choices and signs the minor form.", [
+              group("mes-core", "Core: Fundamentals of Engineering (4 credit hours)", "all", mrows("""
+ENGR 1181 | Fundamentals of Engineering 1 | 2 | A/S
+ENGR 1182 | Fundamentals of Engineering 2 | 2 | A/S | ENGR 1181
+"""), notes="This minor counts ENGR 1181/1182 although they're 1000-level. Honors versions are permitted."),
+              group("mes-sci", "Engineering science (one course)", "choose_courses", mrows("""
+AVIATN 2000 | Introduction to the Aviation Industry | 3 | A/S
+BIOMEDE 2000 | Introduction to Biomedical Engineering | 3 | A/S | Math 1172 or 2153; and Engr 1182.xx or 1282.xx; and Chem 1220; and Physics 1250 or 1260; and enrollment in the BiomedE major or pre-major. Concur: Biology 1113; and MechEng 2040; and Math 2173 or 2568
+DESIGN 3105 | Exploring Design Thinking | 3 | A/S
+ISE 2040 | Engineering Economics In-Person | 2 | A/S | Soph, Jr, or Senior standing in Engineering or BSET program
+ISE 2500 | Introduction to Manufacturing Engineering | 3 | A/S
+AEROENG 2200 | Introduction to Aerospace Engineering I | 4 | A | Physics 1250 or 1260; and Math 1152, 1161.xx, 1172 or 1181H. Prereq or concur: Math 2173, 2153 or 2162.xx; and CHEM 1250 or 1210
+CBE 2200 | Process Fundamentals | 3 | A/S | Math 1172 or 2153; and Prereq or Concur: Chem 1220 or 1920H; and Engr 1182 or 1282; and 2.0 CPHR or higher
+CIVILEN 2050 | Listed on the minor sheet (not on recent class schedules) |  | none
+CSE 2221 | Software I: Software Components | 4 | A/S | CSE 1212, 1221, 1222, 1223, 1224, Engr 1221, 1281.01H, 1281.02H, or CSE Placement Level A. Prereq or concur: Math 1151, 1161.01, or 1161.02
+ECE 2000 | Listed on the minor sheet (not on recent class schedules) |  | none
+ENVENG 3200 | Fundamentals of Environmental Engineering | 3 | A/S | Chem 1210 or 1250, and CivilEn or EnvEng major or EnvEng minor
+FABENG 2100 | Energy In Biological Systems | 1 | A | Soph standing in Engineering
+ISE 2400 | Design of Work: Methods and Measurement | 2 | A/S | Soph standing; and enrollment in Industrial and Systems Engineering major or Engineering Physics major. Additional prereq for students enrolled in ISE major: a grade of C- or above in Stat 3470.01 or 3470.02
+MATSCEN 2010 | Introduction to Engineering Materials | 3 | A/S | Physics 1250 or 1260; and Math 1151, 1161, or 1154 and enrollment in BSET program; and Chemistry 1210 or 1250 or 1910H; or permission of instructor
+MECHENG 2010 | Statics | 2 | A/S | Engr 1181 or 1187 or 1281H, and Physics 1250 or 1260, and Math 1151, 1140 or 1161
+WELDENG 3001 | Listed on the minor sheet (not on recent class schedules) |  | none
+"""), min_courses=1, notes="With no prior engineering courses: AVIATN 2000, BIOMEDE 2000, DESIGN 3105, ISE 2040, or ISE 2500. "
+                           "Other engineering courses need the minor advisor's permission."),
+              group("mes-society", "Technology and society (3 credit hours)", "choose_courses", mrows("""
+COMPSTD 2340 | Introduction to Cultures of Science and Technology | 3 | A/S | English 1110 or equivalent
+COMPSTD 2367.04 | Listed on the minor sheet (not on recent class schedules) |  | none
+ENGR 2361 | Listed on the minor sheet (not on recent class schedules) |  | none
+ENGR 2362 | Listed on the minor sheet (not on recent class schedules) |  | none
+ENGR 2367 | Listed on the minor sheet (not on recent class schedules) |  | none
+HISTORY 2701 | History of Technology | 3 | A/S
+PHYSICS 2367 | Listed on the minor sheet (not on recent class schedules) |  | none
+SOCIOL 3302 | Technology and Global Society | 3 | A/S
+"""), min_courses=1),
+              group("mes-cap", "Capstone: Engineering Capstone Collaboration (6 credit hours)", "all", mrows("""
+ENGR 5081.01 | Engineering Capstone Collaboration I | 3 | A | Permission of instructor
+ENGR 5081.02 | Engineering Capstone Collaboration II | 3 | S | ENGR 5081.01
+"""), notes="Two semesters contributing your discipline's expertise to an engineering capstone design team."),
+          ], excluded=ALL_ENGINEERING, ge="up to 6 credit hours"),
+    minor("environmental-engineering", "Environmental Engineering Minor", 15, MINOR_URL + "environmental-engineering-eng",
+          "Prerequisites, done before the minor: MATH 1151 and CHEM 1210 and 1220 (or CHEM 1250). Civil Engineering students "
+          "who use CIVILEN 3130 and ENVENG 3200 in their major take 3 more elective hours. Engineering majors may overlap 6 "
+          "credit hours with their degree's electives. Declare with Barry Tolchin (tolchin.5@osu.edu).", [
+              group("menv-req", "Required courses (9 credit hours)", "all", mrows("""
+CIVILEN 3130 | Fluid Mechanics | 3 | A/S | MechEng 2010 or 2040, and enrollment in CivilEn, EnvEng, or FABEng major; or permission of instructor
+ENVENG 3200 | Fundamentals of Environmental Engineering | 3 | A/S | Chem 1210 or 1250, and CivilEn or EnvEng major or EnvEng minor
+ENVENG 5170 | Sustainability and the Circular Economy | 3 | S | ENVENG 3200, or Grad standing in Engineering, or permission of instructor
+""")),
+              group("menv-elec", "Electives (6 credit hours)", "choose_credits", mrows(ENVENG_MINOR_ELECTIVES), min_credits=6,
+                    notes="Many have more prerequisites; a CEGE advisor can help you choose."),
+          ], excluded=["eng-environmental"]),
+    minor("humanitarian-engineering", "Humanitarian Engineering Minor", 16, MINOR_URL + "humanitarian-engineering-eng",
+          "Run by Global Engineering (global.CoE@osu.edu). Courses not listed can be approved by the minor coordinator.", [
+              group("mhe-intro", "Required: Introduction to Humanitarian Engineering and lab (4 credit hours)", "all", mrows("""
+FABENG 3210 | Introduction to Humanitarian Engineering | 3 | A/S
+""", alternates=["FABENG 3201"]) + mrows("""
+FABENG 3211 | Introduction to Humanitarian Engineering Laboratory | 1 | A/S | Concurrent FABENG 3210
+"""), notes="The minor sheet lists this as FABENG 3201 (4); it's now scheduled as FABENG 3210 with lab 3211."),
+              group("mhe-core", "Humanitarian engineering core elective (one course)", "choose_courses", mrows("""
+CIVILEN 5610.01 | Sustainable WaSH Infrastructure for Developing Rural Communities | 3 | A | Permission of instructor
+CIVILEN 5610.02 | Safe Water on Tap | 3 | S | CIVILEN 3130, FABEng 2110, CBE 2420, or MechEng 3503; and Engr 1221 or CSE 1222; or permission of instructor
+ECE 5050 | Humanitarian Engineering | 3 | S | ECE 1182 or 1282; or Grad standing; or permission of instructor
+FABENG 5200 | Appropriate Technologies for Developing Countries | 3 | S | Engr 1182.01, 1182.02, 1182.03, 1282.01H, 1282.02H, 1282.03H, or 1282.04H; or Grad standing; or permission of instructor
+"""), min_courses=1),
+              group("mhe-global", "Global perspectives (one course)", "choose_courses", mrows(HE_GLOBAL), min_courses=1,
+                    notes="Development, food, health, cultural competency, and other courses that help you understand the "
+                          "communities you design for. AEDECON 4535 and 4532, BUSMHR 5530, ECON 4130, RURLSOC 3580, EARTHSC 3411, "
+                          "and INTSTDS 4532 have prerequisites."),
+              group("mhe-community", "Community-based learning (one course)", "choose_courses", mrows("""
+FABENG 3200 | Engineering for Community Development in Ohio | 3 | S
+CIVILEN 4011 | Civil Engineering Global Capstone I | 2 | A | Civil Engineering major core; or permission of instructor
+CIVILEN 4012 | Civil Engineering Global Capstone II | 2 | S | CIVILEN 4011; senior standing
+FABENG 4900 | Global Capstone | 3 | A | FABENG 3150
+FABENG 4910 | Global Capstone | 3 | S | FABENG 4900
+"""), min_courses=1, code_pattern=r"^ENGR (2797|5797|4692)\.",
+                    notes="Also any ENGR 2797.xx, 5797.xx, or 4692.xx service-learning course. The sheet names the Global "
+                          "Capstone CIVILEN 4900/4901; it's now scheduled as CIVILEN 4011/4012."),
+              group("mhe-project", "Culminating humanitarian engineering project (3 credit hours, final year)", "manual",
+                    notes="Individual studies, undergraduate research, honors thesis, or capstone design in any College of "
+                          "Engineering unit, focused on humanitarian engineering; the course's faculty verify it on the HE "
+                          "Minor Student Information Form."),
+          ]),
+    minor("landscape-architectural-studies", "Landscape Architectural Studies Minor", 12,
+          MINOR_URL + "landscape-architectural-studies-eng",
+          "Offered by the Knowlton School. No approval needed; tell your advisor so it's tracked on your degree audit.", [
+              group("mla-req", "Required: two courses (6 credit hours)", "choose_courses", LARCH_2300 + mrows(LARCH_REQUIRED), min_courses=2),
+              group("mla-elec", "Electives (remaining 6 credit hours)", "choose_credits", mrows(LARCH_ELECTIVES) + LARCH_2300 + mrows(LARCH_REQUIRED),
+                    min_credits=6),
+          ], ge="up to 6 credit hours"),
+    minor("nuclear-engineering", "Nuclear Engineering Minor", 12, MINOR_URL + "nuclear-engineering-eng",
+          "Prerequisites (24+ credit hours): MATH 1151, MATH 1172 or 1152, MATH 2153 or above, PHYSICS 1250, and PHYSICS 1251 "
+          "(or equivalents). Take NUCLREN 4505 before the electives. Faculty advisor: Dr. Richard Vasques (vasques.4@osu.edu). "
+          "Up to 10 hours may count as technical electives in some majors.", [
+              group("mnuc-req", "Required: Introduction to Nuclear Science and Engineering", "all", mrows("""
+NUCLREN 4505 | Introduction to Nuclear Science and Engineering | 3 | A/S | Math 2153 or above and Physics 1251, or permission of instructor
+""", alternates=["MECHENG 4505"])),
+              group("mnuc-elec", "Electives (three courses, 9 credit hours)", "choose_courses", mrows(NUCLEAR_ELECTIVES),
+                    min_courses=3),
+          ], ge="up to 6 credit hours"),
+    minor("petroleum-engineering", "Petroleum Engineering Minor", 15, MINOR_URL + "petroleum-engineering-eng",
+          "Prerequisites: chemistry (CHEM 1210 and 1220 or equivalent), calculus (MATH 1151 and 1172 or equivalent), ENGR 1181 "
+          "and 1182, CBE 2200, EARTHSC 1100 (or equivalent), EARTHSC 2122 and 4502. Some may be waived for declared minors "
+          "with enough math and science; see Brian Endres (endres.10@osu.edu) in Chemical and Biomolecular Engineering. "
+          "No substitutions for listed courses.", [
+              group("mpet-req", "Required core (12 credit hours)", "all", mrows("""
+EARTHSC 5661 | Petroleum Geology | 3 | S | EARTHSC 4502 or 6502; or permission of instructor
+CBE 5200 | Introduction to Petroleum Engineering | 3 | S | CBE 2200; or Jr or Sr standing in Engineering, Earth Sciences or Business; or permission of instructor
+CBE 5210 | Petroleum Reservoir Engineering | 3 | A | Junior standing or above in Engineering or Earth Sciences. Grad Prereq: graduate standing | Limited to College of Engineering and Earth Sciences majors; others contact Brian Endres.
+CBE 5230 | Petroleum Drilling and Production Engineering | 3 | S | CBE 5200 and EarthSc 5661; or Grad standing; or permission of instructor
+""")),
+              group("mpet-elec", "Elective (one course)", "choose_courses", mrows("""
+EARTHSC 5751 | Quantitative Reservoir Modeling | 3 | none
+EARTHSC 5687 | Energy Geophysics | 3 | none
+CBE 5260 | Petroleum Project Evaluation | 3 | A | Jr or Sr standing in Engineering or Earth Sciences. Grad Prereq: Grad standing
+"""), min_courses=1),
+          ], ge="up to 6 credit hours"),
+    minor("robotics-and-autonomous-systems", "Robotics and Autonomous Systems Minor", 12,
+          MINOR_URL + "robotics-and-autonomous-systems-eng",
+          "Prerequisites: calculus (MATH 1151 and 1172 or equivalent), MATH 2174 or 2177 (or 2415 and 2568), PHYSICS 1250 or "
+          "1260, and ENGR 1221, CSE 1222, or ENGR 1281.01H. With MAE's permission, up to 6 hours of AEROENG, CSE, ECE, ISE, or "
+          "MECHENG 4998/4999 research on robot and automation systems can count as electives (RAS Minor Research Project "
+          "form). Minor advisor: Dr. Haijun Su (su.298@osu.edu).", [
+              group("mras-req", "Required: Introduction to Real-Time Robotics Systems", "all", mrows("""
+MECHENG 5463 | Introduction to Real-Time Robotics Systems | 3 | A/S | Math 2177 or 2174, or 2415 and 2568; and Physics 1250, 1250H, 1260, or 2300; and CSE 1221, 1222, Engr 1181, 1281.01H, 1281.02H, 1221, or 1222; or Grad standing in Engr; or permission of instructor
+""", alternates=["ECE 5463"])),
+              group("mras-elec", "Electives (three courses, 9 credit hours)", "choose_credits", mrows(RAS_ELECTIVES),
+                    min_credits=9, notes="Many have prerequisites beyond the minor's."),
+          ], ge="up to 6 credit hours"),
+    minor("semiconductor-devices", "Semiconductor Devices Minor", 13, MINOR_URL + "semiconductor-devices-eng",
+          "Prerequisites: PHYSICS 1251 or 1261 (or 1240 and 1241), CHEM 1210, 1220, or 1250, and MATH 2415 or 2174 (before or "
+          "with ECE 3030). ECE majors should pick minor courses with their advisor so they don't interfere with the major. "
+          "Advisor: Alissa Kasmer (kasmer.4@osu.edu).", [
+              group("msemi-phys", "Required: semiconductor physics (one course)", "choose_courses", mrows("""
+ECE 3030 | Semiconductor Device Physics | 3 | A/S | Physics 1251, 1261, or both 1240 and 1241; and Chem 1210, 1220, or 1250; and enrollment in ECE, MSE, or EngPhysics major. Prereq or concur: Math 2415 or 2174
+MATSCEN 3271 | Electronic Properties | 3 | A/S | MATSCEN 2010; and Math 1151 or 1161; and Physics 1251 or 1261; and enrollment as MatScEn-BS student; or permission of instructor
+"""), min_courses=1),
+              group("msemi-req", "Required: Fundamentals of Semiconductors", "all", mrows("""
+ECE 5530 | Fundamentals of Semiconductors for Microelectronics and Photonics | 3 | A | ECE 3030, or Grad standing in Engineering, Biological Sciences, or Math and Physical Sciences
+""")),
+              group("msemi-lab", "Laboratory (at least one course)", "choose_courses", mrows(SEMI_LABS), min_courses=1),
+              group("msemi-add", "Additional courses (3-6 credit hours)", "choose_credits", mrows(SEMI_ADDITIONAL + SEMI_LABS),
+                    min_credits=3, notes="A second lab course counts here if you didn't use it above."),
+          ]),
+    minor("signal-processing", "Signal Processing Minor", 15, MINOR_URL + "signal-processing-eng",
+          "Not open to Electrical and Computer Engineering majors. Prerequisites: calculus (MATH 1151, then 1172 or an "
+          "equivalent sequence), MATH 2568 (or 2173 and 2174), PHYSICS 1250 or a chemistry equivalent, and CSE 1222 or ENGR "
+          "1281.xxH. Up to 6 credit hours may also count toward your major; check your department. Advisor: Alissa Kasmer "
+          "(kasmer.4@osu.edu).", [
+              group("msig-circ", "Required: one circuits course", "choose_courses", mrows("""
+ECE 2020 | Introduction to Analog Circuits and Systems | 3 | A/S | Math 1152, 1161.01, 1161.02, 1172, or 1181H; and Physics 1250, 1250H, 1260, CHEM 1210, or 1250
+ECE 2300 | Electrical Circuits and Electronic Devices | 3 | A/S | Physics 1251 or 1261, and Math 1172 or 1544 or 2153 or 2162.01 or 2162.02 or 2182H or 4182H, and CPHR 2.0 or above, and enrollment in College of Engineering
+ECE 2360 | Electronics for CSE Majors | 3 | A/S | Engr 1182.01, 1182.02, 1182.03, 1282.01H, 1282.02H, 1282.03H, or 1282.04H, or 1186 and 1187 and 1188 concurrent; and Math 1152, 1161.01, 1161.02, 1172, or 1181H; and Physics 1250 or 1260; and CPHR 2.00 or above; and enro
+"""), min_courses=1),
+              group("msig-req", "Required courses (9 credit hours)", "all", mrows("""
+ECE 2060 | Introduction to Digital Logic | 3 | A/S | Math 1148 or 1151
+ECE 2050 | Introduction to Discrete Time Signals and Systems | 3 | A/S | ECE 2060, 2000, or 2061 and 2067; and CSE 1222. Prereq or concur: Math 2174 or 2568
+ECE 3050 | Signals and Systems | 3 | A/S | ECE 2020, 2050, and 2060; or 2100; and Math 2174 or 2568; and enrollment in ECE or EngPhysics major | Restricted to ECE and Engineering Physics majors; contact Alissa Kasmer for permission.
+""")),
+              group("msig-elec", "Elective (one course)", "choose_courses", mrows("""
+ECE 5200 | Introduction to Digital Signal Processing | 3 | S | ECE 3050, and Stat 3470 or Math 4530; or Grad standing
+ECE 5206 | Medical Imaging and Processing | 3 | none
+ECE 5460 | Image Processing | 3 | A | Stat 3470, and Math 2568; or Grad standing in Engr, BioSci, Stat, BioMinf, or PhysSci
+"""), min_courses=1),
+          ], excluded=["eng-ece"]),
+    minor("surveying-and-mapping", "Surveying and Mapping Minor", 16, "https://ceg.osu.edu/degrees/minors/surveying-and-mapping-minor",
+          "Designed for Civil Engineering students who want to sit for the Fundamentals of Surveying exam. Prerequisites: "
+          "MATH 1172 or 2153, and CIVILEN 2410 (open to Civil and Environmental Engineering majors). Most courses require "
+          "enrollment in the Civil Engineering major; declared minors contact Liz Riter (riter.7@osu.edu) for permission. "
+          "For Civil Engineering students admitted Autumn 2025 or later, all five courses also count as technical electives.", [
+              group("msurv-req", "Required courses (16 credit hours)", "all", mrows("""
+CIVILEN 5410 | Engineering Surveying | 3 | A | CIVILEN 2410; Civil Engineering major
+CIVILEN 5411 | Legal Aspects of Surveying | 3 | A | CIVILEN 2410; Civil Engineering major
+CIVILEN 5412 | Land Boundary and Development Principles | 3 | S | CIVILEN 5411; Civil Engineering major
+CIVILEN 5441 | Introduction to GPS: Theory and Application | 3 | S | MATH 1172 or 2153; junior standing
+CIVILEN 5461 | Geospatial Numerical Analysis | 4 | A | CIVILEN 2410
+""")),
+          ], ge="up to 6 credit hours"),
+]
 
 
 # Courses listed under more than one subject on the source pages (a student may register under either code).
@@ -2233,6 +2805,7 @@ def add_cross_listings(programs):
 
 
 add_cross_listings(PROGRAMS)
+add_cross_listings(MINORS)
 
 
 def main():

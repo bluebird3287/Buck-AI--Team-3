@@ -14,7 +14,7 @@ interface MinorAuditViewProps {
   onDeclare: (prompt: string) => void;
 }
 
-// What-if audit for every Fisher minor, checked against the classes the student entered.
+// What-if audit for every minor BuckAI tracks (Fisher and College of Engineering), checked against the classes the student entered.
 export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   curriculum,
   specializationIds,
@@ -56,7 +56,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
       <div>
         <h3 className="text-base sm:text-lg font-bold text-gray-900">What-If Minor Audit</h3>
         <p className="text-xs text-gray-600 mt-0.5">
-          Every minor BuckAI tracks (Fisher&apos;s minors so far), checked against the classes you&apos;ve taken, are taking, and have
+          Every minor BuckAI tracks (Fisher and College of Engineering), checked against the classes you&apos;ve taken, are taking, and have
           planned. Minor courses need a C- or better and a 2.00 GPA across the minor.
         </p>
       </div>
@@ -85,7 +85,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
                 </>
               ) : (
                 <div className="text-xs text-gray-600 mt-1 flex items-center gap-1">
-                  <Ban className="w-3 h-3" /> Not available with your specialization(s)
+                  <Ban className="w-3 h-3" /> Not available with your major
                 </div>
               )}
             </button>
@@ -103,7 +103,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
           </div>
           {minor.source_url && (
             <a href={minor.source_url} target="_blank" rel="noreferrer" className="text-xs text-[#ba0c2f] hover:underline flex items-center gap-1">
-              Fisher minor page <ExternalLink className="w-3 h-3" />
+              Official minor page <ExternalLink className="w-3 h-3" />
             </a>
           )}
         </div>
@@ -121,8 +121,8 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
           <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
-              {result.overlapCredits} credit hours here also count toward your BSBA or specializations ({result.overlapCodes.join(', ')}).
-              Fisher requires at least 12 credit hours in the minor that don&apos;t overlap with your major, so you&apos;d need extra
+              {result.overlapCredits} credit hours here also count toward your major ({result.overlapCodes.join(', ')}).
+              Ohio State requires at least 12 credit hours in the minor that don&apos;t overlap with your major, so you&apos;d need extra
               minor courses. Check with your advisor.
             </span>
           </div>

@@ -98,7 +98,22 @@ concentrations; ISE: five tracks; Aviation: non-flight/flight). Each student pic
   (CHEM 1206 + 1208 for CHEM 1210), the pair is an `equivalent` (counted, flagged "confirm with advisor").
 - FABE electives and ISE "Connected Skills" lists exist only in the Buckeye Degree Planner, so those
   groups accept engineering/science courses by pattern and tell students to confirm.
-- Not covered yet: Engineering minors and the Knowlton School (Architecture, CRP, Landscape Architecture).
+- Engineering minors (16, `kind = 'minor'`, ids `minor-<name>`) come from the College of Engineering minors
+  list (engineering.osu.edu/students/undergraduate-students/minors) and each minor's official advising sheet on
+  the Arts and Sciences minors pages. That's the 14 "(ENG)" minors, including Knowlton's Architectural Studies,
+  City and Regional Planning, and Landscape Architectural Studies, plus Computer Science and Computational
+  Science. Regenerate `supabase/migrations/*_seed_engineering_minors.sql` with
+  `python3 scripts/engineering_requirements.py minors`. Every student sees every minor, Fisher's included.
+- Titles, hours, terms, and prerequisites the sheets leave out were filled from OSU Class Search (Autumn 2026,
+  Spring 2027); courses on a sheet but on neither schedule are titled "Listed on the minor sheet" and marked
+  not scheduled. Where a sheet is out of date, the current course is used and the group's notes say so
+  (Humanitarian Engineering's FABENG 3201 is now 3210 + 3211; Global Capstone is CIVILEN 4011/4012).
+- `excluded_programs` uses degree ids: Aviation (`eng-aviation`), BME (`eng-biomedical`), Computer Science
+  (`eng-cse`), Environmental Engineering (`eng-environmental`), Signal Processing (`eng-ece`), and Engineering
+  Sciences (every Engineering degree; it's for non-engineers). Course lists that can't be enumerated ("any
+  AVIATN 2000-5000", "any CRPLAN course", "CSE 3000+") use `code_pattern`; capstone/project requirements a
+  faculty member must verify are `manual` groups.
+- Not covered yet: the Knowlton School's degrees (Architecture, CRP, Landscape Architecture).
 
 ## Advising requests
 

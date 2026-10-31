@@ -167,15 +167,20 @@ export function findProgram(list: Program[], name: string): Program | undefined 
   const n = name.trim().toLowerCase();
   if (!n) return undefined;
   const words = (s: string) => s.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && w !== 'minor');
+  // Whole words only, so "CS minor" doesn't match "Business Analytics Minor"
+  const within = (a: string, b: string) => ` ${a} `.includes(` ${b} `);
+  // "Tech" for "Technology", "Architecture" for "Architectural"
+  const sameWord = (w: string, x: string) =>
+    x.startsWith(w) || w.startsWith(x) || (w.length >= 8 && x.length >= 8 && w.slice(0, -2) === x.slice(0, w.length - 2));
   return (
     list.find((p) => p.name.toLowerCase() === n) ??
     list.find((p) => baseName(p.name) === baseName(n)) ??
-    list.find((p) => baseName(n).includes(baseName(p.name)) || baseName(p.name).includes(baseName(n))) ??
-    // "Tech Innovation" for "Technology Innovation": every word starts a word of the program's name
+    list.find((p) => within(baseName(n), baseName(p.name)) || within(baseName(p.name), baseName(n))) ??
+    // "Tech Innovation" for "Technology Innovation": every word matches a word of the program's name
     list.find((p) => {
       const ws = words(baseName(n));
       const pw = words(baseName(p.name));
-      return ws.length > 0 && ws.every((w) => pw.some((x) => x.startsWith(w) || w.startsWith(x)));
+      return ws.length > 0 && ws.every((w) => pw.some((x) => sameWord(w, x)));
     })
   );
 }
@@ -902,9 +907,9 @@ export interface MinorAudit {
   creditsCounted: number; // toward the minor from classes taken, in progress, or planned
   creditsDone: number;
   creditsRequired: number;
-  overlapCodes: string[]; // minor courses that also count toward the BSBA or specialization
+  overlapCodes: string[]; // minor courses that also count toward the degree or specialization
   overlapCredits: number;
-  overlapTooHigh: boolean; // Fisher: at least 12 credit hours must be distinct from the major
+  overlapTooHigh: boolean; // Ohio State: at least 12 credit hours must be distinct from the major
 }
 
 export function auditMinor(minor: Program, specializationIds: string[], semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
