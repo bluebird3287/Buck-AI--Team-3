@@ -24,7 +24,9 @@ import {
   Lock,
   Building2,
   CreditCard,
-  CheckCircle2
+  CheckCircle2,
+  PanelLeftOpen,
+  Plus
 } from 'lucide-react';
 import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
 import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
@@ -37,6 +39,8 @@ import { Curriculum, DegreeAudit } from '../lib/requirements';
 import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
+import { ChatHistorySidebar } from './ChatHistorySidebar';
+import type { ChatConversation } from '../lib/chatLog';
 
 // A student asking to get into a building or study space after hours (the BuckID access flow)
 const ACCESS_REQUEST =
@@ -64,6 +68,13 @@ interface AiChatWidgetProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
+  conversations: ChatConversation[];
+  activeConversationId: string | null;
+  isConversationLoading: boolean;
+  onNewChat: () => void;
+  onSelectConversation: (id: string) => void;
+  onRenameConversation: (id: string, title: string) => void;
+  onDeleteConversation: (id: string) => void;
   roadmap: Semester[];
   onUpdateRoadmap: (promptText: string) => Promise<void>;
   isRoadmapUpdating: boolean;
@@ -89,6 +100,13 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   messages,
   onSendMessage,
   isLoading,
+  conversations,
+  activeConversationId,
+  isConversationLoading,
+  onNewChat,
+  onSelectConversation,
+  onRenameConversation,
+  onDeleteConversation,
   roadmap,
   onUpdateRoadmap,
   isRoadmapUpdating,
@@ -102,7 +120,6 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   curriculum,
   specializationIds
 }) => {
-  const currentCourseToDrop = roadmap.find((sem) => sem.status === 'in-progress')?.courses[0]?.code;
   const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
 
   useEffect(() => {
@@ -111,6 +128,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
     }
   }, [initialTab]);
   const [inputText, setInputText] = useState('');
+  // Chat history sidebar: open by default on wide screens, tucked away on phones
+  const [isHistoryOpen, setIsHistoryOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
+  const closeHistoryOnPhone = () => {
+    if (window.innerWidth < 768) setIsHistoryOpen(false);
+  };
   const [roadmapPrompt, setRoadmapPrompt] = useState('');
   // Open the year the student is in now
   const [expandedYear, setExpandedYear] = useState<number>(
@@ -425,7 +447,48 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
         {/* TAB 1: ADVISING CHAT */}
         {activeTab === 'chat' && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-white">
+          <div className="flex-1 flex overflow-hidden relative">
+          {isHistoryOpen && (
+            <ChatHistorySidebar
+              conversations={conversations}
+              activeConversationId={activeConversationId}
+              disabled={isLoading || isRoadmapUpdating}
+              onNewChat={() => {
+                onNewChat();
+                closeHistoryOnPhone();
+              }}
+              onSelect={(id) => {
+                onSelectConversation(id);
+                closeHistoryOnPhone();
+              }}
+              onRename={onRenameConversation}
+              onDelete={onDeleteConversation}
+              onCollapse={() => setIsHistoryOpen(false)}
+            />
+          )}
+          <div className="flex-1 flex flex-col overflow-hidden bg-white min-w-0">
+            {!isHistoryOpen && (
+              <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsHistoryOpen(true)}
+                  className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Show chat history"
+                  aria-label="Show chat history"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+                <span className="text-sm font-semibold text-gray-800 truncate">
+                  {conversations.find((c) => c.id === activeConversationId)?.title ?? 'New chat'}
+                </span>
+                <button
+                  onClick={onNewChat}
+                  disabled={isLoading || isRoadmapUpdating}
+                  className="ml-auto flex items-center gap-1 text-xs font-semibold text-[#ba0c2f] hover:bg-red-50 disabled:text-gray-400 px-2 py-1 rounded"
+                >
+                  <Plus className="w-3.5 h-3.5" /> New chat
+                </button>
+              </div>
+            )}
             {/* Active Hold Alert Banner */}
             {profile.holds.length > 0 && (
             <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between text-xs sm:text-sm text-red-900 shrink-0">
@@ -446,6 +509,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
             {/* Chat Messages Stream */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-[#f8fafc]">
+              {isConversationLoading && (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Loading chat…
+                </div>
+              )}
               {messages.map((msg, idx) => (
                 <div
                   key={msg.id}
@@ -563,84 +631,26 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             <div className="px-6 py-2.5 bg-gray-50 border-t border-gray-200 flex items-center space-x-2 overflow-x-auto text-xs shrink-0">
               <span className="font-semibold text-gray-500 shrink-0">Common Inquiries:</span>
               <button
-                onClick={() => setActiveTab('studyAccess')}
-                className="bg-red-50 border border-red-300 hover:bg-red-100 text-red-950 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
-                title="Request Evening & Weekend Academic Building Access on your BuckID"
+                onClick={() => onSendMessage('Build my 4-year degree plan')}
+                disabled={isLoading || isRoadmapUpdating || isConversationLoading}
+                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] disabled:opacity-50 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-medium"
               >
-                <CreditCard className="w-3.5 h-3.5 text-[#ba0c2f]" />
-                <span>After-Hours Study Access (BuckID)</span>
+                <BookOpen className="w-3.5 h-3.5 text-gray-500" />
+                <span>Build my 4-year degree plan</span>
               </button>
               <button
-                onClick={() => onSendMessage('How do I request evening and weekend after-hours study access to Mason Hall or Dreese Lab on my BuckID?')}
+                onClick={() => setActiveTab('whatif')}
+                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-medium"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-gray-500" />
+                <span>I want to pick up a minor</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('studyAccess')}
                 className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-medium"
               >
                 <Building2 className="w-3.5 h-3.5 text-gray-500" />
-                <span>Building Lock Hours &amp; BuckID Entry</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('seatAlerts')}
-                className="bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-950 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
-                title="View Live Waitlist & Instant Seat Drop Alerts"
-              >
-                <BellRing className="w-3.5 h-3.5 text-emerald-700 animate-pulse" />
-                <span>Instant Seat Drop Alerts</span>
-              </button>
-              {currentCourseToDrop && (
-              <button
-                onClick={() => onSendMessage(`I want to make the real choice to drop ${currentCourseToDrop} right now.`)}
-                className="bg-red-50 border border-red-300 hover:bg-red-100 text-red-900 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
-                title="Test High-Stakes Class Drop Warning & Advisor Escalation"
-              >
-                <AlertCircle className="w-3.5 h-3.5 text-red-700" />
-                <span>Drop {currentCourseToDrop} (Real Choice)</span>
-              </button>
-              )}
-              <button
-                onClick={() => onSendMessage('I want the AI to declare the Computer Science (CSE) Minor as my real choice.')}
-                className="bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
-                title="Test High-Stakes Minor Declaration & Advisor Escalation"
-              >
-                <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
-                <span>Pick Up CSE Minor (Real Choice)</span>
-              </button>
-              <button
-                onClick={() => onSendMessage("What are student evaluations and recommendations for Marc Smith's accounting class? Is it a lot of work?")}
-                className="bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1 font-semibold"
-                title="View Marc Smith Course Evaluations & Workload Recommendations"
-              >
-                <Star className="w-3.5 h-3.5 text-amber-600 fill-amber-400" />
-                <span>Marc Smith Evaluations &amp; Workload</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('rmp')}
-                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors flex items-center space-x-1"
-              >
-                <Clock className="w-3.5 h-3.5 text-gray-500" />
-                <span>Faculty Workload Directory</span>
-              </button>
-              <button
-                onClick={() => onSendMessage('How do I find and clear a hold on my account?')}
-                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors"
-              >
-                Clear a Hold
-              </button>
-              <button
-                onClick={() => setActiveTab('roadmap')}
-                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors"
-              >
-                View 4-Year Plan
-              </button>
-              <button
-                onClick={() => onSendMessage('Can I take CSE 2231 and ACCTMIS 2300 together next semester?')}
-                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors"
-              >
-                Audit CSE 2231 & ACCTMIS 2300
-              </button>
-              <button
-                onClick={() => setActiveTab('advisor')}
-                className="bg-white border border-gray-300 hover:border-[#ba0c2f] hover:text-[#ba0c2f] px-3 py-1.5 rounded whitespace-nowrap transition-colors"
-              >
-                Advisor Availability
+                <span>Request access to a building</span>
               </button>
             </div>
 
@@ -651,7 +661,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder="Ask about prerequisites, holds, degree audits, or faculty..."
-                disabled={isLoading}
+                disabled={isLoading || isConversationLoading}
                 className="flex-1 text-xs sm:text-sm px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#ba0c2f] focus:border-transparent"
               />
               <button
@@ -663,6 +673,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 <Send className="w-4 h-4" />
               </button>
             </form>
+          </div>
           </div>
         )}
 

@@ -88,6 +88,8 @@ advisors see all and decide) and advisor blocked-off times in `advisor_closed_sl
 
 ## Chat log
 
-Each student's BuckAI conversation is saved in `chat_messages` (RLS: students read, add and
-clear only their own; advisors can't see chats). The app reloads the last 200 messages and
-saves each finished message; temporary placeholders (`pending`) aren't saved.
+Students keep separate chats, like ChatGPT/Claude: `chat_conversations` is the list shown in
+the chat tab's sidebar, and each row in `chat_messages` belongs to one (RLS: students read, add,
+rename and delete only their own; advisors can't see chats). A new chat isn't saved until its
+first message; a trigger names it after the first question and bumps `updated_at`. Opening a
+chat reloads its last 200 messages; temporary placeholders (`pending`) aren't saved.

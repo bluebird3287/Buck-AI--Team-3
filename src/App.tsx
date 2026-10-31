@@ -14,7 +14,15 @@ import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
 import { PlanTerms, activePlanTerms, defaultPlanTerms, normalizeSemesters, parseTerm } from './lib/studentProfile';
 import { TermPlanModal } from './components/TermPlanModal';
-import { loadChatLog, saveChatMessage } from './lib/chatLog';
+import {
+  ChatConversation,
+  createConversation,
+  deleteConversation,
+  listConversations,
+  loadChatLog,
+  renameConversation,
+  saveChatMessage,
+} from './lib/chatLog';
 import { Curriculum, auditDegree, catalogCredits, describeAudit, guessSpecializations, planGaps } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
@@ -78,25 +86,76 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   const requirementsSummary = audit ? describeAudit(audit) : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
 
-  // Chat log: show the student's earlier conversation, then save each new message once it's final.
-  const savedIds = useRef(new Set<string>(['msg-1']));
-  const historyLoaded = useRef(false);
+  // Chat history, like ChatGPT/Claude: the sidebar lists past chats, and the open chat saves
+  // each message once it's final. A new chat isn't saved until its first message.
+  const [conversations, setConversations] = useState<ChatConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isConversationLoading, setIsConversationLoading] = useState<boolean>(false);
+  const savedIds = useRef(new Set<string>(['msg-1'])); // the greeting is never saved
+  const conversationRef = useRef<Promise<string | null> | null>(null); // the open chat's id, once it exists
+  const chatSession = useRef(0); // bumps on every switch, so a late result can't land in another chat
+  const refreshConversations = () => listConversations().then(setConversations);
   useEffect(() => {
-    loadChatLog().then((history) => {
-      history.forEach((m) => savedIds.current.add(m.id));
-      historyLoaded.current = true;
-      // Always set state, so anything sent before history arrived gets saved too
-      setMessages((prev) => [...history, ...prev]);
-    });
+    void refreshConversations();
   }, []);
-  useEffect(() => {
-    if (!historyLoaded.current) return;
-    for (const m of messages) {
-      if (m.pending || savedIds.current.has(m.id)) continue;
-      savedIds.current.add(m.id);
-      void saveChatMessage(m);
+
+  const ensureConversation = () => {
+    if (!conversationRef.current) {
+      const session = chatSession.current;
+      conversationRef.current = createConversation().then((id) => {
+        if (id && session === chatSession.current) setActiveConversationId(id);
+        return id;
+      });
     }
-  }, [messages]);
+    return conversationRef.current;
+  };
+
+  useEffect(() => {
+    if (isConversationLoading) return;
+    const unsaved = messages.filter((m) => !m.pending && !savedIds.current.has(m.id));
+    if (!unsaved.length) return;
+    unsaved.forEach((m) => savedIds.current.add(m.id));
+    void (async () => {
+      const id = await ensureConversation();
+      if (!id) return;
+      for (const m of unsaved) await saveChatMessage(id, m); // one at a time, to keep their order
+      await refreshConversations();
+    })();
+  }, [messages, isConversationLoading]);
+
+  const handleNewChat = () => {
+    chatSession.current++;
+    conversationRef.current = null;
+    setActiveConversationId(null);
+    setIsConversationLoading(false);
+    setMessages([greetingFor(profile, roadmap)]);
+  };
+
+  const handleSelectConversation = async (id: string) => {
+    if (id === activeConversationId) return;
+    const session = ++chatSession.current;
+    conversationRef.current = Promise.resolve(id);
+    setActiveConversationId(id);
+    setIsConversationLoading(true);
+    setMessages([]);
+    const history = await loadChatLog(id);
+    if (session !== chatSession.current) return;
+    history.forEach((m) => savedIds.current.add(m.id));
+    setMessages(history);
+    setIsConversationLoading(false);
+  };
+
+  const handleRenameConversation = async (id: string, title: string) => {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+    await renameConversation(id, title);
+  };
+
+  const handleDeleteConversation = async (id: string) => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeConversationId) handleNewChat();
+    await deleteConversation(id);
+    await refreshConversations();
+  };
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [isRoadmapUpdating, setIsRoadmapUpdating] = useState<boolean>(false);
   const [roadmapStage, setRoadmapStage] = useState<string>('');
@@ -590,6 +649,13 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         messages={messages}
         onSendMessage={handleSendMessage}
         isLoading={isChatLoading}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        isConversationLoading={isConversationLoading}
+        onNewChat={handleNewChat}
+        onSelectConversation={handleSelectConversation}
+        onRenameConversation={handleRenameConversation}
+        onDeleteConversation={handleDeleteConversation}
         roadmap={roadmap}
         onUpdateRoadmap={handleUpdateRoadmap}
         isRoadmapUpdating={isRoadmapUpdating}
