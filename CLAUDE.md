@@ -115,6 +115,16 @@ concentrations; ISE: five tracks; Aviation: non-flight/flight). Each student pic
   faculty member must verify are `manual` groups.
 - Not covered yet: the Knowlton School's degrees (Architecture, CRP, Landscape Architecture).
 
+## After-hours building access
+
+The BuckID office issues cards but doesn't grant door access; the department or college that runs
+a building does. `src/lib/buildingAccess.ts` maps every building in the After-Hours Study Access tab
+to that office (contacts from official OSU pages, each with `sourceUrl`; `verified: false` means a
+college fallback, shown as "Confirm with office"; unmapped buildings fall back to FOD card access).
+BuckAI writes the request email and the student sends it from their own OSU email (Outlook web,
+mail app, or copy). `building_access_requests` tracks each request (RLS: students see, update and
+delete only their own). Never put the 19-digit BuckID number in an email (OSU restricted data).
+
 ## Advising requests
 
 Student requests to advisors live in `advising_requests` (RLS: students see their own,

@@ -119,6 +119,7 @@ Key OSU Context:
   - LIBRARIES: Every Ohio State student already has automatic 24/7 access to 18th Avenue Library and open access to Thompson Library on their BuckID. No request is needed for libraries!
   - ACADEMIC BUILDINGS: Students can request evening and weekend access to study spaces in academic buildings (Mason Hall, Dreese Laboratories, Caldwell Lab, Enarson Classroom Building, etc.).
   - CRITICAL POLICY: All approved building access is encoded directly onto the student's BuckID card (simple tap at exterior door readers during authorized evening and weekend hours).
+  - WHO GRANTS IT: The BuckID office doesn't grant door access; the department or college that runs the building does (its building manager or coordinator). The After-Hours Study Access tab names that office for each building and writes the request email, which the student sends from their own OSU email. Never ask for or repeat the 19-digit BuckID number (Ohio State restricted data).
   - Keep explanations dead simple, helpful, and non-bureaucratic: explain lock hours, remind them libraries are already free/open, state that approved access goes straight to their BuckID, and guide them to the After-Hours Study Access tab.
 
 Output Format:

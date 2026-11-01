@@ -14,6 +14,13 @@ interface MinorAuditViewProps {
   onDeclare: (prompt: string) => void;
 }
 
+// Minors are listed in one section per college; any other college's minors go last
+const MINOR_SECTIONS: { title: string; subtitle: string; college: string | null }[] = [
+  { title: 'Business minors', subtitle: 'Fisher College of Business', college: 'Fisher College of Business' },
+  { title: 'Engineering minors', subtitle: 'College of Engineering', college: 'College of Engineering' },
+  { title: 'Other minors', subtitle: 'Other colleges', college: null },
+];
+
 // What-if audit for every minor BuckAI tracks (Fisher and College of Engineering), checked against the classes the student entered.
 export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   curriculum,
@@ -61,8 +68,18 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
         </p>
       </div>
 
+      {MINOR_SECTIONS.map((section) => {
+        const inSection = minors.filter(({ minor: m }) =>
+          section.college ? m.college === section.college : !MINOR_SECTIONS.some((s) => s.college === m.college),
+        );
+        if (inSection.length === 0) return null;
+        return (
+      <div key={section.title} className="space-y-2">
+      <h4 className="text-sm font-bold text-gray-900">
+        {section.title} <span className="font-normal text-gray-500">· {section.subtitle} · {inSection.length}</span>
+      </h4>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {minors.map(({ minor: m, result: r }) => {
+        {inSection.map(({ minor: m, result: r }) => {
           const p = Math.min(100, Math.round((r.creditsCounted / r.creditsRequired) * 100));
           const isSelected = m.id === minor.id;
           return (
@@ -92,6 +109,9 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
           );
         })}
       </div>
+      </div>
+        );
+      })}
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">

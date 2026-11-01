@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Clock,
@@ -13,9 +13,25 @@ import {
   MapPin,
   ChevronRight,
   Filter,
-  Sparkles
+  Sparkles,
+  Mail,
+  Copy,
+  ExternalLink,
+  ShieldCheck
 } from 'lucide-react';
 import { StudentProfile } from '../data/sampleData';
+import {
+  AccessEmail,
+  AccessRequestRow,
+  buildAccessEmail,
+  deleteAccessRequest,
+  listAccessRequests,
+  mailtoLink,
+  officeForBuilding,
+  outlookLink,
+  saveAccessRequest,
+  setAccessRequestStatus,
+} from '../lib/buildingAccess';
 
 export interface CampusBuilding {
   id: string;
@@ -891,8 +907,8 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
   // Simple view switcher: 'request' | 'my-access' | 'all-buildings'
   const [activeTab, setActiveTab] = useState<'request' | 'my-access' | 'all-buildings'>('request');
 
-  // Active BuckID access passes
-  const [myAccess, setMyAccess] = useState<UserAccessItem[]>([
+  // Libraries every student can already enter
+  const libraryAccess: UserAccessItem[] = [
     {
       id: 'acc-1',
       buildingName: '18th Avenue Library',
@@ -910,39 +926,42 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
       term: 'Automatic for All Students',
       status: 'active',
       notes: 'Your BuckID always works here during open hours.'
-    },
-    {
-      id: 'acc-3',
-      buildingName: 'Mason Hall (Fisher College)',
-      code: 'MH',
-      hours: 'Every night 7:00 PM – 2:00 AM',
-      term: 'Autumn 2026 Semester',
-      status: 'active',
-      notes: 'Active on your BuckID for computer labs and study rooms.'
     }
-  ]);
+  ];
 
-  // Pending requests waiting for approval
-  const [pendingRequests, setPendingRequests] = useState<UserAccessItem[]>([
-    {
-      id: 'req-1',
-      buildingName: 'Dreese Laboratories',
-      code: 'DL',
-      hours: 'Saturdays & Sundays (9:00 AM – 10:00 PM)',
-      term: 'Autumn 2026 Semester',
-      status: 'waiting',
-      notes: 'Sent to the Computer Science department. Usually approved within 1 business day.'
-    }
-  ]);
+  // The student's saved requests, emailed to the office that grants access
+  const [requests, setRequests] = useState<AccessRequestRow[]>([]);
+  useEffect(() => {
+    listAccessRequests().then(setRequests);
+  }, []);
+  const codeFor = (buildingId: string) => ALL_CAMPUS_BUILDINGS.find((b) => b.id === buildingId)?.code ?? '';
+  const myAccess: UserAccessItem[] = [
+    ...libraryAccess,
+    ...requests
+      .filter((r) => r.status === 'granted')
+      .map((r) => ({
+        id: r.id,
+        buildingName: r.building_name,
+        code: codeFor(r.building_id),
+        hours: r.hours,
+        term: r.term,
+        status: 'active' as const,
+        notes: `Granted by ${r.office_name}.`
+      }))
+  ];
+  const pendingRequests = requests.filter((r) => r.status === 'emailed');
 
   // Request form state
   const [selectedBuildingId, setSelectedBuildingId] = useState<string>('dreese');
   const [formFilterQuery, setFormFilterQuery] = useState<string>('');
   const [formCategoryFilter, setFormCategoryFilter] = useState<string>('All');
-  const [selectedTimeOption, setSelectedTimeOption] = useState<string>('Evenings (Locks until 1:00 AM)');
+  const [selectedTimeOption, setSelectedTimeOption] = useState<string>('Evenings (Tonight & weeknights after building locks)');
   const [selectedDuration, setSelectedDuration] = useState<string>('The whole semester');
   const [selectedReason, setSelectedReason] = useState<string>('Studying for exams');
-  const [requestSentSuccess, setRequestSentSuccess] = useState<string | null>(null);
+  // The email for the request just saved, so the student can send it from their OSU account
+  const [sentEmail, setSentEmail] = useState<{ buildingName: string; email: AccessEmail; saved: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Search & filter state for building directory tab
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -960,7 +979,9 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
     return matchesText && matchesCategory;
   });
 
-  const handleSendRequest = (e: React.FormEvent) => {
+  const selectedOffice = officeForBuilding(selectedBuildingObj.id);
+
+  const handleSendRequest = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (selectedBuildingObj.isLibrary) {
@@ -968,27 +989,54 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
       return;
     }
 
-    const newReq: UserAccessItem = {
-      id: `req-${Date.now()}`,
+    const email = buildAccessEmail({
+      office: selectedOffice,
       buildingName: selectedBuildingObj.name,
-      code: selectedBuildingObj.code,
       hours: selectedTimeOption,
       term: selectedDuration,
-      status: 'waiting',
-      notes: `Sent to ${selectedBuildingObj.category} building staff for approval.`
-    };
+      reason: selectedReason,
+      studentName: profile.name,
+      nameDotNum: profile.nameDotNum.split('@')[0],
+      email: profile.nameDotNum.includes('@') ? profile.nameDotNum : `${profile.nameDotNum}@osu.edu`,
+      rank: profile.rank,
+      major: profile.major
+    });
 
-    setPendingRequests((prev) => [newReq, ...prev]);
-    setRequestSentSuccess(selectedBuildingObj.name);
-
-    setTimeout(() => {
-      setActiveTab('my-access');
-      setRequestSentSuccess(null);
-    }, 1500);
+    setIsSaving(true);
+    const saved = await saveAccessRequest({
+      building_id: selectedBuildingObj.id,
+      building_name: selectedBuildingObj.name,
+      office_name: selectedOffice.name,
+      office_email: selectedOffice.email,
+      hours: selectedTimeOption,
+      term: selectedDuration,
+      reason: selectedReason
+    });
+    setIsSaving(false);
+    if (saved) setRequests((prev) => [saved, ...prev]);
+    setCopied(false);
+    setSentEmail({ buildingName: selectedBuildingObj.name, email, saved: Boolean(saved) });
   };
 
-  const handleCancelRequest = (reqId: string) => {
-    setPendingRequests((prev) => prev.filter((r) => r.id !== reqId));
+  const handleCopyEmail = async () => {
+    if (!sentEmail) return;
+    const { to, subject, body } = sentEmail.email;
+    try {
+      await navigator.clipboard.writeText(`To: ${to}\nSubject: ${subject}\n\n${body}`);
+      setCopied(true);
+    } catch {
+      alert(`Couldn't copy. Email ${to} with the subject "${subject}".`);
+    }
+  };
+
+  const handleCancelRequest = async (reqId: string) => {
+    if (await deleteAccessRequest(reqId)) setRequests((prev) => prev.filter((r) => r.id !== reqId));
+  };
+
+  const handleMarkGranted = async (reqId: string) => {
+    if (await setAccessRequestStatus(reqId, 'granted')) {
+      setRequests((prev) => prev.map((r) => (r.id === reqId ? { ...r, status: 'granted' } : r)));
+    }
   };
 
   // Filtered building list for the directory tab
@@ -1099,12 +1147,55 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
       {/* TAB 1: SIMPLE REQUEST ACCESS FORM */}
       {activeTab === 'request' && (
         <div className="bg-white rounded-b-xl border border-gray-200 p-5 sm:p-6 shadow-xs space-y-5">
-          {requestSentSuccess && (
-            <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs flex items-center space-x-2 animate-in fade-in">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <div>
-                <strong>Request sent for {requestSentSuccess}!</strong> We routed it to the building staff. Taking you to your tracking list...
+          {sentEmail && (
+            <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs space-y-3 animate-in fade-in">
+              <div className="flex items-start space-x-2">
+                <Mail className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <strong>Last step: send your request for {sentEmail.buildingName}.</strong> Your email to{' '}
+                  <strong>{sentEmail.email.to}</strong> is written. Send it from your Ohio State email so the office can
+                  confirm it&apos;s you.{' '}
+                  {sentEmail.saved
+                    ? 'We saved the request in My BuckID Access so you can track it.'
+                    : "We couldn't save it for tracking right now, but you can still send the email."}
+                </div>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={outlookLink(sentEmail.email)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white font-bold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open in Outlook (OSU email)</span>
+                </a>
+                <a
+                  href={mailtoLink(sentEmail.email)}
+                  className="bg-white border border-emerald-300 hover:border-emerald-500 text-emerald-900 font-semibold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Open in my email app</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyEmail}
+                  className="bg-white border border-emerald-300 hover:border-emerald-500 text-emerald-900 font-semibold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Copied' : 'Copy the email'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSentEmail(null)}
+                  className="text-emerald-800 hover:underline px-2 py-2"
+                >
+                  Done
+                </button>
+              </div>
+              <p className="text-[11px] text-emerald-800">
+                Never email your 19-digit BuckID number; Ohio State treats it as restricted data. Your name.# and OSU email are enough.
+              </p>
             </div>
           )}
 
@@ -1195,9 +1286,37 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                 <p className="text-gray-500 text-[11px] pt-0.5">
                   {selectedBuildingObj.notes}
                 </p>
-                {selectedBuildingObj.isLibrary && (
+                {selectedBuildingObj.isLibrary ? (
                   <div className="mt-1 text-emerald-700 font-bold text-[11px]">
                     ✓ You already have automatic access to this library! No request is needed.
+                  </div>
+                ) : (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#ba0c2f]" />
+                      <strong>Who grants access:</strong>
+                      <span>{selectedOffice.name}</span>
+                      {!selectedOffice.verified && (
+                        <span className="bg-amber-100 text-amber-900 font-semibold px-1.5 py-0.5 rounded">Confirm with office</span>
+                      )}
+                    </div>
+                    <div className="text-gray-600">
+                      {selectedOffice.email}
+                      {selectedOffice.phone && <> • {selectedOffice.phone}</>}
+                      {selectedOffice.location && <> • {selectedOffice.location}</>} •{' '}
+                      <a href={selectedOffice.sourceUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">
+                        Source
+                      </a>
+                      {selectedOffice.formUrl && (
+                        <>
+                          {' '}•{' '}
+                          <a href={selectedOffice.formUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">
+                            Department form
+                          </a>
+                        </>
+                      )}
+                    </div>
+                    {selectedOffice.note && <div className="text-gray-500">{selectedOffice.note}</div>}
                   </div>
                 )}
               </div>
@@ -1262,14 +1381,14 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
             {/* Submit Button */}
             <div className="pt-2 flex items-center justify-between border-t border-gray-100">
               <span className="text-xs text-gray-500">
-                Access is assigned directly to your <strong>BuckID</strong>.
+                We write the email; you send it to the office from your <strong>OSU email</strong>.
               </span>
               <button
                 type="submit"
-                disabled={selectedBuildingObj.isLibrary}
+                disabled={selectedBuildingObj.isLibrary || isSaving}
                 className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow-xs transition-all flex items-center space-x-2 disabled:opacity-50 cursor-pointer"
               >
-                <span>Send Request</span>
+                <span>{isSaving ? 'Saving…' : 'Write My Request Email'}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
@@ -1326,7 +1445,7 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                   <span>Requests waiting for approval ({pendingRequests.length})</span>
                 </h3>
                 <p className="text-xs text-gray-500">
-                  The building staff is reviewing your request.
+                  Emailed to the office that grants access. Mark a request granted once the office confirms and your BuckID works.
                 </p>
               </div>
               {pendingRequests.length > 0 && (
@@ -1346,17 +1465,26 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                   <div key={req.id} className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <div className="font-bold text-gray-900 text-sm flex items-center space-x-1.5">
-                        <span>{req.buildingName}</span>
-                        <span className="text-[10px] font-mono text-gray-500">({req.code})</span>
+                        <span>{req.building_name}</span>
+                        <span className="text-[10px] font-mono text-gray-500">({codeFor(req.building_id)})</span>
                       </div>
                       <div className="text-gray-700 font-medium">{req.hours}</div>
-                      <div className="text-[11px] text-gray-500">{req.notes}</div>
+                      <div className="text-[11px] text-gray-500">
+                        Emailed to {req.office_name} ({req.office_email}) on {new Date(req.created_at).toLocaleDateString()}.
+                      </div>
                     </div>
 
                     <div className="flex items-center space-x-2 shrink-0">
                       <span className="text-[11px] text-amber-800 bg-amber-100 font-semibold px-2.5 py-1 rounded-lg">
-                        Waiting on Department
+                        Waiting on Office
                       </span>
+                      <button
+                        onClick={() => handleMarkGranted(req.id)}
+                        className="text-[11px] text-emerald-800 bg-emerald-100 hover:bg-emerald-200 font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                        title="The office gave you access"
+                      >
+                        Access granted
+                      </button>
                       <button
                         onClick={() => handleCancelRequest(req.id)}
                         className="text-gray-400 hover:text-red-600 p-1 rounded transition-colors text-xs"
