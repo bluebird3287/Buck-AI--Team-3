@@ -315,7 +315,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
       <div className="bg-white w-full h-full flex flex-col overflow-hidden">
         
         {/* Top Header Bar matching BuckeyeLink institutional styling */}
-        <div className="bg-[#ba0c2f] text-white px-6 py-4 flex items-center justify-between shrink-0">
+        <div className="bl-portal-header bg-[#ba0c2f] text-white px-6 py-4 flex items-center justify-between shrink-0">
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-lg sm:text-xl font-bold tracking-tight">BuckeyeLink Academic Advising Portal</h2>
@@ -338,13 +338,13 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         </div>
 
         {/* Cohesive Navigation Tabs */}
-        <div className="bg-white border-b border-gray-200 px-6 flex space-x-1 shrink-0 overflow-x-auto">
+        <div className="bl-tabbar bg-[#2b2f36] border-b border-[#1c1f24] px-6 flex space-x-1 shrink-0 overflow-x-auto">
           <button
             onClick={() => setActiveTab('chat')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'chat'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <MessageSquare className="w-4 h-4" />
@@ -355,8 +355,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('roadmap')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'roadmap'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <BookOpen className="w-4 h-4" />
@@ -367,8 +367,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('requirements')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'requirements'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />
@@ -379,8 +379,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('whatif')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'whatif'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <Sparkles className="w-4 h-4" />
@@ -391,8 +391,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('rmp')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'rmp'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <Star className="w-4 h-4" />
@@ -403,8 +403,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('advisor')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors relative whitespace-nowrap ${
               activeTab === 'advisor'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
             <Calendar className="w-4 h-4" />
@@ -418,11 +418,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('seatAlerts')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors relative whitespace-nowrap ${
               activeTab === 'seatAlerts'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
-            <BellRing className="w-4 h-4 text-[#ba0c2f]" />
+            <BellRing className="w-4 h-4 text-[#ff6b81]" />
             <span>Waitlist &amp; Seat Alerts</span>
             <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
               1 OPEN
@@ -433,11 +433,11 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             onClick={() => setActiveTab('studyAccess')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors relative whitespace-nowrap ${
               activeTab === 'studyAccess'
-                ? 'border-[#ba0c2f] text-[#ba0c2f] font-semibold bg-white'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
             }`}
           >
-            <Building2 className="w-4 h-4 text-[#ba0c2f]" />
+            <Building2 className="w-4 h-4 text-[#ff6b81]" />
             <span>After-Hours Study Access</span>
             <span className="bg-[#ba0c2f] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
               BUCKID
