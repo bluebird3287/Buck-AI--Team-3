@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import fisherData from '../data/fisherFaculty.json';
+import engineeringData from '../data/engineeringFaculty.json';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 // Rate My Professors search for an instructor at Ohio State (school 724). RMP doesn't publish
@@ -46,11 +47,35 @@ interface ReviewSummary {
   wouldTakeAgainPercent: number;
 }
 
-const FACULTY: Faculty[] = fisherData.faculty;
-const COURSES: Course[] = fisherData.courses;
-const facultyById = new Map(FACULTY.map((f) => [f.id, f]));
-const courseById = new Map(COURSES.map((c) => [c.id, c]));
-const DEPARTMENTS = [...new Set(COURSES.map((c) => c.department))].sort();
+// One tab per college; each has its own instructors and courses (scripts/build-fisher-data.mjs)
+type CollegeId = 'fisher' | 'engineering';
+type CollegeData = typeof fisherData;
+
+function indexCollege(label: string, short: string, example: string, data: CollegeData) {
+  const faculty: Faculty[] = data.faculty;
+  const courses: Course[] = data.courses;
+  return {
+    label,
+    short,
+    example,
+    data,
+    faculty,
+    courses,
+    facultyById: new Map(faculty.map((f) => [f.id, f])),
+    courseById: new Map(courses.map((c) => [c.id, c])),
+    departments: [...new Set(courses.map((c) => c.department))].sort(),
+  };
+}
+type CollegeIndex = ReturnType<typeof indexCollege>;
+
+const COLLEGES: Record<CollegeId, CollegeIndex> = {
+  fisher: indexCollege('Fisher College of Business', 'Fisher', 'BUSFIN 3220', fisherData),
+  engineering: indexCollege('College of Engineering', 'Engineering', 'CSE 2221', engineeringData as unknown as CollegeData),
+};
+const COLLEGE_IDS = Object.keys(COLLEGES) as CollegeId[];
+// Instructor names across colleges, for tips and confirmations
+const instructorName = (id: string) =>
+  COLLEGE_IDS.map((c) => COLLEGES[c].facultyById.get(id)?.name).find(Boolean) ?? '';
 const PAGE_SIZE = 20;
 
 const HOURS_OPTIONS = [
@@ -166,7 +191,7 @@ const TipList: React.FC<{ reviews: FacultyReview[]; showInstructor?: boolean }> 
           “{r.tip}”
           <div className="text-[11px] text-neutral-500 mt-1">
             {r.courseId}
-            {showInstructor && ` · ${facultyById.get(r.facultyId)?.name ?? ''}`} · {r.term}
+            {showInstructor && ` · ${instructorName(r.facultyId)}`} · {r.term}
             {r.grade && ` · Grade: ${r.grade}`}
           </div>
         </div>
@@ -204,10 +229,12 @@ interface ReviewTarget {
 }
 
 const ReviewForm: React.FC<{
+  college: CollegeIndex;
   target: ReviewTarget;
   onClose: () => void;
   onSaved: (review: FacultyReview) => void;
-}> = ({ target, onClose, onSaved }) => {
+}> = ({ college, target, onClose, onSaved }) => {
+  const { facultyById, courseById } = college;
   const [facultyId, setFacultyId] = useState(target.facultyId ?? '');
   const [courseId, setCourseId] = useState(target.courseId ?? '');
   const [term, setTerm] = useState('');
@@ -225,7 +252,7 @@ const ReviewForm: React.FC<{
     ? (courseById.get(target.courseId)?.instructorIds ?? []).map((id) => facultyById.get(id)!).filter(Boolean)
     : [];
   const courseOptions = target.facultyId ? facultyById.get(target.facultyId)?.courseIds ?? [] : [];
-  const instructorName = facultyById.get(facultyId)?.name;
+  const chosenInstructor = facultyById.get(facultyId)?.name;
 
   const canSubmit =
     facultyId && courseId && term && overall && difficulty && hoursPerWeek !== null && wouldTakeAgain !== null && attested && !isSaving;
@@ -269,9 +296,9 @@ const ReviewForm: React.FC<{
       <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col border border-gray-200">
         <div className="bg-[#ba0c2f] text-white p-4 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-bold text-base">Rate a Fisher course</h2>
+            <h2 className="font-bold text-base">Rate {college.short === 'Fisher' ? 'a Fisher' : 'an Engineering'} course</h2>
             <p className="text-xs text-white/80">
-              {instructorName ?? 'Choose an instructor'}
+              {chosenInstructor ?? 'Choose an instructor'}
               {courseId && ` · ${courseId}`}
             </p>
           </div>
@@ -408,6 +435,9 @@ export const FacultyEvaluationsView: React.FC = () => {
   const [mode, setMode] = useState<'faculty' | 'courses'>('faculty');
   const [query, setQuery] = useState('');
   const [department, setDepartment] = useState('All');
+  const [collegeId, setCollegeId] = useState<CollegeId>('fisher');
+  const college = COLLEGES[collegeId];
+  const { faculty: FACULTY, courses: COURSES, facultyById, courseById, departments: DEPARTMENTS } = college;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<FacultyReview[]>([]);
@@ -434,7 +464,7 @@ export const FacultyEvaluationsView: React.FC = () => {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     setExpandedId(null);
-  }, [mode, query, department]);
+  }, [mode, query, department, collegeId]);
 
   const reviewsByFaculty = useMemo(() => groupBy(reviews, (r) => r.facultyId), [reviews]);
   const reviewsByCourse = useMemo(() => groupBy(reviews, (r) => r.courseId), [reviews]);
@@ -450,7 +480,7 @@ export const FacultyEvaluationsView: React.FC = () => {
           f.courseIds.some((id) => id.toLowerCase().includes(needle) || courseById.get(id)?.title.toLowerCase().includes(needle))
         );
       }),
-    [needle, department]
+    [needle, department, college]
   );
   const filteredCourses = useMemo(
     () =>
@@ -463,31 +493,47 @@ export const FacultyEvaluationsView: React.FC = () => {
           c.instructorIds.some((id) => facultyById.get(id)?.name.toLowerCase().includes(needle))
         );
       }),
-    [needle, department]
+    [needle, department, college]
   );
 
   const results = mode === 'faculty' ? filteredFaculty : filteredCourses;
-  const generatedDate = new Date(fisherData.generatedAt).toLocaleDateString('en-US', { dateStyle: 'medium' });
+  const generatedDate = new Date(college.data.generatedAt).toLocaleDateString('en-US', { dateStyle: 'medium' });
 
   const handleSaved = (review: FacultyReview) => {
     setReviews((prev) => [...prev, review]);
     setReviewTarget(null);
-    setSavedMessage(`Thanks! Your review of ${review.courseId} with ${facultyById.get(review.facultyId)?.name} was saved.`);
+    setSavedMessage(`Thanks! Your review of ${review.courseId} with ${instructorName(review.facultyId)} was saved.`);
   };
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-[#fcfcfb]">
       <div className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-        <h3 className="text-base font-bold text-neutral-900">Fisher Faculty &amp; Course Evaluations</h3>
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {COLLEGE_IDS.map((id) => (
+            <button
+              key={id}
+              onClick={() => {
+                setCollegeId(id);
+                setDepartment('All');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                collegeId === id ? 'bg-[#ba0c2f] text-white border-[#ba0c2f]' : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#ba0c2f]'
+              }`}
+            >
+              {COLLEGES[id].label} ({COLLEGES[id].faculty.length})
+            </button>
+          ))}
+        </div>
+        <h3 className="text-base font-bold text-neutral-900">{college.short} Faculty &amp; Course Evaluations</h3>
         <p className="text-xs text-neutral-600">
-          Every undergraduate Fisher course and instructor for {fisherData.terms.join(' and ')} ({FACULTY.length} instructors, {COURSES.length} courses).
+          Every undergraduate {college.label} course and instructor for {college.data.terms.join(' and ')} ({FACULTY.length} instructors, {COURSES.length} courses).
           Ratings, workload and tips come only from students who reviewed the class here.
         </p>
         <div className="flex items-start gap-1.5 text-[11px] text-neutral-500">
           <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
           <span>
             Course and instructor data from{' '}
-            {fisherData.sources.map((s, i) => (
+            {college.data.sources.map((s, i) => (
               <React.Fragment key={s.url}>
                 {i > 0 && ' and '}
                 <a href={s.url} target="_blank" rel="noreferrer" className="underline hover:text-[#ba0c2f]">{s.name}</a>
@@ -531,7 +577,7 @@ export const FacultyEvaluationsView: React.FC = () => {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === 'faculty' ? 'Search by name or course (e.g. BUSFIN 3220)' : 'Search by course, title or instructor'}
+            placeholder={mode === 'faculty' ? `Search by name or course (e.g. ${college.example})` : 'Search by course, title or instructor'}
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white focus:outline-none focus:border-[#ba0c2f]"
           />
         </div>
@@ -708,7 +754,7 @@ export const FacultyEvaluationsView: React.FC = () => {
         </div>
       )}
 
-      {reviewTarget && <ReviewForm target={reviewTarget} onClose={() => setReviewTarget(null)} onSaved={handleSaved} />}
+      {reviewTarget && <ReviewForm college={college} target={reviewTarget} onClose={() => setReviewTarget(null)} onSaved={handleSaved} />}
     </div>
   );
 };

@@ -979,6 +979,14 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
     return matchesText && matchesCategory;
   });
 
+  // When a search or category filter hides the chosen building, choose the first match, so the
+  // building the dropdown shows is the one the request is for (it used to stay on Dreese).
+  useEffect(() => {
+    if (dropdownBuildings.length > 0 && !dropdownBuildings.some((b) => b.id === selectedBuildingId)) {
+      setSelectedBuildingId(dropdownBuildings[0].id);
+    }
+  }, [formFilterQuery, formCategoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const selectedOffice = officeForBuilding(selectedBuildingObj.id);
 
   const handleSendRequest = async (e: React.FormEvent) => {
@@ -1603,7 +1611,11 @@ export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ prof
                   {!building.isLibrary && (
                     <button
                       onClick={() => {
+                        // Clear the request form's filters so this building shows in its dropdown
+                        setFormFilterQuery('');
+                        setFormCategoryFilter('All');
                         setSelectedBuildingId(building.id);
+                        setSentEmail(null);
                         setActiveTab('request');
                       }}
                       className="self-start sm:self-center text-xs font-bold text-[#ba0c2f] hover:bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0"

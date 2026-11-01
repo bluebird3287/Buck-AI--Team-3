@@ -1,27 +1,64 @@
-// Builds src/data/fisherFaculty.json from two public sources:
-//   1. OSU Class Search API (content.osu.edu) - every undergraduate Fisher course, section and instructor
-//   2. Fisher College of Business directory (fisher.osu.edu/directory) - faculty titles and departments
-// Run with: npm run build:fisher-data
+// Builds each college's faculty file (src/data/fisherFaculty.json, src/data/engineeringFaculty.json)
+// from public sources:
+//   1. OSU Class Search API (content.osu.edu) - every undergraduate course, section and instructor
+//   2. Fisher College of Business directory (fisher.osu.edu/directory) - Fisher faculty titles and departments
+//      (the College of Engineering directory blocks automated requests, so Engineering has no titles)
+// Run with: npm run build:fisher-data            (Fisher)
+//           npm run build:engineering-data (College of Engineering, including the Knowlton School)
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT_FILE = path.join(__dirname, '..', 'src', 'data', 'fisherFaculty.json');
 
 const TERMS = [
   { code: '1268', name: 'Autumn 2026' },
   { code: '1272', name: 'Spring 2027' },
 ];
-const FISHER_SUBJECTS = ['acctmis', 'busadm', 'busfin', 'busmhr', 'busml', 'busoba'];
-const SUBJECT_DEPARTMENT = {
-  ACCTMIS: 'Accounting & Management Information Systems',
-  BUSADM: 'Business Administration',
-  BUSFIN: 'Finance',
-  BUSMHR: 'Management & Human Resources',
-  BUSML: 'Marketing & Logistics',
-  BUSOBA: 'Operations and Business Analytics',
+const COLLEGES = {
+  fisher: {
+    name: 'Fisher College of Business',
+    outFile: 'fisherFaculty.json',
+    directory: true,
+    subjects: {
+      ACCTMIS: 'Accounting & Management Information Systems',
+      BUSADM: 'Business Administration',
+      BUSFIN: 'Finance',
+      BUSMHR: 'Management & Human Resources',
+      BUSML: 'Marketing & Logistics',
+      BUSOBA: 'Operations and Business Analytics',
+    },
+  },
+  engineering: {
+    name: 'College of Engineering',
+    outFile: 'engineeringFaculty.json',
+    directory: false,
+    subjects: {
+      AEROENG: 'Aerospace Engineering',
+      ARCH: 'Architecture (Knowlton School)',
+      AVIATN: 'Aviation',
+      BIOMEDE: 'Biomedical Engineering',
+      CBE: 'Chemical & Biomolecular Engineering',
+      CIVILEN: 'Civil, Environmental & Geodetic Engineering',
+      CRPLAN: 'City & Regional Planning (Knowlton School)',
+      CSE: 'Computer Science & Engineering',
+      ECE: 'Electrical & Computer Engineering',
+      ENGR: 'Engineering (First-Year & General)',
+      ENGREDU: 'Engineering Education',
+      FABENG: 'Food, Agricultural & Biological Engineering',
+      ISE: 'Integrated Systems Engineering',
+      LARCH: 'Landscape Architecture (Knowlton School)',
+      MATSCEN: 'Materials Science & Engineering',
+      MECHENG: 'Mechanical Engineering',
+      NUCLREN: 'Nuclear Engineering',
+      WELDENG: 'Welding Engineering',
+    },
+  },
 };
+const COLLEGE = COLLEGES[process.argv[2] ?? 'fisher'];
+if (!COLLEGE) throw new Error(`Unknown college "${process.argv[2]}"; use one of: ${Object.keys(COLLEGES).join(', ')}`);
+const OUT_FILE = path.join(__dirname, '..', 'src', 'data', COLLEGE.outFile);
+const SUBJECT_DEPARTMENT = COLLEGE.subjects;
 // Recitations are usually led by graduate teaching assistants, not faculty
 const SKIPPED_COMPONENTS = new Set(['Recitation']);
 
@@ -84,15 +121,18 @@ function extractPrereq(description) {
 }
 
 async function main() {
-  console.log('Fetching Fisher faculty directory...');
-  const directory = await fetchDirectory();
-  console.log(`  ${directory.size} faculty members`);
+  let directory = new Map();
+  if (COLLEGE.directory) {
+    console.log('Fetching Fisher faculty directory...');
+    directory = await fetchDirectory();
+    console.log(`  ${directory.size} faculty members`);
+  }
 
   const courses = new Map();
   const faculty = new Map();
 
   for (const term of TERMS) {
-    for (const subject of FISHER_SUBJECTS) {
+    for (const subject of Object.keys(SUBJECT_DEPARTMENT).map((s) => s.toLowerCase())) {
       console.log(`Fetching ${term.name} ${subject.toUpperCase()}...`);
       for (const { course, sections } of await fetchClassSearch(term.code, subject)) {
         const courseId = `${course.subject} ${course.catalogNumber}`;
@@ -157,10 +197,11 @@ async function main() {
 
   const output = {
     generatedAt: new Date().toISOString(),
+    college: COLLEGE.name,
     terms: TERMS.map((t) => t.name),
     sources: [
       { name: 'OSU Class Search', url: 'https://classes.osu.edu' },
-      { name: 'Fisher College of Business Directory', url: 'https://fisher.osu.edu/directory' },
+      ...(COLLEGE.directory ? [{ name: 'Fisher College of Business Directory', url: 'https://fisher.osu.edu/directory' }] : []),
     ],
     faculty: sortedFaculty,
     courses: sortedCourses,
