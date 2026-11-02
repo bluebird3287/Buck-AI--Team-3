@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { Course, Semester } from '../data/sampleData';
 import geData from '../data/geCourses.json';
+import { officialTitle } from './courseTitles';
 
 // ---------- Curriculum (public tables: programs, requirement_groups, requirement_courses) ----------
 
@@ -117,7 +118,8 @@ export async function loadCurriculum(): Promise<CurriculumLibrary> {
     byProgram.set(g.program_id, [...(byProgram.get(g.program_id) ?? []), group]);
   }
   for (const c of courses.data ?? []) {
-    groupById.get(c.group_id)?.courses.push({ ...(c as any), credits: num(c.credits) });
+    // Some seeded titles are track labels or outdated names; OSU Class Search has the official one
+    groupById.get(c.group_id)?.courses.push({ ...(c as any), title: officialTitle(c.code) ?? c.title, credits: num(c.credits) });
   }
   const all: Program[] = (programs.data ?? []).map((p: any) => ({
     ...p,
@@ -857,7 +859,7 @@ function courseLabel(c: RequirementCourse | undefined): string {
   const offered = c.offered_terms ?? [];
   const when = offered.includes('None') ? ', not on the current schedule' : offered.length ? `, ${offered.join('/')} only` : '';
   const standing = c.min_standing ? `, ${STANDING_NAMES[c.min_standing] ?? `${c.min_standing}+ hours`} standing` : '';
-  return `${c.code} (${c.credits ?? '?'} cr${when}${standing})`;
+  return `${c.code} ${c.title} (${c.credits ?? '?'} cr${when}${standing})`;
 }
 
 // Requirements a plan still leaves unmet, worded as instructions for fixing the plan.

@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
+import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
 
 dotenv.config();
 
@@ -75,7 +76,10 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
   const list = (status: string) =>
     terms
       .filter((t) => t?.status === status && Array.isArray(t.courses) && t.courses.length)
-      .map((t) => `  - ${t.name}: ${t.courses.map((c: any) => `${c.code}${c.name && c.name !== c.code ? ` (${c.name})` : ''}${c.notes ? ` [${c.notes}]` : ''}`).join(', ')}`)
+      .map((t) => `  - ${t.name}: ${t.courses.map((c: any) => {
+        const name = officialTitle(c.code) ?? c.name;
+        return `${c.code}${name && name !== c.code ? ` (${name})` : ''}${c.notes ? ` [${c.notes}]` : ''}`;
+      }).join(', ')}`)
       .join('\n') || '  - none entered';
   return [
     `- Name: ${profile?.name || 'Not provided'}`,
@@ -100,6 +104,7 @@ Your audience is undergraduate students navigating BuckeyeLink, course registrat
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
 - Pilot scope: Fisher BSBA students and College of Engineering BS students. Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Course titles: use the title given for a course code in the request (student profile, requirements check, or "Official course titles"); they come from OSU Class Search. Never guess or paraphrase a course's title from its number or subject (e.g. BUSFIN 3500 is Legal Environment of Business, not a finance class). If a code has no title in the request, refer to it by code only.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
@@ -247,6 +252,9 @@ ${programOptions
       programOptions.closedMinors?.length ? `\n- Minors closed to this student's major (don't add these; explain why): ${programOptions.closedMinors.join('; ')}` : ''
     }`
   : 'Not available. Leave "programChange" null and point the student to "My classes".'}
+
+Official course titles (OSU Class Search) for courses named in this conversation:
+${titlesMentioned(`${conversationContext}\n${message}`).join('\n') || 'None.'}
 
 Conversation History:
 ${conversationContext}
@@ -508,7 +516,7 @@ app.post('/api/parse-advising-report', async (req, res) => {
           year: t.year,
           courses: (Array.isArray(t.courses) ? t.courses : [])
             .filter((c: any) => str(c?.code))
-            .map((c: any) => ({ code: str(c.code), name: str(c.name), credits: num(c.credits) ?? 0, grade: str(c.grade) })),
+            .map((c: any) => ({ code: str(c.code), name: officialTitle(c.code) ?? str(c.name), credits: num(c.credits) ?? 0, grade: str(c.grade) })),
         })),
     });
   } catch (error: any) {
@@ -703,7 +711,7 @@ Return a JSON with:
     {
       "id": "autumn-2027",
       "courses": [
-        { "code": "DEPT 1234", "name": "Short course title", "credits": 3, "type": "Major Core", "difficulty": 3 }
+        { "code": "DEPT 1234", "name": "Course title as listed in the requirements check", "credits": 3, "type": "Major Core", "difficulty": 3 }
       ]
     }
   ]
@@ -734,6 +742,9 @@ Return ONLY valid JSON.
     if (process.env.ANTHROPIC_API_KEY) {
       // A full plan is a long answer: give it up to 4 minutes, without a retry that would double the wait.
       parsed = JSON.parse(await generateJson(requestPrompt, undefined, ROADMAP_TIMEOUT_MS, 0));
+      // The AI writes its own short titles; replace them with the official ones
+      for (const s of Array.isArray(parsed?.semesters) ? parsed.semesters : [])
+        for (const c of Array.isArray(s?.courses) ? s.courses : []) c.name = officialTitle(c.code) ?? c.name;
     } else {
       throw new Error('ANTHROPIC_API_KEY not configured, using balanced roadmap fallback');
     }

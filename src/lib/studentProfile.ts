@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { Course, Semester, StudentProfile, DEFAULT_ADVISOR } from '../data/sampleData';
+import { officialTitle } from './courseTitles';
 
 // One row of public.student_profiles. Row-level security limits every read and write
 // to the signed-in student's own row.
@@ -83,6 +84,8 @@ export function workloadFor(credits: number): Semester['workloadRating'] {
 }
 
 // Sorts terms, fills in status, credits, workload, and the degree year (1-4) for each one.
+// Course names come from OSU Class Search when the code is known, so a wrong title typed
+// by the student or guessed by the AI (e.g. BUSFIN 3500 as "Personal Finance") never sticks.
 export function normalizeSemesters(semesters: Semester[]): Semester[] {
   const parsed = semesters.map((s) => ({ s, t: parseTerm(s) }));
   const starts = parsed.filter((x) => x.t).map((x) => academicYearStart(x.t!.season, x.t!.year));
@@ -94,6 +97,7 @@ export function normalizeSemesters(semesters: Semester[]): Semester[] {
       const totalCredits = s.courses.reduce((sum, c) => sum + (Number(c.credits) || 0), 0);
       return {
         ...s,
+        courses: s.courses.map((c) => ({ ...c, name: officialTitle(c.code) ?? c.name })),
         name: t ? `${t.season} ${t.year}` : s.name,
         status: t ? termStatus(t.season, t.year) : s.status,
         year: t ? academicYearStart(t.season, t.year) - firstYear + 1 : s.year,
@@ -106,7 +110,7 @@ export function normalizeSemesters(semesters: Semester[]): Semester[] {
 export function newCourse(code: string, name: string, credits: number, grade?: string): Course {
   return {
     code: code.trim().toUpperCase(),
-    name: name.trim() || code.trim().toUpperCase(),
+    name: officialTitle(code) ?? (name.trim() || code.trim().toUpperCase()),
     credits,
     type: 'General',
     difficulty: 3,
