@@ -35,7 +35,8 @@ import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDeci
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
-import { Curriculum, DegreeAudit } from '../lib/requirements';
+import { Curriculum, DegreeAudit, GeOption, geSlotFor } from '../lib/requirements';
+import { GeAlternativesMenu } from './GeAlternativesMenu';
 import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
@@ -83,6 +84,7 @@ interface AiChatWidgetProps {
   onDeleteConversation: (id: string) => void;
   roadmap: Semester[];
   onUpdateRoadmap: (promptText: string) => Promise<RoadmapUpdateResult | null>;
+  onReplaceCourse?: (semesterId: string, index: number, option: GeOption) => void;
   isRoadmapUpdating: boolean;
   roadmapStage?: string;
   bookedSlot?: AdvisorSlot | null;
@@ -115,6 +117,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   onDeleteConversation,
   roadmap,
   onUpdateRoadmap,
+  onReplaceCourse,
   isRoadmapUpdating,
   roadmapStage,
   bookedSlot,
@@ -126,6 +129,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   curriculum,
   specializationIds
 }) => {
+  // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
+  const [openGe, setOpenGe] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
 
   useEffect(() => {
@@ -781,21 +786,56 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                               </div>
 
                               <div className="space-y-2">
-                                {sem.courses.map((course, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="p-2.5 bg-gray-50/80 rounded border border-gray-200 flex items-center justify-between text-xs"
-                                  >
-                                    <div>
-                                      <div className="font-bold text-gray-900">{course.code}</div>
-                                      <div className="text-gray-600 text-[11px]">{course.name}</div>
+                                {sem.courses.map((course, idx) => {
+                                  // Planned GE courses open a menu of every course that fills the same GE
+                                  const slot = sem.status === 'planned' && onReplaceCourse ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
+                                  const key = `${sem.id}:${idx}`;
+                                  const open = !!slot && openGe === key;
+                                  const body = (
+                                    <>
+                                      <div>
+                                        <div className="font-bold text-gray-900">{course.code}</div>
+                                        <div className="text-gray-600 text-[11px]">{course.name}</div>
+                                        {slot && (
+                                          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-[#ba0c2f]">
+                                            GE {slot.label} · {open ? 'Close' : 'See alternatives'}
+                                            {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="font-medium text-gray-700">{course.credits} cr</div>
+                                        <div className="text-[10px] text-gray-500">Prereq Verified</div>
+                                      </div>
+                                    </>
+                                  );
+                                  const cardCls = 'w-full text-left p-2.5 bg-gray-50/80 rounded border border-gray-200 flex items-center justify-between text-xs';
+                                  if (!slot) return <div key={idx} className={cardCls}>{body}</div>;
+                                  return (
+                                    <div key={idx}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setOpenGe(open ? null : key)}
+                                        aria-expanded={open}
+                                        className={`${cardCls} hover:border-[#ba0c2f] ${open ? 'border-[#ba0c2f]' : ''}`}
+                                      >
+                                        {body}
+                                      </button>
+                                      {open && (
+                                        <GeAlternativesMenu
+                                          slot={slot}
+                                          current={course.code}
+                                          term={sem.name}
+                                          inPlan={roadmap.flatMap((s) => s.courses.map((c) => c.code))}
+                                          onPick={(option) => {
+                                            if (option.code !== course.code) onReplaceCourse!(sem.id, idx, option);
+                                            setOpenGe(null);
+                                          }}
+                                        />
+                                      )}
                                     </div>
-                                    <div className="text-right">
-                                      <div className="font-medium text-gray-700">{course.credits} cr</div>
-                                      <div className="text-[10px] text-gray-500">Prereq Verified</div>
-                                    </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                           ))}

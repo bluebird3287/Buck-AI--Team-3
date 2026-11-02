@@ -925,6 +925,60 @@ export function summerOnlineOptions(audit: DegreeAudit, plan: Semester[], max = 
   return out.slice(0, max);
 }
 
+// ---------- GE alternatives (the plan's GE swap menu) ----------
+
+export interface GeSlot {
+  category: string; // GE category id, e.g. 'arts' or 'theme-health'
+  label: string; // e.g. 'Literary, Visual & Performing Arts' or 'Health & Well-being Theme'
+  minCredits: number; // an alternative needs at least this many credits to fill the same spot
+}
+
+export interface GeOption {
+  code: string;
+  title: string;
+  credits: number | null;
+  terms: string[]; // e.g. ['Autumn 2026', 'Spring 2027']
+}
+
+// The GE requirement a planned course fills, from the degree check (falling back to its GEN tags).
+// Courses that also count toward a major or business-foundation requirement get null: swapping
+// them would break that requirement.
+export function geSlotFor(audit: DegreeAudit | null, code: string, credits: number): GeSlot | null {
+  const c = norm(code);
+  const programs = audit ? [audit.degree, ...audit.specializations] : [];
+  const nonGe = programs.some((p) =>
+    p.groups.some((g) => g.group.kind !== 'ge' && g.items.some((i) => norm(i.takenAs ?? i.code) === c || norm(i.code) === c)),
+  );
+  if (nonGe) return null;
+  const tags = geCategories(code);
+  let category: string | undefined;
+  let groupMin: number | null = null;
+  for (const p of programs)
+    for (const g of p.groups) {
+      if (g.group.kind !== 'ge' || !g.items.some((i) => norm(i.takenAs ?? i.code) === c)) continue;
+      category = g.group.ge_category === 'theme-other' ? tags.find((t) => OTHER_THEMES.includes(t)) : g.group.ge_category ?? undefined;
+      groupMin = g.group.min_credits;
+    }
+  category ??= tags[0];
+  if (!category || !GE_NAMES[category]) return null;
+  const isTheme = category.startsWith('theme-');
+  return {
+    category,
+    label: isTheme ? `${GE_NAMES[category]} Theme` : GE_NAMES[category],
+    // A Theme is one 4-credit course or two 3-credit ones, so match what this course does
+    minCredits: isTheme ? (credits >= 4 ? 4 : 3) : Math.min(groupMin ?? 3, credits || 3),
+  };
+}
+
+// Every GE course that fills the same requirement, offered on the current schedule first.
+export function geAlternatives(slot: GeSlot, exclude: string[]): GeOption[] {
+  const skip = new Set(exclude.map(norm));
+  return Object.entries(GE_COURSES)
+    .filter(([code, e]) => e.categories.includes(slot.category) && (e.credits ?? 0) >= slot.minCredits && !skip.has(code))
+    .map(([code, e]) => ({ code, title: officialTitle(code) ?? e.title, credits: e.credits, terms: e.terms }))
+    .sort((a, b) => b.terms.length - a.terms.length || a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
 // ---------- What-if: adding a minor ----------
 
 export interface MinorAudit {

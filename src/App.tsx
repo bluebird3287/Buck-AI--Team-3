@@ -24,7 +24,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions } from './lib/requirements';
+import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -513,6 +513,19 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     setTermPrompt(null);
   };
 
+  // From the 4-Year Plan's GE menu: swap a planned GE course for another that fills the same requirement.
+  const handleReplaceCourse = (semesterId: string, index: number, option: GeOption) => {
+    const plan = normalizeSemesters(
+      roadmap.map((s) =>
+        s.id !== semesterId
+          ? s
+          : { ...s, courses: s.courses.map((c, i) => (i === index ? { ...c, code: option.code, name: option.title, credits: option.credits ?? c.credits } : c)) },
+      ),
+    );
+    setRoadmap(plan);
+    onRoadmapChange(plan);
+  };
+
   // From the 4-Year Plan tab's chat. Like the main chat, it first asks which terms to plan (pre-filled
   // from their saved choices and anything the request says about summers), and returns what happened
   // so the tab can show it next to the plan.
@@ -908,6 +921,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         onDeleteConversation={handleDeleteConversation}
         roadmap={roadmap}
         onUpdateRoadmap={handleUpdateRoadmap}
+        onReplaceCourse={handleReplaceCourse}
         isRoadmapUpdating={isRoadmapUpdating}
         roadmapStage={roadmapStage}
         bookedSlot={bookedSlot}
