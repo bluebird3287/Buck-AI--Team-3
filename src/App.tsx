@@ -12,7 +12,8 @@ import { AiChatWidget, ChatMessage, RoadmapUpdateResult } from './components/AiC
 import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
-import { PlanTerms, activePlanTerms, defaultPlanTerms, normalizeSemesters, parseTerm } from './lib/studentProfile';
+import { PlanTerms, activePlanTerms, defaultPlanTerms, futureTerms, normalizeSemesters, parseTerm, planPrefsFromText, termKey } from './lib/studentProfile';
+import { onlineInSummer } from './lib/onlineCourses';
 import { TermPlanModal } from './components/TermPlanModal';
 import {
   ChatConversation,
@@ -23,7 +24,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes } from './lib/requirements';
+import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -347,7 +348,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     promptText: string,
     terms: PlanTerms,
     context?: PlanContext,
-  ): Promise<{ plan: Semester[]; gaps: string[]; summary: string } | null> => {
+  ): Promise<{ plan: Semester[]; gaps: string[]; notes: string[]; summary: string } | null> => {
     // A change made earlier in this chat turn hasn't reached this render's props yet
     const specIds = context?.specIds ?? specializationIds;
     const student = context?.profile ?? profile;
@@ -359,17 +360,70 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       // Only the terms the student chose (e.g. no summers), through their graduation term
       const allowed = activePlanTerms(terms, start);
       const allowedIds = new Set(allowed.map((t) => t.id));
+      const hasSummer = allowed.some((t) => t.season === 'Summer');
+      const summerMax = hasSummer ? terms.summerMaxCourses ?? null : null;
+      const summerOnline = hasSummer && !!terms.summerOnline;
+      const isSummer = (s: Semester) => s.id.startsWith('summer-');
+      const summerRule = !hasSummer
+        ? ''
+        : [
+            summerMax != null && `Put at most ${summerMax} class${summerMax === 1 ? '' : 'es'} in each summer term.`,
+            summerOnline &&
+              'Summer classes must be fully online: use only courses offered online in summer (listed below), never in-person-only classes.',
+            'Summer terms may be lighter than 12 credits.',
+          ]
+            .filter(Boolean)
+            .join(' ');
+      const onlineList = () =>
+        summerOnline && curriculum
+          ? `\nUnmet requirements offered fully online last summer (Summer 2026), for the summer terms:\n- ${
+              summerOnlineOptions(auditDegree(curriculum, specIds, start, student.earnedCredits), start).join('\n- ') || 'none found; leave summers empty rather than use in-person classes'
+            }`
+          : '';
       const termRule = `Schedule classes ONLY in these terms: ${allowed.map((t) => t.label).join(', ')} (graduating ${
         parseTerm({ id: terms.graduation }) ? terms.graduation.replace('-', ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'on time'
-      }). Use ids like "spring-2027". Do not put classes in any other term, including summers that aren't listed.`;
-      // Courses placed in terms the student didn't choose
-      const termGaps = (p: Semester[]) =>
-        p
+      }). Use ids like "spring-2027". Do not put classes in any other term, including summers that aren't listed.${summerRule ? ` ${summerRule}` : ''}`;
+      // Courses placed in terms the student didn't choose, or breaking their summer limits
+      const termGaps = (p: Semester[]) => [
+        ...p
           .filter((s) => s.status === 'planned' && s.courses.length && !allowedIds.has(s.id))
-          .map((s) => `Move every class out of ${s.name}; the student isn't taking classes that term (use only: ${allowed.map((t) => t.label).join(', ')})`);
+          .map((s) => `Move every class out of ${s.name}; the student isn't taking classes that term (use only: ${allowed.map((t) => t.label).join(', ')})`),
+        ...p
+          .filter((s) => s.status === 'planned' && isSummer(s) && summerMax != null && s.courses.length > summerMax)
+          .map((s) => `${s.name} has ${s.courses.length} classes; the student wants at most ${summerMax} per summer. Move the rest to Autumn/Spring terms.`),
+        ...p
+          .filter((s) => s.status === 'planned' && isSummer(s) && summerOnline)
+          .flatMap((s) => s.courses.filter((c) => c.code !== 'ELECTIVE' && !onlineInSummer(c.code)).map((c) => ({ s, c })))
+          .map(({ s, c }) => `${c.code} in ${s.name} isn't offered online in summer; the student only takes online summer classes. Replace it with an online option or move it to Autumn/Spring.`),
+      ];
+      // Workload balance and extra credits: worth fixing, but not missing requirements
+      const balanceNotes = (p: Semester[]) => {
+        const notes: string[] = [];
+        const regular = p.filter((s) => s.status === 'planned' && s.courses.length && !isSummer(s));
+        if (regular.length > 1) {
+          const heaviest = regular.reduce((a, b) => (b.totalCredits > a.totalCredits ? b : a));
+          const lightest = regular.reduce((a, b) => (b.totalCredits < a.totalCredits ? b : a));
+          if (heaviest.totalCredits - lightest.totalCredits > 4)
+            notes.push(
+              `Workload is uneven: ${heaviest.name} has ${heaviest.totalCredits} credits but ${lightest.name} has ${lightest.totalCredits}. Move classes so Autumn/Spring terms are within about 3 credits of each other (keep prerequisites in order).`,
+            );
+        }
+        for (const s of regular) {
+          const hard = s.courses.filter((c) => (c.difficulty ?? 3) >= 4);
+          if (hard.length > 2)
+            notes.push(`${s.name} stacks ${hard.length} hard classes (${hard.map((c) => c.code).join(', ')}); spread them across terms so no term has more than 2.`);
+        }
+        const total = p.reduce((n, s) => n + (s.status === 'completed' ? 0 : s.totalCredits), 0) + student.earnedCredits;
+        const required = curriculum?.degree.min_total_credits ?? 121;
+        const electives = p.filter((s) => s.status === 'planned').flatMap((s) => s.courses.filter((c) => c.code === 'ELECTIVE'));
+        if (total > required + 2 && electives.length)
+          notes.push(`The plan totals about ${Math.round(total)} credits, more than the ${required} required. Remove ELECTIVE placeholders that aren't needed to reach ${required}.`);
+        return notes;
+      };
       let plan = start;
-      let prompt = `${promptText}\n${termRule}`;
+      let prompt = `${promptText}\n${termRule}${onlineList()}`;
       let gaps: string[] = [];
+      let notes: string[] = [];
       let planSummary = '';
       // Gap-fixing passes must keep what the student asked for (e.g. "lighten Spring 2027")
       const keepRequest = `Keep honoring the student's request: "${promptText.slice(0, 600)}"`;
@@ -411,22 +465,17 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
               })),
             })),
         ]);
-        if (!curriculum) {
-          gaps = termGaps(plan);
-          if (!gaps.length) break;
-          prompt = `Revise the plan. Fix only these problems:\n- ${gaps.join('\n- ')}\n${keepRequest}\n${termRule}`;
-          continue;
-        }
-        setRoadmapStage('Checking the plan against your requirements and prerequisites');
-        gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits))];
-        if (!gaps.length) break;
-        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}\n${keepRequest}\n${termRule}`;
+        setRoadmapStage('Checking the plan against your requirements, prerequisites, and workload');
+        gaps = [...termGaps(plan), ...(curriculum ? planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits)) : [])];
+        notes = balanceNotes(plan);
+        if (!gaps.length && !notes.length) break;
+        prompt = `Revise the plan so it meets every requirement with a balanced workload and no extra credits. Keep what already works and fix only these problems:\n- ${[...gaps, ...notes].join('\n- ')}\n${keepRequest}\n${termRule}${onlineList()}`;
       }
 
       if (plan === start) return null;
       setRoadmap(plan);
       onRoadmapChange(plan);
-      return { plan, gaps, summary: planSummary };
+      return { plan, gaps, notes, summary: planSummary };
     } catch (err) {
       console.warn('Roadmap update failed:', err);
       return null;
@@ -438,21 +487,37 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
   // Before any plan is built, ask which terms the student wants classes in (e.g. no summers).
   // Resolves with their choice, or null if they cancel.
-  const [termPrompt, setTermPrompt] = useState<{ resolve: (plan: PlanTerms | null) => void } | null>(null);
-  const askTermPlan = () => new Promise<PlanTerms | null>((resolve) => setTermPrompt({ resolve }));
+  const [termPrompt, setTermPrompt] = useState<{ initial: PlanTerms; resolve: (plan: PlanTerms | null) => void } | null>(null);
+  const askTermPlan = (initial: PlanTerms) => new Promise<PlanTerms | null>((resolve) => setTermPrompt({ initial, resolve }));
+  // The saved term choices, adjusted by anything the request says about summers
+  // ("only 1-2 online classes over the summers"), for the student to confirm.
+  const termsFor = (text: string): PlanTerms => {
+    const base = planTerms ?? defaultPlanTerms(roadmap);
+    const prefs = planPrefsFromText(text);
+    if (prefs.summers === undefined) return base;
+    const grad = parseTerm({ id: base.graduation });
+    const summers = futureTerms(roadmap)
+      .filter((t) => t.season === 'Summer' && (!grad || termKey(t.season, t.year) <= termKey(grad.season, grad.year)))
+      .map((t) => t.id);
+    if (!prefs.summers) return { ...base, terms: base.terms.filter((id) => !id.startsWith('summer-')), summerMaxCourses: null, summerOnline: false };
+    return {
+      ...base,
+      terms: [...new Set([...base.terms, ...summers])],
+      summerMaxCourses: prefs.summerMaxCourses ?? base.summerMaxCourses ?? null,
+      summerOnline: prefs.summerOnline ?? base.summerOnline ?? false,
+    };
+  };
   const closeTermPrompt = (plan: PlanTerms | null) => {
     if (plan) onPlanTermsChange?.(plan);
     termPrompt?.resolve(plan);
     setTermPrompt(null);
   };
 
-  // From the 4-Year Plan tab's adjustment bar. Uses the student's saved term choices (asking only when
-  // there are none, or when the request names a summer they haven't chosen), and returns what happened so
-  // the tab can show it next to the plan.
+  // From the 4-Year Plan tab's chat. Like the main chat, it first asks which terms to plan (pre-filled
+  // from their saved choices and anything the request says about summers), and returns what happened
+  // so the tab can show it next to the plan.
   const handleUpdateRoadmap = async (promptText: string): Promise<RoadmapUpdateResult | null> => {
-    const savedHasSummer = !!planTerms?.terms.some((t) => t.startsWith('summer'));
-    const needsTerms = !planTerms || (/\bsummer\b/i.test(promptText) && !savedHasSummer);
-    const terms = needsTerms ? await askTermPlan() : planTerms;
+    const terms = await askTermPlan(termsFor(promptText));
     if (!terms) return null;
     const result = await buildRoadmap(promptText, terms);
     if (!result) {
@@ -464,13 +529,16 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const changed = result.summary || 'Your plan is updated and saved.';
     return {
       ok: true,
-      text: result.gaps.length
-        ? `${changed}\n\nIt still doesn't cover everything:\n- ${result.gaps.slice(0, 5).join('\n- ')}${
-            result.gaps.length > 5 ? `\n- …and ${result.gaps.length - 5} more` : ''
-          }\nSee the Degree Requirements tab, or bring this to your advisor.`
-        : changed,
+      text:
+        (result.gaps.length
+          ? `${changed}\n\nIt still doesn't cover everything:\n- ${result.gaps.slice(0, 5).join('\n- ')}${
+              result.gaps.length > 5 ? `\n- …and ${result.gaps.length - 5} more` : ''
+            }\nSee the Degree Requirements tab, or bring this to your advisor.`
+          : changed) + workloadNotes(result.notes),
     };
   };
+
+  const workloadNotes = (notes: string[]) => (notes.length ? `\n\nWorkload notes:\n- ${notes.join('\n- ')}` : '');
 
   // From the chat ("build me a roadmap"): build and save the plan, then summarize it in the chat
   // and open the 4-Year Plan tab.
@@ -480,7 +548,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       ...prev,
       { id: statusId, role: 'assistant', text: 'Before I build it, choose the terms you want to take classes in.', pending: true },
     ]);
-    const terms = await askTermPlan();
+    const terms = await askTermPlan(termsFor(instructions));
     if (!terms) {
       setMessages((prev) =>
         prev.map((m) =>
@@ -497,7 +565,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       ),
     );
     const result = await buildRoadmap(
-      `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}) and specialization(s), respects prerequisites, and balances workload.`,
+      `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}) and specialization(s) with as few total credit hours as possible, respects prerequisites, and balances workload evenly across terms.`,
       terms,
       context,
     );
@@ -520,7 +588,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       reply = {
         id: statusId,
         role: 'assistant',
-        text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${status}`,
+        text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${status}${workloadNotes(result.notes)}`,
         sourceCitation: requirementsSource,
         confidence: result.gaps.length ? 'moderate' : 'high',
         confidenceExplanation: `Checked against the published ${degreeName} requirements and the classes you entered. Your advisor has the final word.`,
@@ -856,7 +924,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       {termPrompt && (
         <TermPlanModal
           roadmap={roadmap}
-          initial={planTerms ?? defaultPlanTerms(roadmap)}
+          initial={termPrompt.initial}
           onConfirm={(plan) => closeTermPrompt(plan)}
           onCancel={() => closeTermPrompt(null)}
         />

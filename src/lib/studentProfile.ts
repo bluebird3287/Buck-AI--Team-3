@@ -175,6 +175,27 @@ export async function saveStudentRecord(userId: string, record: StudentRecord): 
 export interface PlanTerms {
   terms: string[]; // term ids, e.g. 'spring-2027'
   graduation: string; // term id of the target graduation term
+  summerMaxCourses?: number | null; // at most this many classes in each summer (null = no limit)
+  summerOnline?: boolean; // summer classes must be fully online
+}
+
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+
+// Summer preferences written in a request ("only 1 to 2 classes over the summers, online"),
+// used to pre-fill the term picker so the student only has to confirm them.
+export function planPrefsFromText(text: string): { summers?: boolean; summerMaxCourses?: number; summerOnline?: boolean } {
+  const t = text.toLowerCase();
+  if (!/\bsummers?\b/.test(t)) return {};
+  if (/\b(?:no|without|skip|skipping)\s+(?:the\s+)?summers?\b|\bno\s+(?:classes|courses)\s+(?:in|over|during)\s+(?:the\s+)?summers?\b/.test(t)) return { summers: false };
+  const prefs: { summers?: boolean; summerMaxCourses?: number; summerOnline?: boolean } = { summers: true };
+  const n = '(\\d|one|two|three|four)';
+  const range = new RegExp(`${n}\\s*(?:-|–|to|or)\\s*${n}\\s*(?:classes|courses|class|course)`).exec(t);
+  const single = new RegExp(`(?:only|at most|max(?:imum)?(?: of)?|up to|no more than)\\s*${n}\\s*(?:classes|courses|class|course)`).exec(t);
+  const value = (s: string) => NUMBER_WORDS[s] ?? Number(s);
+  if (range) prefs.summerMaxCourses = value(range[2]);
+  else if (single) prefs.summerMaxCourses = value(single[1]);
+  if (/\b(online|remote|remotely|virtual|distance)\b/.test(t)) prefs.summerOnline = true;
+  return prefs;
 }
 
 export interface TermOption {

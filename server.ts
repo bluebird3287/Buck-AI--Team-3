@@ -731,7 +731,10 @@ Rules for "semesters":
 - Tech Innovation, if the student has it: Builders Studio I-IV run Autumn (3801), Spring (3802), Autumn (4803), Spring (4804) in consecutive terms, starting the Autumn after the immersion semester (BUSADM 2801/2802).
 - The requirements check lists the student's current programs. Don't keep planned classes that only served a program they no longer have (e.g. a dropped specialization or minor); replace them with unmet requirements or "ELECTIVE". Follow the preference request when it asks to add, remove, or move specific classes.
 - Never use made-up placeholder codes (like "GE-ARTS" or "IB-MINOR-1"). Every course must be a real Ohio State course code, except "ELECTIVE" for a free elective when the student needs more hours.
-- Keep each term at 12-18 credit hours.
+- Keep each Autumn and Spring term at 12-18 credit hours. Summer terms follow the student's summer limits (number of classes, online only) and may be lighter than 12.
+- Fewest credits: graduate with as few total credit hours as possible. Plan only courses that fill an unmet requirement, plus "ELECTIVE" only for the hours still needed to reach the required total. Prefer courses that fill more than one requirement at once (a major or business-foundation course that also carries the needed GE tag, or a course listed for both of the student's specializations or their minor), and pick the lower-credit option when choices are otherwise equal.
+- Balanced workload: spread credits evenly across the Autumn/Spring terms (each within about 3 credits of the others), and put no more than two hard classes (difficulty 4-5) in one term. Rate "difficulty" honestly from 1 (light) to 5 (heavy), e.g. intro accounting, calculus, and core finance are 4-5.
+- If the student's request limits summers (e.g. "only 1-2 online classes"), follow it exactly and use the online options listed in the request for summer terms.
 
 Keep the JSON compact: only the fields shown, short course titles, no extra commentary. The app computes term names, credit totals, and workload itself.
 

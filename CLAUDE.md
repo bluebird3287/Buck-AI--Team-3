@@ -115,6 +115,18 @@ concentrations; ISE: five tracks; Aviation: non-flight/flight). Each student pic
   faculty member must verify are `manual` groups.
 - Not covered yet: the Knowlton School's degrees (Architecture, CRP, Landscape Architecture).
 
+## Plan building (term picker)
+
+Every plan build, from the main chat or the 4-Year Plan tab, first opens the term picker (`TermPlanModal`),
+pre-filled from the saved `plan_terms` and anything the request says about summers ("only 1-2 online
+classes over the summers"; `planPrefsFromText`). `plan_terms` also stores `summerMaxCourses` and
+`summerOnline`. Online-only summers use `src/data/onlineCourses.ts` (courses with fully online sections,
+from OSU Class Search; Summer 2026 stands in for future summers). Refresh it with
+`npm run build:online-courses` when a new summer schedule is posted. Course names come from
+`src/data/courseTitles.ts` (`npm run build:course-titles`). After each draft, App.tsx checks the plan
+against requirements, summer limits, workload balance, and extra credits, and sends problems back
+(up to 3 passes).
+
 ## After-hours building access
 
 The BuckID office issues cards but doesn't grant door access; the department or college that runs

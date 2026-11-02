@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { Course, Semester } from '../data/sampleData';
 import geData from '../data/geCourses.json';
 import { officialTitle } from './courseTitles';
+import { onlineInSummer } from './onlineCourses';
 
 // ---------- Curriculum (public tables: programs, requirement_groups, requirement_courses) ----------
 
@@ -714,7 +715,7 @@ export function checkSchedule(curriculum: Curriculum, semesters: Semester[], ear
     // Ohio State: 12+ hours is full time; more than 18 needs college approval
     if (s.status === 'planned' && load > 18)
       warnings.push({ code: '', term: s.name, blocking: true, message: `${s.name} has ${load} credit hours; keep it at 18 or fewer (more needs college approval).` });
-    else if (s.status === 'planned' && load > 0 && load < 12)
+    else if (s.status === 'planned' && load > 0 && load < 12 && !/summer/i.test(s.name))
       warnings.push({ code: '', term: s.name, blocking: false, message: `${s.name} has ${load} credit hours, below full time (12). That can affect financial aid; check with your advisor.` });
     creditsBefore += load;
   }
@@ -898,6 +899,30 @@ export function planGaps(audit: DegreeAudit): string[] {
   const total = c.earned + c.inProgress + c.planned;
   if (total < c.required) gaps.push(`Total is ${total} credit hours; add ${c.required - total} more to reach ${c.required} (electives or GE courses)`);
   return gaps;
+}
+
+// Unmet requirements the student could take online in a summer (offered fully online in the
+// latest published summer), so the planner can fill online-only summers with real classes.
+export function summerOnlineOptions(audit: DegreeAudit, plan: Semester[], max = 40): string[] {
+  const inPlan = new Set(plan.flatMap((s) => s.courses.map((c) => norm(c.code))));
+  const out: string[] = [];
+  for (const p of [audit.degree, ...audit.specializations]) {
+    for (const g of p.groups) {
+      if (g.state === 'done' || g.state === 'manual') continue;
+      if (g.group.kind === 'ge') {
+        const cats = g.group.ge_category === 'theme-other' ? OTHER_THEMES : [g.group.ge_category ?? ''];
+        const picks = Object.entries(GE_COURSES)
+          .filter(([code, e]) => e.categories.some((x) => cats.includes(x)) && (e.credits ?? 0) >= 3 && !inPlan.has(code) && onlineInSummer(code))
+          .slice(0, 4)
+          .map(([code, e]) => `${code} ${e.title} (${e.credits} cr)`);
+        if (picks.length) out.push(`${g.group.title}: ${picks.join(', ')}`);
+        continue;
+      }
+      const picks = g.group.courses.filter((c) => !inPlan.has(norm(c.code)) && onlineInSummer(c.code)).map(courseLabel);
+      if (picks.length) out.push(`${p.program.name} – ${g.group.title}: ${picks.join(', ')}`);
+    }
+  }
+  return out.slice(0, max);
 }
 
 // ---------- What-if: adding a minor ----------

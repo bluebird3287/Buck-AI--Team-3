@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck, CheckCircle2, Clock, X } from 'lucide-react';
+import { CalendarCheck, CheckCircle2, Clock, Sun, X } from 'lucide-react';
 import { Semester } from '../data/sampleData';
 import {
   PlanTerms,
@@ -20,11 +20,14 @@ interface TermPlanModalProps {
 
 const SEASONS: Season[] = ['Autumn', 'Spring', 'Summer'];
 
-// Asked before BuckAI builds a 4-year plan: which terms are done, and which future terms
-// (Autumn, Spring, Summer of each year) the student wants classes in.
+// Asked before BuckAI builds a 4-year plan: which terms are done, which future terms
+// (Autumn, Spring, Summer of each year) the student wants classes in, and how many classes
+// (and whether only online ones) they want in their summers.
 export const TermPlanModal: React.FC<TermPlanModalProps> = ({ roadmap, initial, onConfirm, onCancel }) => {
   const [terms, setTerms] = useState<Set<string>>(new Set(initial.terms));
   const [graduation, setGraduation] = useState(initial.graduation);
+  const [summerMax, setSummerMax] = useState<number | null>(initial.summerMaxCourses ?? null);
+  const [summerOnline, setSummerOnline] = useState(!!initial.summerOnline);
 
   const future = useMemo(() => futureTerms(roadmap), [roadmap]);
   const futureById = useMemo(() => new Map(future.map((t) => [t.id, t])), [future]);
@@ -52,7 +55,9 @@ export const TermPlanModal: React.FC<TermPlanModalProps> = ({ roadmap, initial, 
       return next;
     });
 
-  const chosenCount = future.filter((t) => terms.has(t.id) && termKey(t.season, t.year) <= gradKey).length;
+  const chosen = future.filter((t) => terms.has(t.id) && termKey(t.season, t.year) <= gradKey);
+  const chosenCount = chosen.length;
+  const hasSummer = chosen.some((t) => t.season === 'Summer');
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="term-plan-title">
@@ -148,6 +153,45 @@ export const TermPlanModal: React.FC<TermPlanModalProps> = ({ roadmap, initial, 
               </div>
             ))}
           </div>
+          {hasSummer && (
+            <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
+              <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <Sun className="w-4 h-4 text-amber-600" /> Summer classes
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-800">
+                <label className="flex items-center gap-2">
+                  At most
+                  <select
+                    value={summerMax ?? ''}
+                    onChange={(e) => setSummerMax(e.target.value ? Number(e.target.value) : null)}
+                    className="text-sm px-2 py-1 border border-gray-300 rounded-md bg-white"
+                  >
+                    <option value="">any number of</option>
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                  {summerMax === 1 ? 'class' : 'classes'} each summer
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={summerOnline}
+                    onChange={(e) => setSummerOnline(e.target.checked)}
+                    className="accent-[#ba0c2f] w-4 h-4"
+                  />
+                  Online classes only
+                </label>
+              </div>
+              {summerOnline && (
+                <p className="text-xs text-gray-600">
+                  BuckAI picks classes that were offered fully online last summer (Summer 2026). Confirm in Class Search once the
+                  next summer schedule is posted.
+                </p>
+              )}
+            </div>
+          )}
+
           <p className="text-xs text-gray-500">
             Terms after your graduation term are greyed out. Fisher's BSBA needs 121 credit hours, so fewer terms means heavier ones.
           </p>
@@ -161,7 +205,14 @@ export const TermPlanModal: React.FC<TermPlanModalProps> = ({ roadmap, initial, 
             </button>
             <button
               disabled={chosenCount === 0}
-              onClick={() => onConfirm({ terms: future.filter((t) => terms.has(t.id) && termKey(t.season, t.year) <= gradKey).map((t) => t.id), graduation })}
+              onClick={() =>
+                onConfirm({
+                  terms: chosen.map((t) => t.id),
+                  graduation,
+                  summerMaxCourses: hasSummer ? summerMax : null,
+                  summerOnline: hasSummer && summerOnline,
+                })
+              }
               className="px-4 py-2 text-sm font-semibold rounded-md bg-[#ba0c2f] hover:bg-[#9d0a27] disabled:bg-gray-300 text-white"
             >
               Build my plan
