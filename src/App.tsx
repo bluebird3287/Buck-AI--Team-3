@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
-import { AiChatWidget, ChatMessage } from './components/AiChatWidget';
+import { AiChatWidget, ChatMessage, RoadmapUpdateResult } from './components/AiChatWidget';
 import { HighStakesDecisionData } from './components/HighStakesDecisionCard';
 import { AdvisorSchedulingView } from './components/AdvisorSchedulingView';
 import { SummaryConfirmationView } from './components/SummaryConfirmationView';
@@ -23,7 +23,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, planGaps, programIncludes } from './lib/requirements';
+import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -60,7 +60,7 @@ const ROADMAP_REQUEST =
 // The opening chat message, written for whoever is signed in.
 function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage {
   const current = roadmap.find((s) => s.status === 'in-progress');
-  const program = [profile.rank, profile.major && `pursuing ${profile.major}`, profile.minor && `with a ${profile.minor} minor`]
+  const program = [profile.rank, profile.major && `pursuing ${profile.major}`, profile.minor && `with ${withMinor(profile.minor)}`]
     .filter(Boolean)
     .join(' ');
   const enrolled = current?.courses.length
@@ -76,6 +76,10 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
     escalationSuggested: false,
   };
 }
+
+// "Entrepreneurship Minor" stays as is; a bare "Finance" becomes "Finance minor"
+const minorTitle = (name: string) => (/\bminor\b/i.test(name) ? name : `${name} minor`);
+const withMinor = (name: string) => `the ${minorTitle(name)}`;
 
 export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -209,7 +213,11 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             ? {
                 degree: curriculum.degree.name,
                 specializations: curriculum.specializations.map((p) => p.name),
-                minors: curriculum.minors.map((p) => p.name),
+                minors: curriculum.minors.filter((p) => !minorBlockReason(p, curriculum.degree, specializationIds)).map((p) => p.name),
+                closedMinors: curriculum.minors
+                  .map((p) => ({ p, why: minorBlockReason(p, curriculum.degree, specializationIds) }))
+                  .filter((m) => m.why)
+                  .map((m) => `${m.p.name} (${m.why})`),
               }
             : null,
         }),
@@ -229,16 +237,15 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       let highStakesDecision: HighStakesDecisionData | null = planning ? null : data.highStakesDecision || null;
       const lower = text.toLowerCase();
       const isDrop = dropsAClass(lower);
-      if (!planning && !changeRequested && !highStakesDecision && (isDrop || declaresMinor(lower))) {
+      // Backup for dropping a class when Claude didn't flag it. Minors aren't covered here: Claude adds,
+      // drops, or declines them through programChange, and a minor isn't a class drop.
+      if (!planning && !changeRequested && !highStakesDecision && isDrop) {
         const course = currentCourseMentioned(lower) ?? 'this class';
-        const minorName = lower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
         highStakesDecision = {
           isHighStakes: true,
-          actionType: isDrop ? 'drop_class' : 'add_minor',
-          decisionTitle: isDrop ? `Drop ${course} from Autumn 2026 Active Enrollment` : `Declare ${minorName} on Official University Degree Audit`,
-          warningSummary: isDrop
-            ? `You requested to drop ${course} as your real choice. An AI cannot unilaterally execute irreversible schedule drops. Dropping drops your enrolled credits below 12 credit hours, threatening financial aid and delaying prerequisite sequences.`
-            : `You requested to declare the ${minorName} as your real academic credential. Automated AI bots cannot alter your SIS degree plan without certified human advisor sign-off.`,
+          actionType: 'drop_class',
+          decisionTitle: `Drop ${course} from Autumn 2026 Active Enrollment`,
+          warningSummary: `You requested to drop ${course} as your real choice. An AI cannot unilaterally execute irreversible schedule drops. Dropping drops your enrolled credits below 12 credit hours, threatening financial aid and delaying prerequisite sequences.`,
           consequences: [
             'Financial Aid Risk: Dropping lowers enrolled credits below 12 credit hours, jeopardizing full-time status and Title IV FAFSA and merit scholarships.',
             `Prerequisite Sequence: Disrupts mandatory prerequisite chains, postponing graduation by up to 2 semesters.`,
@@ -259,8 +266,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         highStakesDecision,
       };
 
-      setMessages((prev) => [...prev, aiMsg]);
-      if (change) setMessages((prev) => [...prev, change.message]);
+      // A change BuckAI couldn't make replaces Claude's reply, which may have said it was done
+      if (change && !change.applied) setMessages((prev) => [...prev, { ...change.message, id: aiMsg.id }]);
+      else {
+        setMessages((prev) => [...prev, aiMsg]);
+        if (change) setMessages((prev) => [...prev, change.message]);
+      }
 
       // Rebuild the plan when asked, or when a change took classes out of it or added a program to fill
       const hasPlan = (change?.context.plan ?? roadmap).some((s) => s.status === 'planned' && s.courses.length);
@@ -299,22 +310,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           escalateRecommended: true
         };
       } else if (isMinor) {
-        const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
-        fallbackText = `⚠️ Curriculum Declaration Notice: You requested to declare the ${minorName} in BuckeyeLink.\n\nDeclaring a minor permanently binds 15–16 graded credits to your DARS degree audit and requires formal college advisor filing. Please review the requirements below to escalate or route to advisor Sarah Jenkins.`;
-        fallbackCitation = 'Ohio State minor declaration and inter-college policies';
-        fallbackEscalation = true;
-        fallbackHighStakes = {
-          isHighStakes: true,
-          actionType: 'add_minor',
-          decisionTitle: `Declare ${minorName} on Degree Audit`,
-          warningSummary: `You are requesting to officially declare ${minorName}. University policy prohibits AI agents from filing permanent curriculum declarations without human advisor validation.`,
-          consequences: [
-            'Overlap Limit: Only a limited number of credit hours can overlap between your major and a declared minor.',
-            'College Approval: Engineering and Arts & Sciences minors require college review and 2.50+ CPHR verification.',
-            'Graduation Audit: Declared minors must be fully completed or formally removed prior to graduation.'
-          ],
-          escalateRecommended: true
-        };
+        fallbackText = `I couldn't reach the advising service just now, so I didn't change your minor. You can add or remove a minor under **My classes**, or check which minors you can add in the **What-If Minor Audit** tab.`;
+        fallbackCitation = 'BuckAI minors (What-If Minor Audit)';
       } else if (isHold) {
         fallbackText = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink, and if you have one, your advisor can tell you what's needed to clear it.`;
         fallbackEscalation = true;
@@ -350,7 +347,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     promptText: string,
     terms: PlanTerms,
     context?: PlanContext,
-  ): Promise<{ plan: Semester[]; gaps: string[] } | null> => {
+  ): Promise<{ plan: Semester[]; gaps: string[]; summary: string } | null> => {
     // A change made earlier in this chat turn hasn't reached this render's props yet
     const specIds = context?.specIds ?? specializationIds;
     const student = context?.profile ?? profile;
@@ -373,6 +370,9 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       let plan = start;
       let prompt = `${promptText}\n${termRule}`;
       let gaps: string[] = [];
+      let planSummary = '';
+      // Gap-fixing passes must keep what the student asked for (e.g. "lighten Spring 2027")
+      const keepRequest = `Keep honoring the student's request: "${promptText.slice(0, 600)}"`;
 
       for (let round = 0; round < 3; round++) {
         setRoadmapStage(
@@ -391,6 +391,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         if (!response.ok) throw new Error('Roadmap API error');
         const data = await response.json();
         if (!Array.isArray(data.semesters)) break;
+        if (typeof data.summary === 'string') planSummary = data.summary;
 
         // Keep the classes the student entered for past and current terms; only planned terms change.
         plan = normalizeSemesters([
@@ -413,19 +414,19 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         if (!curriculum) {
           gaps = termGaps(plan);
           if (!gaps.length) break;
-          prompt = `Revise the plan. Fix only these problems:\n- ${gaps.join('\n- ')}\n${termRule}`;
+          prompt = `Revise the plan. Fix only these problems:\n- ${gaps.join('\n- ')}\n${keepRequest}\n${termRule}`;
           continue;
         }
         setRoadmapStage('Checking the plan against your requirements and prerequisites');
         gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits))];
         if (!gaps.length) break;
-        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}\n${termRule}`;
+        prompt = `Revise the plan so it meets every requirement. Keep what already works and fix only these gaps:\n- ${gaps.join('\n- ')}\n${keepRequest}\n${termRule}`;
       }
 
       if (plan === start) return null;
       setRoadmap(plan);
       onRoadmapChange(plan);
-      return { plan, gaps };
+      return { plan, gaps, summary: planSummary };
     } catch (err) {
       console.warn('Roadmap update failed:', err);
       return null;
@@ -445,25 +446,30 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     setTermPrompt(null);
   };
 
-  // From the 4-Year Plan tab: build, then say what's still missing, if anything.
-  const handleUpdateRoadmap = async (promptText: string) => {
-    const terms = await askTermPlan();
-    if (!terms) return;
+  // From the 4-Year Plan tab's adjustment bar. Uses the student's saved term choices (asking only when
+  // there are none, or when the request names a summer they haven't chosen), and returns what happened so
+  // the tab can show it next to the plan.
+  const handleUpdateRoadmap = async (promptText: string): Promise<RoadmapUpdateResult | null> => {
+    const savedHasSummer = !!planTerms?.terms.some((t) => t.startsWith('summer'));
+    const needsTerms = !planTerms || (/\bsummer\b/i.test(promptText) && !savedHasSummer);
+    const terms = needsTerms ? await askTermPlan() : planTerms;
+    if (!terms) return null;
     const result = await buildRoadmap(promptText, terms);
-    const gaps = result?.gaps ?? [];
-    if (!gaps.length) return;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        text: `I updated your plan, but it still doesn't cover everything:\n\n- ${gaps.join('\n- ')}\n\nCheck the Degree Requirements tab, or bring this to your advisor.`,
-        sourceCitation: requirementsSource,
-        confidence: 'moderate',
-        confidenceExplanation: `Checked against the published ${degreeName} requirements.`,
-        escalationSuggested: true,
-      },
-    ]);
+    if (!result) {
+      return {
+        ok: false,
+        text: "I couldn't update your plan. The planning service took too long or had an error, so your plan is unchanged. Please try again in a minute.",
+      };
+    }
+    const changed = result.summary || 'Your plan is updated and saved.';
+    return {
+      ok: true,
+      text: result.gaps.length
+        ? `${changed}\n\nIt still doesn't cover everything:\n- ${result.gaps.slice(0, 5).join('\n- ')}${
+            result.gaps.length > 5 ? `\n- …and ${result.gaps.length - 5} more` : ''
+          }\nSee the Degree Requirements tab, or bring this to your advisor.`
+        : changed,
+    };
   };
 
   // From the chat ("build me a roadmap"): build and save the plan, then summarize it in the chat
@@ -543,6 +549,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
     let specIds = specializationIds;
     const unmatched: string[] = [];
+    // Degrees with specializations (every Fisher BSBA, and Engineering majors like ECE) need at least one
+    if (Array.isArray(request.specializations) && !request.specializations.length && curriculum.specializations.length) {
+      return unchanged(
+        `Your ${degreeName} needs at least one specialization, so I didn't drop it. Tell me which one you'd like instead (for example, "switch to ${curriculum.specializations[0].name}").`,
+      );
+    }
     if (Array.isArray(request.specializations) && request.specializations.length) {
       const found = request.specializations.map((name) => {
         const p = findProgram(curriculum.specializations, String(name));
@@ -562,8 +574,15 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       return unchanged(
         `I couldn't match ${unmatched.map((n) => `"${n}"`).join(' and ')} to a program in BuckAI, so I didn't change anything. You can pick it under **My classes**.`,
       );
+    // Same rule as the What-If Minor Audit: some minors are closed to the student's degree or specialization
+    const chosenMinor = minor ? findProgram(curriculum.minors, minor) : undefined;
+    const blocked = chosenMinor && minor !== (profile.minor || '') ? minorBlockReason(chosenMinor, curriculum.degree, specIds) : null;
+    if (blocked) return unchanged(`I can't add the **${chosenMinor!.name}**: ${blocked} The What-If Minor Audit tab shows the minors you can add.`);
     const sameSpecs = specIds.length === specializationIds.length && specIds.every((id) => specializationIds.includes(id));
-    if (sameSpecs && minor === (profile.minor || '')) return null;
+    if (sameSpecs && minor === (profile.minor || ''))
+      return unchanged(
+        `Your BuckAI profile already lists **${majorLabel(curriculum, specIds) || profile.major}**${minor ? ` with the **${minorTitle(minor)}**` : ' with no minor'}, so nothing changed.`,
+      );
 
     const programs = (ids: string[]) => ids.map((id) => curriculum.specializations.find((p) => p.id === id)).filter((p): p is Program => !!p);
     const oldMinor = profile.minor ? findProgram(curriculum.minors, profile.minor) : undefined;
@@ -600,12 +619,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const summary = [
       dropped.length && `The student dropped ${names(dropped)}; plan no classes for ${dropped.length > 1 ? 'them' : 'it'}.`,
       added.length && `The student added ${names(added)}; include every requirement for ${added.length > 1 ? 'them' : 'it'}.`,
-      `Their programs are now: ${major}${minor ? ` with the ${minor} minor` : ''}.`,
+      `Their programs are now: ${major}${minor ? ` with the ${minorTitle(minor)}` : ''}.`,
     ]
       .filter(Boolean)
       .join(' ');
     const lines = [
-      `Done. Your BuckAI profile now lists **${major}**${minor ? ` with the **${minor}** minor` : ''}${dropped.length ? `, without ${names(dropped)}` : ''}.`,
+      `Done. Your BuckAI profile now lists **${major}**${minor ? ` with the **${minorTitle(minor)}**` : ''}${dropped.length ? `, without ${names(dropped)}` : ''}.`,
       removed.length
         ? `I took ${removed.length} class${removed.length === 1 ? '' : 'es'} out of your planned terms that only counted toward ${names(dropped)}: ${removed.join(', ')}.`
         : dropped.length

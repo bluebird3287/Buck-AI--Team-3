@@ -14,7 +14,7 @@ import {
   ParsedAdvisingReport,
   semestersFromReport,
 } from '../lib/studentProfile';
-import { CurriculumLibrary, DEFAULT_DEGREE_ID, curriculumFor, guessDegree, guessSpecializations } from '../lib/requirements';
+import { CurriculumLibrary, DEFAULT_DEGREE_ID, curriculumFor, findProgram, guessDegree, guessSpecializations, minorBlockReason } from '../lib/requirements';
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
@@ -140,7 +140,8 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
         if (guesses[0]) setSpecializationId(guesses[0]);
         if (guesses[1]) setSecondSpecializationId(guesses[1]);
       }
-      setMinor(report.minor ?? '');
+      // Match the report's minor to one BuckAI tracks (e.g. "Bus Analytics" -> its exact name)
+      setMinor(report.minor ? (library && findProgram(library.minors, report.minor)?.name) || report.minor : '');
       if (report.college) setCollege(COLLEGES.includes(report.college) ? report.college : 'Other');
       if (report.classStanding) setStanding(report.classStanding);
       if (report.gpa != null) setGpa(report.gpa.toFixed(2));
@@ -195,6 +196,14 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
     const needsSpecialization = !!curriculum?.specializations.length;
     if (!fullName.trim() || (needsSpecialization && !specializationId)) {
       setError(needsSpecialization ? 'Please enter your name and choose your specialization.' : 'Please enter your name.');
+      return;
+    }
+    // A degree or specialization change can make the chosen minor unavailable
+    const chosenMinor = curriculum && minor ? curriculum.minors.find((p) => p.name === minor) : undefined;
+    const minorBlocked =
+      chosenMinor && minorBlockReason(chosenMinor, curriculum!.degree, [specializationId, secondSpecializationId].filter(Boolean));
+    if (minorBlocked) {
+      setError(`You can't add the ${chosenMinor!.name}: ${minorBlocked} Choose another minor or None.`);
       return;
     }
     const gpaNum = gpa.trim() ? Number(gpa) : null;
@@ -388,7 +397,29 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
             )}
             <label className="text-xs font-semibold text-gray-700 space-y-1">
               <span>Minor</span>
-              <input className={inputCls} value={minor} onChange={(e) => setMinor(e.target.value)} placeholder="Optional" />
+              {curriculum?.minors.length ? (
+                <select className={inputCls} value={minor} onChange={(e) => setMinor(e.target.value)}>
+                  <option value="">None</option>
+                  {/* A minor from an older profile or report that BuckAI doesn't track stays selectable */}
+                  {minor && !curriculum.minors.some((p) => p.name === minor) && <option value={minor}>{minor} (not tracked by BuckAI)</option>}
+                  {[...new Set(curriculum.minors.map((p) => p.college))].map((col) => (
+                    <optgroup key={col} label={col}>
+                      {curriculum.minors
+                        .filter((p) => p.college === col)
+                        .map((p) => {
+                          const blocked = minorBlockReason(p, curriculum.degree, [specializationId, secondSpecializationId].filter(Boolean));
+                          return (
+                            <option key={p.id} value={p.name} disabled={!!blocked && p.name !== minor} title={blocked ?? undefined}>
+                              {p.name}{blocked ? ' (not available with your major)' : ''}
+                            </option>
+                          );
+                        })}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <input className={inputCls} value={minor} onChange={(e) => setMinor(e.target.value)} placeholder="Optional" />
+              )}
             </label>
             <label className="text-xs font-semibold text-gray-700 space-y-1">
               <span>College</span>

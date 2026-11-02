@@ -42,6 +42,12 @@ import { FacultyEvaluationsView } from './FacultyEvaluationsView';
 import { ChatHistorySidebar } from './ChatHistorySidebar';
 import type { ChatConversation } from '../lib/chatLog';
 
+// What happened after the 4-Year Plan tab's adjustment bar asked for a change
+export interface RoadmapUpdateResult {
+  ok: boolean;
+  text: string;
+}
+
 // A student asking to get into a building or study space after hours (the BuckID access flow)
 const ACCESS_REQUEST =
   /\b(after[- ]?hours?|buck ?id|building access|study (space|access|room)|swipe (in|access)|card access|door access|locked building|get into (the )?(building|hall|lab))\b/i;
@@ -76,7 +82,7 @@ interface AiChatWidgetProps {
   onRenameConversation: (id: string, title: string) => void;
   onDeleteConversation: (id: string) => void;
   roadmap: Semester[];
-  onUpdateRoadmap: (promptText: string) => Promise<void>;
+  onUpdateRoadmap: (promptText: string) => Promise<RoadmapUpdateResult | null>;
   isRoadmapUpdating: boolean;
   roadmapStage?: string;
   bookedSlot?: AdvisorSlot | null;
@@ -134,6 +140,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
     if (window.innerWidth < 768) setIsHistoryOpen(false);
   };
   const [roadmapPrompt, setRoadmapPrompt] = useState('');
+  // What the last adjustment did, shown above the adjustment bar
+  const [roadmapResult, setRoadmapResult] = useState<RoadmapUpdateResult | null>(null);
   // Open the year the student is in now
   const [expandedYear, setExpandedYear] = useState<number>(
     () => roadmap.find((s) => s.status === 'in-progress')?.year ?? roadmap[roadmap.length - 1]?.year ?? 1,
@@ -268,12 +276,22 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
     await onSendMessage(text);
   };
 
+  // Plan changes started from other tabs (requirements, What-If) also report back in the plan tab
+  const updateRoadmapAndReport = async (prompt: string) => {
+    setRoadmapResult(null);
+    setRoadmapResult(await onUpdateRoadmap(prompt));
+  };
+
   const handleRoadmapSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roadmapPrompt.trim() || isRoadmapUpdating) return;
     const prompt = roadmapPrompt;
     setRoadmapPrompt('');
-    await onUpdateRoadmap(prompt);
+    setRoadmapResult(null);
+    const result = await onUpdateRoadmap(prompt);
+    // Cancelled at the term picker: give the request back so it isn't lost
+    if (!result) setRoadmapPrompt(prompt);
+    setRoadmapResult(result);
   };
 
   // Request the picked time; it goes to the advisor's approval queue after BuckAI checks it.
@@ -684,7 +702,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             audit={audit}
             onAskForPlan={() => {
               setActiveTab('roadmap');
-              onUpdateRoadmap('Plan every remaining degree requirement through graduation, respecting prerequisites and balancing workload.');
+              updateRoadmapAndReport('Plan every remaining degree requirement through graduation, respecting prerequisites and balancing workload.');
             }}
           />
         )}
@@ -791,6 +809,19 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
             {/* Roadmap Adjustment Bar */}
             <div className="p-4 bg-white border-t border-gray-200 shrink-0">
+              {roadmapResult && !isRoadmapUpdating && (
+                <div
+                  className={`mb-3 p-3 rounded-lg border text-xs whitespace-pre-line flex items-start gap-2 ${
+                    roadmapResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-900'
+                  }`}
+                >
+                  {roadmapResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-px" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-px" />}
+                  <span className="flex-1">{roadmapResult.text}</span>
+                  <button type="button" onClick={() => setRoadmapResult(null)} aria-label="Dismiss" className="opacity-60 hover:opacity-100">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
               <form onSubmit={handleRoadmapSubmit} className="flex items-center space-x-3">
                 <input
                   type="text"
@@ -832,7 +863,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             }}
             onAddToPlan={(prompt) => {
               setActiveTab('roadmap');
-              onUpdateRoadmap(prompt);
+              updateRoadmapAndReport(prompt);
             }}
             onDeclare={(prompt) => {
               setActiveTab('chat');

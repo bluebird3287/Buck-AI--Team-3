@@ -155,9 +155,9 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   }
 }
 
-IMPORTANT: When a student asks to make a big decision like dropping a class they're enrolled in (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) or picking up a new minor (e.g. CSE minor, Business Analytics minor) as a 'real choice' or asks the AI to actually execute it:
+IMPORTANT: When a student asks to make a big decision like dropping a class they're enrolled in (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) as a 'real choice' or asks the AI to actually execute it:
 - Keep the response clear, direct, and concise (not overly verbose).
-- You MUST set "highStakesDecision.isHighStakes" to true (except for specialization and minor changes, which you apply with "programChange" as described above).
+- You MUST set "highStakesDecision.isHighStakes" to true. Specialization and minor changes are NOT high-stakes here: apply them with "programChange" (or decline them if the minor is closed to the student), and leave "highStakesDecision" null.
 - Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
 - Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
 
@@ -243,7 +243,9 @@ ${requirementsSummary || 'Not available.'}
 
 Programs available (use these exact names in "programChange"):
 ${programOptions
-  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors: ${(programOptions.minors || []).join('; ')}`
+  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
+      programOptions.closedMinors?.length ? `\n- Minors closed to this student's major (don't add these; explain why): ${programOptions.closedMinors.join('; ')}` : ''
+    }`
   : 'Not available. Leave "programChange" null and point the student to "My classes".'}
 
 Conversation History:
@@ -287,44 +289,25 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(lowerPrompt) || programNames.some((n) => lowerPrompt.includes(n));
     const isExploring = /\b(what if|what would|should i|would it|thinking about|considering)\b/.test(lowerPrompt);
     const isDroppingClass = (lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw')) && !isAboutProgram && !isExploring;
-    const isDeclaringMinor = (lowerPrompt.includes('minor') && !lowerPrompt.includes('drop') && !isExploring && (lowerPrompt.includes('add')|| lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
-
-    // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change.
+    // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change. Minors aren't
+    // forced here either: Claude adds, drops, or declines them through "programChange".
     const isPlanning = !!parsed.roadmapRequest?.build || !!parsed.programChange;
-    if (!isPlanning && (isDroppingClass || isDeclaringMinor) && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
-      if (isDroppingClass) {
-        const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
-        parsed.highStakesDecision = {
-          isHighStakes: true,
-          actionType: 'drop_class',
-          decisionTitle: `Drop ${courseCode} from Autumn 2026 Active Enrollment`,
-          warningSummary: `You are requesting to officially drop ${courseCode}. Per Ohio State University Academic Senate regulations, an AI assistant cannot alter your official registration record directly. Dropping this course carries immediate academic standing, financial aid, and graduation consequences.`,
-          consequences: [
-            'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
-            `Prerequisite Disruption: ${courseCode} is a prerequisite for later courses in your major, pushing your planned graduation back by up to two terms.`,
-            'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
-          ],
-          escalateRecommended: true
-        };
-        parsed.escalationSuggested = true;
-        parsed.escalationReason = `Permanent course withdrawal for ${courseCode} requires human academic advisor verification.`;
-      } else if (isDeclaringMinor) {
-        const minorName = lowerPrompt.includes('cse') || lowerPrompt.includes('computer science') ? 'Computer Science (CSE) Minor' : lowerPrompt.includes('econ') ? 'Economics Minor' : 'Business Analytics & CIS Minor';
-        parsed.highStakesDecision = {
-          isHighStakes: true,
-          actionType: 'add_minor',
-          decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
-          warningSummary: `You are requesting to declare the ${minorName} as your official secondary academic credential. While simulated roadmaps provide instant modeling, only an authorized human academic advisor can petition the college to update your SIS student master record.`,
-          consequences: [
-            'Credit Overlap Cap: Ohio State limits how many credit hours can overlap between your major and a minor (Fisher allows at most 6); your college checks this.',
-            'College Committee Review: Inter-college minor additions (e.g. College of Engineering CSE Minor) require formal program coordinator audit and GPA check (minimum 2.50 CPHR).',
-            'Time-to-Degree Audit: Adding this minor locks in 15-16 specific upper-division graded credit hours that must be completed prior to degree certification.'
-          ],
-          escalateRecommended: true
-        };
-        parsed.escalationSuggested = true;
-        parsed.escalationReason = `Adding the ${minorName} requires Sarah Jenkins to enter a curriculum change form in OnCourse SIS.`;
-      }
+    if (!isPlanning && isDroppingClass && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
+      const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
+      parsed.highStakesDecision = {
+        isHighStakes: true,
+        actionType: 'drop_class',
+        decisionTitle: `Drop ${courseCode} from Autumn 2026 Active Enrollment`,
+        warningSummary: `You are requesting to officially drop ${courseCode}. Per Ohio State University Academic Senate regulations, an AI assistant cannot alter your official registration record directly. Dropping this course carries immediate academic standing, financial aid, and graduation consequences.`,
+        consequences: [
+          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
+          `Prerequisite Disruption: ${courseCode} is a prerequisite for later courses in your major, pushing your planned graduation back by up to two terms.`,
+          'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
+        ],
+        escalateRecommended: true
+      };
+      parsed.escalationSuggested = true;
+      parsed.escalationReason = `Permanent course withdrawal for ${courseCode} requires human academic advisor verification.`;
     }
 
     res.json(parsed);
@@ -387,23 +370,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       answer = `Prerequisites are listed for each course in the OSU Course Bulletin. Make sure the classes you've already taken are added under **My classes** so I can check them against what you want to take next.`;
       sourceCitation = 'OSU Course Bulletin 2026-2027';
     } else if (isMinor) {
-      const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
-      answer = `⚠️ **SERIOUS WARNING: Official Curriculum Declaration Requested**\n\nYou asked to officially declare the **${minorName}** as your real academic credential in BuckeyeLink.\n\nWhile the Degree Planner provides instant simulations, declaring a minor permanently binds 15-16 credit hours to your graduation audit and must be formally filed through OnCourse SIS. You can escalate directly to your advisor **Sarah Jenkins**, or if you confirm your choice below, your declaration will be transmitted straight to her desk for official processing.`;
-      sourceCitation = 'Ohio State minor declaration and inter-college policies';
-      escalationSuggested = true;
-      escalationReason = `Official declaration requires advisor sign-off in OnCourse SIS.`;
-      highStakesDecision = {
-        isHighStakes: true,
-        actionType: 'add_minor',
-        decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
-        warningSummary: `You are requesting to officially declare ${minorName} on your student master record. University policy prohibits AI agents from filing permanent curriculum declarations without human advisor validation.`,
-        consequences: [
-          'Credit Load & Overlap Limit: Only a limited number of credit hours can overlap between your major and a declared minor.',
-          'Inter-College Approval: Engineering and Arts & Sciences minors require college committee review and minimum 2.50 cumulative CPHR verification.',
-          'Graduation Requirement: Declared minors must be fully satisfied or formally dropped prior to degree conferral.'
-        ],
-        escalateRecommended: true
-      };
+      answer = `I couldn't reach the advising service just now, so I didn't change your minor. You can add or remove a minor under **My classes**, or see which minors you can add in the **What-If Minor Audit** tab.`;
+      sourceCitation = 'BuckAI minors (What-If Minor Audit)';
     }
 
     res.json({

@@ -912,19 +912,23 @@ export interface MinorAudit {
   overlapTooHigh: boolean; // Ohio State: at least 12 credit hours must be distinct from the major
 }
 
+// Why a student can't add this minor (their degree or a specialization is excluded), or null if they can
+export function minorBlockReason(minor: Program, degree: Program | undefined, specializationIds: string[]): string | null {
+  const excluded = minor.excluded_programs;
+  const degreeId = degree?.id ?? DEFAULT_DEGREE_ID;
+  if (excluded.includes(degreeId)) {
+    return degreeId === DEFAULT_DEGREE_ID
+      ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
+      : `Students in the ${degree?.name ?? 'your degree'} program can’t add this minor.`;
+  }
+  if (specializationIds.some((id) => excluded.includes(id))) return 'A minor must be in a different subject than your specialization.';
+  return null;
+}
+
 export function auditMinor(minor: Program, specializationIds: string[], semesters: Semester[], degreeAudit: DegreeAudit | null): MinorAudit {
   const progress = checkProgram(minor, semesters);
-  const excluded = minor.excluded_programs;
-  const degree = degreeAudit?.degree.program;
-  const degreeId = degree?.id ?? DEFAULT_DEGREE_ID;
-  const eligible = !excluded.includes(degreeId) && !specializationIds.some((id) => excluded.includes(id));
-  const ineligibleReason = eligible
-    ? null
-    : excluded.includes(degreeId)
-    ? degreeId === DEFAULT_DEGREE_ID
-      ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
-      : `Students in the ${degree?.name ?? 'your degree'} program can’t add this minor.`
-    : 'A minor must be in a different subject than your specialization.';
+  const ineligibleReason = minorBlockReason(minor, degreeAudit?.degree.program, specializationIds);
+  const eligible = !ineligibleReason;
 
   // Courses the student's major requirements already use
   const majorCodes = new Set<string>();
