@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Loader2, X, FileUp, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Loader2, X, FileUp, CheckCircle2, ExternalLink } from 'lucide-react';
 import { Semester } from '../data/sampleData';
 import {
   StudentRecord,
@@ -18,6 +18,8 @@ import { CurriculumLibrary, DEFAULT_DEGREE_ID, curriculumFor, guessDegree, guess
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
+// The Advising Report page in the real BuckeyeLink (as linked from buckeyelink.osu.edu/search)
+const ADVISING_REPORT_URL = 'https://buckeyelink.erp.osu.edu/psp/sps/EMPLOYEE/BUCK/c/OSR_CUSTOM_MENU.OSR_ADV_REPORT_CMP.GBL';
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -252,6 +254,18 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
             <p className="text-xs text-gray-500 mt-0.5">
               In BuckeyeLink, open your Advising Report and save it as a PDF. BuckAI reads your classes, grades, GPA, major,
               and advisor from it. The file itself isn&apos;t saved, and your student ID and birthdate are ignored.
+            </p>
+            <a
+              href={ADVISING_REPORT_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#ba0c2f] hover:underline"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open my Advising Report in BuckeyeLink
+            </a>
+            <p className="text-xs text-gray-500 mt-1">
+              Opens in a new tab. Sign in with your name.# if asked, then print or save the report as a PDF and drop it below.
             </p>
           </div>
           <label
