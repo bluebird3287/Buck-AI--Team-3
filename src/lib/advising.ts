@@ -13,7 +13,10 @@ export type RequestCategory =
   | 'drop_class'
   | 'add_minor'
   | 'change_major'
-  | 'withdraw';
+  | 'withdraw'
+  | 'pass_nonpass'
+  | 'overload'
+  | 'transfer_credit';
 
 export type RequestStatus = 'ai_review' | 'pending_advisor' | 'needs_info' | 'scheduled' | 'approved' | 'denied';
 
@@ -88,6 +91,9 @@ export const CATEGORY_LABELS: Record<RequestCategory, string> = {
   add_minor: 'Declare a minor',
   change_major: 'Change major',
   withdraw: 'Withdraw from term',
+  pass_nonpass: 'Pass/Non-Pass option',
+  overload: 'Credit overload (19+ hours)',
+  transfer_credit: 'Class at another school',
 };
 
 export const ADVISOR = {

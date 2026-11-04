@@ -154,6 +154,28 @@ from OSU Class Search; Summer 2026 stands in for future summers). Refresh it wit
 against requirements, summer limits, workload balance, and extra credits, and sends problems back
 (up to 3 passes).
 
+## Chat intents (where a request goes)
+
+`src/lib/chatIntents.ts` decides what a chat message is asking for, with plain patterns so it works even
+when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecision.actionType` fill gaps.
+
+- Navigation, answered instantly without the AI: booking or moving an advisor appointment (opens Advisor
+  Scheduling and pre-fills "What do you want to talk about?" from the message), seat alerts and full classes,
+  after-hours building access, "open the X tab", viewing the 4-year plan, and editing classes/GPA/entry term
+  (opens My classes). Questions about minors, professors, or remaining requirements go to the AI and get a
+  button to the matching tab.
+- Big decisions get a "This is a big decision" card (`HighStakesDecisionCard`): dropping a class in the
+  current term, withdrawing or taking a term off, Pass/Non-Pass, more than 18 credit hours, taking a class at
+  another school, and leaving the degree or college. The card is built by `buildDecision()` from the student's
+  own data (their real credit load and full-time status, the requirements the class counts toward, planned
+  classes it's a prerequisite for, single-season offerings), never from the AI's wording. The student picks
+  "Confirm with my advisor first" (request goes to `advising_requests` and Advisor Scheduling opens with the
+  topic filled in), "Go through with it" (after a checkbox, shows the BuckeyeLink steps and can remove the
+  class from their BuckAI schedule), or "Never mind".
+- Questions ("what happens if I drop…", "should I…") never trigger a card, and specialization or minor changes
+  stay with `programChange`. Dropping a class in a planned term is a plan edit, not a big decision.
+- A reply's `action` auto-opens its tab only when the reply is new, never when an old chat is reloaded.
+
 ## After-hours building access
 
 The BuckID office issues cards but doesn't grant door access; the department or college that runs

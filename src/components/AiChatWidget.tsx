@@ -32,6 +32,7 @@ import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
 import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
 import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
 import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDecisionCard';
+import type { ChatAction } from '../lib/chatIntents';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
@@ -63,7 +64,7 @@ export interface ChatMessage {
   escalationSuggested?: boolean;
   highStakesDecision?: HighStakesDecisionData | null;
   // A button under the message that opens another tab (and opens it right away if autoOpen)
-  action?: { label: string; tab: 'roadmap' | 'requirements'; autoOpen?: boolean };
+  action?: ChatAction;
   pending?: boolean; // a placeholder that will be replaced (not saved to the chat log)
   sentAt?: string; // when a saved message was sent (chat history)
 }
@@ -97,6 +98,8 @@ interface AiChatWidgetProps {
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
   specializationIds: string[];
+  onEditProfile?: () => void; // opens My classes
+  onRemoveFromSchedule?: (course: string) => void; // a class the student dropped in BuckeyeLink
 }
 
 
@@ -127,7 +130,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   onSimulateSeatDrop,
   audit,
   curriculum,
-  specializationIds
+  specializationIds,
+  onEditProfile,
+  onRemoveFromSchedule,
 }) => {
   // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
   const [openGe, setOpenGe] = useState<string | null>(null);
@@ -160,98 +165,74 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   // student's latest appointment request, so they see when the advisor decides.
   const [pickedSlot, setPickedSlot] = useState<MatchSlot | null>(null);
   const [pickedFormat, setPickedFormat] = useState<'In-Person' | 'Zoom' | 'Phone'>('In-Person');
+  // What the student wants to talk about, carried over from the chat ("book an appointment about dropping ACCTMIS 2300")
+  const [appointmentNote, setAppointmentNote] = useState('');
   const advisingState = useAdvisingState();
   const myEmail = studentFromProfile(profile).email;
   const myAppointment = advisingState.requests.find((r) => r.appointment && r.student.email === myEmail) ?? null;
 
   // Send the decision into the advisor's approval queue; BuckAI checks it first.
-  const queueForAdvisor = (decision: HighStakesDecisionData, confirmed: boolean) => {
-    const course = decision.decisionTitle.match(/[A-Z]{3,8}\s\d{4}/)?.[0];
-    const credits = course?.startsWith('MATH') ? 5 : course?.startsWith('CSE') ? 4 : 3;
-    submitRequest({
+  const queueForAdvisor = (decision: HighStakesDecisionData) => {
+    const course = decision.course ?? decision.decisionTitle.match(/[A-Z]{3,8}\s\d{4}/)?.[0];
+    return submitRequest({
       category: decision.actionType,
       title: decision.decisionTitle,
-      studentMessage: confirmed
-        ? `I understand the risks BuckAI listed and want to go ahead: ${decision.decisionTitle}.`
-        : `I'd like to talk with my advisor before deciding: ${decision.decisionTitle}.`,
-      details: decision.actionType === 'drop_class' ? { course, credits } : decision.actionType === 'add_minor' ? { minor: decision.decisionTitle.replace(/^Declare (the )?/, '').replace(/ on .*$/, '') } : undefined,
+      studentMessage: `I'd like to talk with my advisor before deciding: ${decision.decisionTitle}.\n\nWhat BuckAI flagged:\n${decision.consequences.map((c) => `- ${c}`).join('\n')}`,
+      details:
+        decision.actionType === 'drop_class'
+          ? { course, credits: decision.courseCredits }
+          : decision.actionType === 'add_minor'
+          ? { minor: decision.decisionTitle.replace(/^Declare (the )?/, '').replace(/ on .*$/, '') }
+          : undefined,
       student: studentFromProfile(profile),
     });
   };
 
+  const updateDecision = (messageId: string, updated: HighStakesDecisionData) => {
+    setLocalDecisions((prev) => ({ ...prev, [messageId]: updated }));
+    onUpdateDecision?.(messageId, updated);
+  };
+
+  // "Go through with it": the student acts in BuckeyeLink themselves; the card shows them how
+  const handleProceed = (messageId: string, decision: HighStakesDecisionData) => updateDecision(messageId, { ...decision, status: 'proceeding' });
+  const handleCancelDecision = (messageId: string, decision: HighStakesDecisionData) => updateDecision(messageId, { ...decision, status: 'cancelled' });
+  const handleRemoveFromSchedule = (messageId: string, decision: HighStakesDecisionData) => {
+    if (!decision.course || !onRemoveFromSchedule) return;
+    onRemoveFromSchedule(decision.course);
+    updateDecision(messageId, { ...decision, removedFromSchedule: true });
+  };
+
+  // Opens Advisor Scheduling with what the student wants to talk about filled in
+  const openAdvisorWith = (note?: string) => {
+    if (note) setAppointmentNote(note);
+    setActiveTab('advisor');
+  };
+
+  // A reply's button: a panel tab, or My classes
+  const runAction = (action: ChatAction) => {
+    if (action.tab === 'profile') onEditProfile?.();
+    else if (action.tab === 'advisor') openAdvisorWith(action.note);
+    else setActiveTab(action.tab);
+  };
+
+  // "Confirm with my advisor first": the request (with BuckAI's impacts) goes to the advisor's queue, and
+  // Advisor Scheduling opens with the topic filled in so the student can pick a time right away.
   const handleEscalateToAdvisor = async (messageId: string, decision: HighStakesDecisionData) => {
     setIsSubmittingEscalation(true);
     try {
-      const res = await fetch('/api/escalate-decision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentName: profile.name,
-          osuId: profile.osuId,
-          nameDotNum: profile.nameDotNum,
-          decisionType: decision.actionType,
-          decisionTitle: decision.decisionTitle,
-          userConfirmed: false,
-          notes: `Student requested direct advisor consultation regarding: ${decision.decisionTitle}`,
-        }),
-      });
-      const data = await res.json();
-      queueForAdvisor(decision, false);
-      const updated: HighStakesDecisionData = {
+      const sent = await queueForAdvisor(decision);
+      updateDecision(messageId, {
         ...decision,
         status: 'escalated_to_advisor',
-        ticketId: data.ticketId || `OSU-ADV-${Math.floor(100000 + Math.random() * 900000)}`,
-        advisorName: data.advisorName || 'Sarah Jenkins, M.Ed.',
-        advisorEmail: data.advisorEmail || 'jenkins.892@osu.edu',
-        dispatchedAt: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setLocalDecisions((prev) => ({ ...prev, [messageId]: updated }));
-      if (onUpdateDecision) {
-        onUpdateDecision(messageId, updated);
-      }
-      // Also open the advisor tab so the student can match available appointment times immediately
-      setActiveTab('advisor');
-    } catch (e) {
-      console.error('Failed to escalate to advisor:', e);
-    } finally {
-      setIsSubmittingEscalation(false);
-    }
-  };
-
-  const handleConfirmAndSendToAdvisor = async (messageId: string, decision: HighStakesDecisionData) => {
-    setIsSubmittingEscalation(true);
-    try {
-      const res = await fetch('/api/escalate-decision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentName: profile.name,
-          osuId: profile.osuId,
-          nameDotNum: profile.nameDotNum,
-          decisionType: decision.actionType,
-          decisionTitle: decision.decisionTitle,
-          userConfirmed: true,
-          notes: `Student explicitly confirmed understanding all academic risks. Sent directly to Sarah Jenkins for human review and expedited sign-off.`,
-        }),
+        ticketId: sent?.ticketId,
+        advisorName: profile.advisorName || decision.advisorName,
+        dispatchedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       });
-      const data = await res.json();
-      queueForAdvisor(decision, true);
-      const updated: HighStakesDecisionData = {
-        ...decision,
-        status: 'confirmed_and_sent',
-        ticketId: data.ticketId || `OSU-ADV-${Math.floor(100000 + Math.random() * 900000)}`,
-        advisorName: data.advisorName || 'Sarah Jenkins, M.Ed.',
-        advisorEmail: data.advisorEmail || 'jenkins.892@osu.edu',
-        dispatchedAt: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setLocalDecisions((prev) => ({ ...prev, [messageId]: updated }));
-      if (onUpdateDecision) {
-        onUpdateDecision(messageId, updated);
-      }
     } catch (e) {
-      console.error('Failed to confirm and send decision to advisor:', e);
+      console.error('Failed to send the decision to the advisor:', e);
     } finally {
       setIsSubmittingEscalation(false);
+      openAdvisorWith(`Before I decide: ${decision.decisionTitle}`);
     }
   };
 
@@ -261,9 +242,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const openedActions = useRef(new Set<string>());
   useEffect(() => {
     const last = messages[messages.length - 1];
-    if (last?.action?.autoOpen && !openedActions.current.has(last.id)) {
+    // Never for a message reloaded from chat history (sentAt), so opening an old chat doesn't jump tabs
+    if (last?.action?.autoOpen && !last.sentAt && !openedActions.current.has(last.id)) {
       openedActions.current.add(last.id);
-      setActiveTab(last.action.tab);
+      runAction(last.action);
     }
   }, [messages]);
 
@@ -302,7 +284,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   // Request the picked time; it goes to the advisor's approval queue after BuckAI checks it.
   const handleRequestAppointment = async () => {
     if (!pickedSlot) return;
-    const notes = 'Meeting to review my 4-year degree roadmap.';
+    const notes = appointmentNote.trim() || 'Meeting to review my 4-year degree plan.';
     const sent = await submitRequest({
       category: 'appointment',
       title: 'Advising appointment',
@@ -316,6 +298,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
     }
     onConfirmBooking(toAdvisorSlot(pickedSlot), pickedFormat, notes);
     setPickedSlot(null);
+    setAppointmentNote('');
   };
 
   // Group semesters by academic year for clean, spacious display
@@ -556,7 +539,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                     <div className="whitespace-pre-line text-xs sm:text-sm">{msg.text}</div>
                     {msg.action && (
                       <button
-                        onClick={() => setActiveTab(msg.action!.tab)}
+                        onClick={() => runAction(msg.action!)}
                         className="mt-1 inline-flex items-center gap-1.5 bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-1.5 rounded"
                       >
                         <BookOpen className="w-3.5 h-3.5" /> {msg.action.label}
@@ -609,8 +592,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                         <HighStakesDecisionCard
                           decision={dec}
                           onEscalateToAdvisor={(d) => handleEscalateToAdvisor(msg.id, d)}
-                          onConfirmAndSend={(d) => handleConfirmAndSendToAdvisor(msg.id, d)}
-                          onOpenAdvisorTab={() => setActiveTab('advisor')}
+                          onProceed={(d) => handleProceed(msg.id, d)}
+                          onCancel={(d) => handleCancelDecision(msg.id, d)}
+                          onRemoveFromSchedule={onRemoveFromSchedule ? (d) => handleRemoveFromSchedule(msg.id, d) : undefined}
+                          onOpenAdvisorTab={() => openAdvisorWith(`Before I decide: ${dec.decisionTitle}`)}
                           isSubmitting={isSubmittingEscalation}
                         />
                       );
@@ -921,7 +906,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start space-x-3.5">
                 <div className="w-11 h-11 rounded-full bg-red-100 text-[#ba0c2f] font-bold flex items-center justify-center text-sm shrink-0 border border-red-200">
-                  SJ
+                  {(profile.advisorName || 'Advisor').split(/[\s,]+/).filter((w) => /^[A-Z]/.test(w)).slice(0, 2).map((w) => w[0]).join('')}
                 </div>
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-gray-900">{profile.advisorName}</h3>
@@ -1000,6 +985,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                   ))}
                 </div>
               </fieldset>
+
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold text-gray-900">What do you want to talk about?</span>
+                <textarea
+                  value={appointmentNote}
+                  onChange={(e) => setAppointmentNote(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Whether to drop ACCTMIS 2300, or reviewing my 4-year plan"
+                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#ba0c2f]"
+                />
+                {appointmentNote && <span className="text-xs text-gray-500">Filled in from your chat with BuckAI. Your advisor sees this with the request.</span>}
+              </label>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg bg-gray-50 border border-gray-200 p-4">
                 <p className="text-sm text-gray-800" aria-live="polite">

@@ -1237,3 +1237,38 @@ export function auditMinor(minor: Program, specializationIds: string[], semester
     overlapTooHigh: creditsRequired - overlapCredits < 12,
   };
 }
+
+// ---------- Facts about one course, for the chat's big-decision cards ----------
+
+// The requirement entry for a course in the student's programs (exact code first, then an honors/section match).
+export function catalogCourse(curriculum: Curriculum | null, code: string): RequirementCourse | null {
+  if (!curriculum) return null;
+  const all = [...requiredPrograms(curriculum), ...curriculum.minors].flatMap((p) => p.groups.flatMap((g) => g.courses));
+  return all.find((c) => norm(c.code) === norm(code)) ?? all.find((c) => codeMatches(c.code, code)) ?? null;
+}
+
+// Courses in the student's programs that list `code` as a prerequisite (e.g. ACCTMIS 2300 for ACCTMIS 2200).
+export function coursesRequiring(curriculum: Curriculum | null, code: string): string[] {
+  if (!curriculum) return [];
+  const target = baseCode(code);
+  const out = new Set<string>();
+  for (const p of requiredPrograms(curriculum))
+    for (const g of p.groups)
+      for (const c of g.courses) {
+        const clauses = c.prerequisites ? parsePrereqs(c.prerequisites) : null;
+        if (clauses?.some((cl) => cl.codes.some((x) => baseCode(x) === target))) out.add(c.code);
+      }
+  return [...out];
+}
+
+// The requirements a course is counting toward right now, e.g. "Business Foundation (BSBA)".
+export function requirementsUsing(audit: DegreeAudit | null, code: string): string[] {
+  if (!audit) return [];
+  const c = norm(code);
+  return [audit.degree, ...audit.specializations, ...audit.specialPrograms].flatMap((p) =>
+    p.groups
+      .filter((g) => g.items.some((i) => i.state !== 'missing' && (norm(i.takenAs ?? '') === c || (norm(i.code) === c && !i.takenAs))))
+      // "Business Foundation (BSBA)" rather than repeating the degree's full name
+      .map((g) => `${g.group.title} (${p.program.kind === 'degree' ? /\(([^)]+)\)$/.exec(p.program.name)?.[1] ?? p.program.name : p.program.name})`),
+  );
+}

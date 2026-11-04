@@ -26,6 +26,7 @@ import {
 } from './lib/chatLog';
 import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
+import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, detectNavigation, navigationFromAi } from './lib/chatIntents';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
 import { AdvisorSlot, Semester, StudentProfile } from './data/sampleData';
@@ -39,6 +40,7 @@ interface AppProps {
   onPlanTermsChange?: (plan: PlanTerms) => void;
   // Saves a specialization or minor change the student made from the chat
   onProgramChange?: (change: { specialization_ids: string[]; major: string; minor: string | null }) => void;
+  onEditProfile?: () => void; // opens My classes
 }
 
 // What the advising chat asks BuckAI to change about the student's programs
@@ -82,7 +84,7 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
 const minorTitle = (name: string) => (/\bminor\b/i.test(name) ? name : `${name} minor`);
 const withMinor = (name: string) => `the ${minorTitle(name)}`;
 
-export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange }: AppProps) {
+export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange, onEditProfile }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
@@ -198,6 +200,33 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     };
 
     setMessages((prev) => [...prev, userMsg]);
+
+    // "Book an appointment with my advisor", "open seat alerts", "I need after-hours access to Dreese":
+    // take the student straight there, no AI round trip needed.
+    const navigation = detectNavigation(text);
+    if (navigation?.handleLocally) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now() + 1}`,
+          role: 'assistant',
+          text: navigation.reply,
+          action: navigation.action,
+          sourceCitation: 'BuckAI',
+          confidence: 'high',
+          confidenceExplanation: 'BuckAI opened the part of the portal that handles this request.',
+          escalationSuggested: false,
+        },
+      ]);
+      return;
+    }
+    const decisionContext: DecisionContext = {
+      profile,
+      roadmap,
+      curriculum,
+      audit,
+      specializationNames: curriculum?.specializations.map((p) => p.name.split(' (')[0]) ?? [],
+    };
     setIsChatLoading(true);
 
     try {
@@ -235,26 +264,12 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       const change = changeRequested ? applyProgramChange(data.programChange) : null;
       const planning = wantsRoadmap || !!change?.applied;
 
-      let highStakesDecision: HighStakesDecisionData | null = planning ? null : data.highStakesDecision || null;
-      const lower = text.toLowerCase();
-      const isDrop = dropsAClass(lower);
-      // Backup for dropping a class when Claude didn't flag it. Minors aren't covered here: Claude adds,
-      // drops, or declines them through programChange, and a minor isn't a class drop.
-      if (!planning && !changeRequested && !highStakesDecision && isDrop) {
-        const course = currentCourseMentioned(lower) ?? 'this class';
-        highStakesDecision = {
-          isHighStakes: true,
-          actionType: 'drop_class',
-          decisionTitle: `Drop ${course} from Autumn 2026 Active Enrollment`,
-          warningSummary: `You requested to drop ${course} as your real choice. An AI cannot unilaterally execute irreversible schedule drops. Dropping drops your enrolled credits below 12 credit hours, threatening financial aid and delaying prerequisite sequences.`,
-          consequences: [
-            'Financial Aid Risk: Dropping lowers enrolled credits below 12 credit hours, jeopardizing full-time status and Title IV FAFSA and merit scholarships.',
-            `Prerequisite Sequence: Disrupts mandatory prerequisite chains, postponing graduation by up to 2 semesters.`,
-            'Permanent Record: Dropping past the 4th Friday generates a permanent "W" mark on your official transcript.'
-          ],
-          escalateRecommended: true,
-        };
-      }
+      // Big decisions (dropping a class, withdrawing, Pass/Non-Pass, ...) get a card built from the student's own
+      // term, plan, and requirements. BuckAI's patterns and the AI's flag both count; the AI's wording isn't used.
+      const decisionType = planning || changeRequested ? null : detectDecision(text, decisionContext) ?? decisionTypeFromAi(data.highStakesDecision);
+      const highStakesDecision: HighStakesDecisionData | null = decisionType ? buildDecision(decisionType, text, decisionContext) : null;
+      // A button to the tab that answers this (minors, faculty ratings, requirements), or one the AI asked for
+      const action = highStakesDecision || planning ? undefined : navigation?.action ?? navigationFromAi(data.openTab, data.bookingReason) ?? undefined;
 
       const aiMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -265,6 +280,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         confidenceExplanation: data.confidenceExplanation || 'Verified against Ohio State curriculum rules.',
         escalationSuggested: data.escalationSuggested || (!!highStakesDecision),
         highStakesDecision,
+        action,
       };
 
       // A change BuckAI couldn't make replaces Claude's reply, which may have said it was done
@@ -285,31 +301,21 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       console.warn('API fallback:', err);
       const textLower = text.toLowerCase();
       const isHold = textLower.includes('hold') || textLower.includes('lock');
-      const isDrop = dropsAClass(textLower);
       const isMinor = declaresMinor(textLower);
+      const fallbackType = detectDecision(text, decisionContext);
 
       let fallbackText = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
       let fallbackEscalation = false;
       let fallbackCitation = 'OSU Course Bulletin 2026-2027';
       let fallbackHighStakes: HighStakesDecisionData | null = null;
+      let fallbackAction = navigation?.action;
 
-      if (isDrop) {
-        const course = currentCourseMentioned(textLower) ?? 'this class';
-        fallbackText = `⚠️ Academic Record Guardrail: You requested to drop ${course} as a real academic choice.\n\nPer university policy, AI assistants cannot unilaterally alter transcripts. Dropping below 12 credit hours terminates full-time status (risking FAFSA & scholarships) and delays your prerequisite chain.\n\nPlease review the impacts below. You can escalate directly to Sarah Jenkins or submit for expedited advisor sign-off.`;
-        fallbackCitation = 'OSU Faculty Rule 3335-8-32 & your college undergraduate handbook';
+      if (fallbackType) {
+        fallbackHighStakes = buildDecision(fallbackType, text, decisionContext);
+        fallbackText = `This is a big decision, so I've laid out what it would mean for you based on your classes and plan. Choose whether to go through with it yourself or confirm with ${profile.advisorName || 'your advisor'} first.`;
+        fallbackCitation = 'Your BuckAI classes, plan, and degree requirements';
         fallbackEscalation = true;
-        fallbackHighStakes = {
-          isHighStakes: true,
-          actionType: 'drop_class',
-          decisionTitle: `Drop ${course} (Autumn 2026 Enrollment)`,
-          warningSummary: `You are requesting to officially drop ${course}. Doing so carries financial aid and degree completion implications. Automated AI systems cannot modify your official SIS transcript without advisor sign-off.`,
-          consequences: [
-            'Financial Aid: Dropping below 12 credits terminates full-time status (FAFSA and scholarship risk).',
-            `Prerequisites: ${course} is a required prerequisite for 3000-level core courses, delaying graduation 1–2 terms.`,
-            'Transcript: Drops processed after the 4th Friday generate a permanent "W" mark on your official transcript.'
-          ],
-          escalateRecommended: true
-        };
+        fallbackAction = undefined;
       } else if (isMinor) {
         fallbackText = `I couldn't reach the advising service just now, so I didn't change your minor. You can add or remove a minor under **My classes**, or check which minors you can add in the **What-If Minor Audit** tab.`;
         fallbackCitation = 'BuckAI minors (What-If Minor Audit)';
@@ -334,6 +340,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           confidenceExplanation: 'Loaded directly from SIS degree audit rules.',
           escalationSuggested: fallbackEscalation,
           highStakesDecision: fallbackHighStakes,
+          action: fallbackAction,
         }
       ]);
     } finally {
@@ -725,15 +732,6 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // "What if I dropped…" is a question, not a decision.
   const isExploring = (textLower: string) => /\b(what if|what would|should i|would it|thinking about|considering)\b/.test(textLower);
 
-  function dropsAClass(textLower: string): boolean {
-    const programNames = curriculum
-      ? [...curriculum.specializations, ...curriculum.minors].map((p) => p.name.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
-      : [];
-    const isAboutProgram =
-      /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(textLower) || programNames.some((n) => textLower.includes(n));
-    return (textLower.includes('drop') || textLower.includes('withdraw')) && !isAboutProgram && !isExploring(textLower);
-  }
-
   function declaresMinor(textLower: string): boolean {
     return (
       textLower.includes('minor') &&
@@ -743,11 +741,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     );
   }
 
-  // A class code from this term's schedule that the student mentioned, if any.
-  function currentCourseMentioned(textLower: string): string | undefined {
-    const current = roadmap.find((s) => s.status === 'in-progress');
-    return current?.courses.find((c) => textLower.includes(c.code.toLowerCase()))?.code;
-  }
+  // After the student drops a class in BuckeyeLink, take it off their current term in BuckAI too
+  const handleRemoveFromSchedule = (code: string) => {
+    const plan = normalizeSemesters(
+      roadmap.map((s) => (s.status === 'in-progress' ? { ...s, courses: s.courses.filter((c) => c.code.toUpperCase() !== code.toUpperCase()) } : s)),
+    );
+    setRoadmap(plan);
+    onRoadmapChange(plan);
+  };
 
   const handleConfirmBooking = (slot: AdvisorSlot, format: string, notes: string) => {
     setBookedSlot(slot);
@@ -932,6 +933,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         audit={audit}
         curriculum={curriculum}
         specializationIds={specializationIds}
+        onEditProfile={onEditProfile}
+        onRemoveFromSchedule={handleRemoveFromSchedule}
       />
 
       {/* Which terms to plan, asked before every roadmap build */}

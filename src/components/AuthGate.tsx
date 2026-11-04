@@ -178,6 +178,7 @@ export const AuthGate: React.FC = () => {
           planTerms={record!.plan_terms ?? null}
           onPlanTermsChange={handlePlanTermsChange}
           onProgramChange={handleProgramChange}
+          onEditProfile={() => setEditing(true)}
         />
       )}
     </div>

@@ -146,13 +146,15 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   "escalationReason": "string or null (why an advisor meeting is recommended)",
   "highStakesDecision": {
     "isHighStakes": boolean,
-    "actionType": "'drop_class' | 'add_minor' | 'change_major' | 'withdraw' | null (use 'change_major' for adding, dropping, or switching a major or specialization)",
+    "actionType": "'drop_class' | 'withdraw' | 'pass_nonpass' | 'overload' | 'transfer_credit' | 'change_major' | null",
     "decisionTitle": "string or null (e.g. 'Drop ACCTMIS 2300 (Intro to Accounting 2)' or 'Declare Computer Science (CSE) Minor')",
     "warningSummary": "string or null (concise 1-2 sentence notice: AI cannot modify transcripts; official changes require human advisor authorization)",
     "consequences": ["array of 2-3 short, concise consequences, e.g. 'Dropping drops enrolled hours to 12 cr (Full-Time FAFSA risk)', 'Interrupts core prerequisite chain for BUSFIN 3220, delaying graduation 1-2 terms', 'Dropping after the 4th Friday creates a permanent W mark on transcript'"],
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
+  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
+  "bookingReason": "string or null (when openTab is 'advisor': what the student wants to discuss, in their words, e.g. 'Whether to drop ACCTMIS 2300')",
   "roadmapRequest": {
     "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
     "instructions": "string or null (their preferences for the plan in one or two sentences, e.g. 'Graduate in Spring 2029, keep terms around 15 credits, add the Insurance minor')"
@@ -168,20 +170,38 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   }
 }
 
-IMPORTANT: When a student asks to make a big decision like dropping a class they're enrolled in (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) as a 'real choice' or asks the AI to actually execute it:
-- Keep the response clear, direct, and concise (not overly verbose).
-- You MUST set "highStakesDecision.isHighStakes" to true. Specialization and minor changes are NOT high-stakes here: apply them with "programChange" (or decline them if the minor is closed to the student), and leave "highStakesDecision" null.
-- Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
-- Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor.
+Big decisions: when the student asks to actually do something that is hard to undo, set "highStakesDecision.isHighStakes" true with the matching "actionType":
+- 'drop_class': dropping a class they're enrolled in now (a class in a PLANNED term is a plan change: use "roadmapRequest" instead).
+- 'withdraw': withdrawing from all classes, leaving school, a leave of absence, or taking a term off.
+- 'pass_nonpass': taking or switching a class to Pass/Non-Pass.
+- 'overload': scheduling more than 18 credit hours in a term.
+- 'transfer_credit': taking a class at another school to transfer in.
+- 'change_major': leaving their degree or college for a different major (a Fisher specialization or minor change is NOT this; use "programChange").
+BuckAI then shows the student a "this is a big decision" card with their own consequences (their real credit load, the requirements and prerequisites the class affects) and asks whether to go through with it or confirm with their advisor first. So in "answer":
+- Keep it to 2-4 short sentences: acknowledge the request, say it's a big decision, and name the one or two things that matter most from the request data (e.g. that the class is a prerequisite for something in their plan).
+- Don't invent numbers or deadlines. Never claim they'll drop below 12 credit hours unless the current-term classes in the request show it.
+- Never say it's done: BuckAI can't change their official record; the student does that in BuckeyeLink, or their advisor does.
+If they're only asking about it ("what happens if I drop…", "should I…"), answer the question and leave "highStakesDecision" null.
+
+Sending the student to the right place: set "openTab" when a tab in this panel does what they want, and BuckAI shows a button to it:
+- 'advisor': booking, moving, or asking about an advisor appointment (put the topic in "bookingReason").
+- 'seatAlerts': a full class, waitlists, or being told when a seat opens.
+- 'studyAccess': after-hours or weekend access to a building.
+- 'rmp': which professor or section to take, faculty ratings, or peer tips.
+- 'whatif': comparing or exploring minors.
+- 'requirements': what they still need to graduate.
+- 'roadmap': looking at their 4-year plan.
+Holds, registration errors, tuition, and financial aid questions aren't tabs here: answer what you can and point them to their advisor, the Registrar, or Student Financial Aid.
 
 What BuckAI can do from this chat (set the matching field; never say something is done unless you set it):
 - Change the student's specializations or minor in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
 - Build or change their plan of future terms: set "roadmapRequest.build" true. This covers building a plan, adding, removing, moving, or swapping specific classes, lighter or heavier terms, graduating earlier or later, adding a minor's or specialization's classes, and fixing gaps. Put exactly what they asked for in "instructions".
-- Route a decision to their advisor: set "highStakesDecision" (see below).
+- Show a big-decision card for an irreversible request (see "Big decisions" above).
+- Send them to a tab in this panel: set "openTab".
 What BuckAI can't do from this chat (say so plainly and point them to the right place):
 - Change classes they've completed or are taking now, grades, GPA, or their degree/college: they edit those under "My classes".
 - Register, drop, or withdraw from a class in BuckeyeLink, or change their official record: only they (in BuckeyeLink) or their advisor can.
-- Seat alerts, after-hours building access, and advisor appointments have their own tabs in this panel.
+- Seat alerts, after-hours building access, and advisor appointments have their own tabs in this panel (set "openTab").
 
 Specializations, majors, and minors (programs, not classes):
 - "Drop", "remove", "switch", or "stop pursuing" a specialization or minor means changing a program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
@@ -294,38 +314,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       };
     }
 
-    // Guardrail check: if student prompt asked to drop a class or declare/pick up a minor as a real choice, ensure highStakesDecision is attached
-    const lowerPrompt = (message || '').toLowerCase();
-    // "Drop my Finance specialization", "drop finance", or "drop the minor" isn't dropping a class,
-    // and "what if I dropped…" is a question, not a decision.
-    const programNames: string[] = [...(programOptions?.specializations || []), ...(programOptions?.minors || [])]
-      .map((n: string) => n.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
-      .filter(Boolean);
-    const isAboutProgram =
-      /speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b/.test(lowerPrompt) || programNames.some((n) => lowerPrompt.includes(n));
-    const isExploring = /\b(what if|what would|should i|would it|thinking about|considering)\b/.test(lowerPrompt);
-    const isDroppingClass = (lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw')) && !isAboutProgram && !isExploring;
-    // Planning a roadmap (even "add a minor to my plan") isn't a high-stakes record change. Minors aren't
-    // forced here either: Claude adds, drops, or declines them through "programChange".
-    const isPlanning = !!parsed.roadmapRequest?.build || !!parsed.programChange;
-    if (!isPlanning && isDroppingClass && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
-      const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
-      parsed.highStakesDecision = {
-        isHighStakes: true,
-        actionType: 'drop_class',
-        decisionTitle: `Drop ${courseCode} from Autumn 2026 Active Enrollment`,
-        warningSummary: `You are requesting to officially drop ${courseCode}. Per Ohio State University Academic Senate regulations, an AI assistant cannot alter your official registration record directly. Dropping this course carries immediate academic standing, financial aid, and graduation consequences.`,
-        consequences: [
-          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
-          `Prerequisite Disruption: ${courseCode} is a prerequisite for later courses in your major, pushing your planned graduation back by up to two terms.`,
-          'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
-        ],
-        escalateRecommended: true
-      };
-      parsed.escalationSuggested = true;
-      parsed.escalationReason = `Permanent course withdrawal for ${courseCode} requires human academic advisor verification.`;
-    }
-
+    // Big-decision cards are built in the app from the student's own classes and requirements
+    // (src/lib/chatIntents.ts), so nothing is forced here; the AI's flag only tells the app which kind it is.
     res.json(parsed);
   } catch (error: any) {
     console.warn('Claude API unavailable, providing grounded curriculum fallback:', error?.message);
@@ -349,23 +339,12 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     let highStakesDecision: any = null;
 
     if (isDrop) {
-      const course = textLower.includes('acctmis') ? 'ACCTMIS 2300' : textLower.includes('math') ? 'MATH 1152' : textLower.includes('cse') ? 'CSE 2221' : 'ACCTMIS 2300';
-      answer = `⚠️ **SERIOUS WARNING:** You have requested to drop **${course}** from your active semester schedule as a real academic choice.\n\nPer Ohio State University policy, automated AI systems cannot make unilateral modifications to your official student transcript. Dropping this course carries severe risks to your full-time student status (dropping below 12 credits risks immediate financial aid loss) and disrupts your prerequisite roadmap.\n\nPlease review the critical warnings below. You can escalate directly to your assigned advisor **Sarah Jenkins** or, if you choose to confirm your decision, your request will be immediately dispatched directly to her for human review and expedited sign-off.`;
-      sourceCitation = 'OSU Faculty Rule 3335-8-32 (Course Enrollment Alterations)';
+      // The app builds the big-decision card from the student's own classes; this only says what it is
+      answer = `Dropping a class you're enrolled in is a big decision. I've laid out what it would mean for you below. Choose whether to go through with it yourself in BuckeyeLink, or confirm with your advisor first.`;
+      sourceCitation = 'Your BuckAI classes, plan, and degree requirements';
       escalationSuggested = true;
-      escalationReason = `Course withdrawal requires certified advisor review to safeguard financial aid and prerequisite sequence.`;
-      highStakesDecision = {
-        isHighStakes: true,
-        actionType: 'drop_class',
-        decisionTitle: `Drop ${course} from Autumn 2026 Active Enrollment`,
-        warningSummary: `You are requesting to officially drop ${course}. Doing so carries irreversible financial aid and degree completion implications. Per university policy, an AI assistant cannot modify your official SIS transcript autonomously without certified advisor sign-off.`,
-        consequences: [
-          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and risking Title IV FAFSA and merit scholarship aid.',
-          `Prerequisite Disruption: ${course} is a hard prerequisite for next-term courses (such as BUSFIN 3220 or CSE 2231), delaying your graduation by up to two full semesters.`,
-          'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
-        ],
-        escalateRecommended: true
-      };
+      escalationReason = 'Dropping a class can affect full-time status, financial aid, and prerequisites.';
+      highStakesDecision = { isHighStakes: true, actionType: 'drop_class' };
     } else if (isMarcSmith) {
       answer = `📊 **Marc Smith Faculty Evaluations & Workload Recommendations (ACCTMIS 2200 & 2300):**\n\n` +
         `Marc Smith is celebrated as one of Ohio State's most engaging and legendary instructors (4.7/5.0 overall rating), but student evaluations overwhelmingly agree: **his accounting class is A LOT OF WORK.**\n\n` +
