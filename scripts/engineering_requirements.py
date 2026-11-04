@@ -22,6 +22,7 @@ from fisher_requirements import build, c, group  # noqa: E402
 
 COLLEGE = "College of Engineering"
 CATALOG = "College of Engineering, admitted 2026-2027"
+ENTRY_FROM = "autumn-2026"  # first entering class these curriculum sheets cover
 SHEETS = "https://advising.engineering.osu.edu/current-students/curriculum-sheets-major"
 GPA_NOTE = "Ohio State requires a 2.00 cumulative GPA to graduate; a D or better passes a course, but some prerequisites need C- or better."
 
@@ -2811,7 +2812,9 @@ add_cross_listings(MINORS)
 def main():
     scope = sys.argv[1] if len(sys.argv) > 1 else "degree"
     if scope == "degree":
-        print(build(PROGRAMS, scope, 200, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG))
+        # The curriculum sheets are for students admitted 2026-2027; the app warns students who entered earlier
+        print(build(PROGRAMS, scope, 200, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG,
+                    entry_from=ENTRY_FROM))
     elif scope == "minors":
         print(build(MINORS, scope, 300, college=COLLEGE, script="engineering_requirements.py", catalog=CATALOG))
     else:

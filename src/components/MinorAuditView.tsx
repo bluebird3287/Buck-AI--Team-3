@@ -39,8 +39,18 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
         .sort((a, b) => Number(b.result.eligible) - Number(a.result.eligible) || b.result.creditsCounted - a.result.creditsCounted),
     [curriculum, specializationIds, roadmap, audit],
   );
+  // Which college's minors to show ('' = every college), then which minor
+  const [college, setCollege] = useState<string>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = minors.find((m) => m.minor.id === selectedId) ?? minors[0];
+  const sectionOf = (m: { college: string }) =>
+    MINOR_SECTIONS.find((sec) => sec.college === m.college) ?? MINOR_SECTIONS[MINOR_SECTIONS.length - 1];
+  const sections = MINOR_SECTIONS.map((sec) => ({ ...sec, minors: minors.filter(({ minor: m }) => sectionOf(m) === sec) })).filter(
+    (sec) => sec.minors.length > 0,
+  );
+  const shown = college ? minors.filter(({ minor: m }) => sectionOf(m).title === college) : minors;
+  const selected = shown.find((m) => m.minor.id === selectedId) ?? shown[0];
+  // Eligible minors the student already has credit toward, best first
+  const closest = shown.filter((m) => m.result.eligible && m.result.creditsCounted > 0).slice(0, 3);
 
   if (!curriculum) return <div className="p-6 text-sm text-gray-600">Loading minors…</div>;
   if (!selected) return <div className="p-6 text-sm text-gray-600">No minors found.</div>;
@@ -68,50 +78,65 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
         </p>
       </div>
 
-      {MINOR_SECTIONS.map((section) => {
-        const inSection = minors.filter(({ minor: m }) =>
-          section.college ? m.college === section.college : !MINOR_SECTIONS.some((s) => s.college === m.college),
-        );
-        if (inSection.length === 0) return null;
-        return (
-      <div key={section.title} className="space-y-2">
-      <h4 className="text-sm font-bold text-gray-900">
-        {section.title} <span className="font-normal text-gray-500">· {section.subtitle} · {inSection.length}</span>
-      </h4>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {inSection.map(({ minor: m, result: r }) => {
-          const p = Math.min(100, Math.round((r.creditsCounted / r.creditsRequired) * 100));
-          const isSelected = m.id === minor.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setSelectedId(m.id)}
-              className={`text-left p-3 rounded-lg border transition-colors ${
-                isSelected ? 'border-[#ba0c2f] bg-red-50 ring-1 ring-[#ba0c2f]' : 'border-gray-200 bg-white hover:border-gray-300'
-              } ${r.eligible ? '' : 'opacity-70'}`}
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <label className="text-xs font-semibold text-gray-700 space-y-1">
+            <span>College</span>
+            <select
+              className="w-full text-sm px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[#ba0c2f]"
+              value={college}
+              onChange={(e) => {
+                setCollege(e.target.value);
+                setSelectedId(null);
+              }}
             >
-              <div className="font-semibold text-sm text-gray-900">{m.name}</div>
-              {r.eligible ? (
-                <>
-                  <div className="text-xs text-gray-600 mt-1">
-                    {r.creditsCounted} of {r.creditsRequired} credit hours on your plan
-                  </div>
-                  <div className="w-full h-1.5 bg-gray-200 rounded-full mt-2 overflow-hidden">
-                    <div className="h-full bg-[#ba0c2f]" style={{ width: `${p}%` }} />
-                  </div>
-                </>
-              ) : (
-                <div className="text-xs text-gray-600 mt-1 flex items-center gap-1">
-                  <Ban className="w-3 h-3" /> Not available with your major
-                </div>
-              )}
-            </button>
-          );
-        })}
+              <option value="">All colleges ({minors.length} minors)</option>
+              {sections.map((sec) => (
+                <option key={sec.title} value={sec.title}>
+                  {sec.subtitle} ({sec.minors.length})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-gray-700 space-y-1">
+            <span>Minor</span>
+            <select
+              className="w-full text-sm px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[#ba0c2f]"
+              value={selected.minor.id}
+              onChange={(e) => setSelectedId(e.target.value)}
+            >
+              {sections
+                .filter((sec) => !college || sec.title === college)
+                .map((sec) => (
+                  <optgroup key={sec.title} label={sec.subtitle}>
+                    {sec.minors.map(({ minor: m, result: r }) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                        {r.eligible ? ` · ${r.creditsCounted} of ${r.creditsRequired} cr on your plan` : ' · not available with your major'}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+            </select>
+          </label>
+        </div>
+        {closest.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-gray-500">Closest to done:</span>
+            {closest.map(({ minor: m, result: r }) => (
+              <button
+                key={m.id}
+                onClick={() => setSelectedId(m.id)}
+                className={`px-2.5 py-1 rounded-full border ${
+                  m.id === selected.minor.id ? 'border-[#ba0c2f] bg-red-50 text-[#ba0c2f]' : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                {m.name} · {r.creditsCounted}/{r.creditsRequired} cr
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      </div>
-        );
-      })}
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">

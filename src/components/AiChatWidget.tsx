@@ -375,6 +375,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('whatif')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'whatif'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>What-If Minor Audit</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('roadmap')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'roadmap'
@@ -396,18 +408,6 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>Degree Requirements</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('whatif')}
-            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
-              activeTab === 'whatif'
-                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
-                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>What-If Minor Audit</span>
           </button>
 
           <button

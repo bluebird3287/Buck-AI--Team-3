@@ -492,7 +492,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   // The saved term choices, adjusted by anything the request says about summers
   // ("only 1-2 online classes over the summers"), for the student to confirm.
   const termsFor = (text: string): PlanTerms => {
-    const base = planTerms ?? defaultPlanTerms(roadmap);
+    const base = planTerms ?? defaultPlanTerms(roadmap, profile.expectedGraduation);
     const prefs = planPrefsFromText(text);
     if (prefs.summers === undefined) return base;
     const grad = parseTerm({ id: base.graduation });

@@ -13,8 +13,22 @@ import {
   normalizeSemesters,
   ParsedAdvisingReport,
   semestersFromReport,
+  entryTermOf,
+  termChoices,
+  termKey,
+  classOf,
 } from '../lib/studentProfile';
-import { CurriculumLibrary, DEFAULT_DEGREE_ID, curriculumFor, findProgram, guessDegree, guessSpecializations, minorBlockReason } from '../lib/requirements';
+import {
+  CurriculumLibrary,
+  DEFAULT_DEGREE_ID,
+  curriculumFor,
+  entryWindowLabel,
+  findProgram,
+  guessDegree,
+  guessSpecializations,
+  minorBlockReason,
+  specialProgramsFor,
+} from '../lib/requirements';
 
 // Vercel rejects request bodies over 4.5 MB, and base64 adds about a third.
 const MAX_REPORT_BYTES = 3 * 1024 * 1024;
@@ -46,6 +60,9 @@ const COLLEGES = [
 const STANDINGS = ['Freshman (Year 1)', 'Sophomore (Year 2)', 'Junior (Year 3)', 'Senior (Year 4)', 'Senior (Year 5+)'];
 
 const YEARS = Array.from({ length: 9 }, (_, i) => CURRENT_TERM.year - 5 + i);
+// Entering and graduating terms a current student could have
+const ENTRY_TERMS = termChoices(CURRENT_TERM.year - 7, CURRENT_TERM.year + 1).reverse();
+const GRADUATION_TERMS = termChoices(CURRENT_TERM.year, CURRENT_TERM.year + 7);
 
 interface MyClassesEditorProps {
   library: CurriculumLibrary | null;
@@ -62,7 +79,12 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
   const [minor, setMinor] = useState(initial?.minor ?? '');
   // Degree (Fisher BSBA or an Engineering BS); its specializations come from the curriculum
   const [degreeId, setDegreeId] = useState<string>(initial?.degree_id ?? DEFAULT_DEGREE_ID);
-  const curriculum = library ? curriculumFor(library, degreeId) : null;
+  // Requirements depend on the entering class (e.g. GE Legacy before Autumn 2022, Accounting Honors Class of 2028+)
+  const [entryTerm, setEntryTerm] = useState<string>(initial ? entryTermOf(initial) ?? '' : '');
+  const [expectedGraduation, setExpectedGraduation] = useState<string>(initial?.expected_graduation ?? initial?.plan_terms?.graduation ?? '');
+  const [specialProgramIds, setSpecialProgramIds] = useState<string[]>(initial?.special_program_ids ?? []);
+  const curriculum = library ? curriculumFor(library, degreeId, { entryTerm: entryTerm || null, specialProgramIds }) : null;
+  const specialOptions = library ? specialProgramsFor(library, degreeId) : [];
   const isFisher = degreeId === DEFAULT_DEGREE_ID;
   const [college, setCollege] = useState(initial?.college ?? 'Fisher College of Business');
   // A student can have a second specialization (e.g. Finance + Tech Innovation)
@@ -105,6 +127,8 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
     setDegreeId(id);
     setSpecializationId('');
     setSecondSpecializationId('');
+    // Special programs belong to a degree (university-wide ones stay)
+    setSpecialProgramIds((prev) => prev.filter((sp) => library?.specialPrograms.some((p) => p.id === sp && (!p.parent_id || p.parent_id === id))));
     const chosen = library?.degrees.find((p) => p.id === id);
     if (chosen) setCollege(chosen.college);
   };
@@ -150,6 +174,8 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
       setReportImportedAt(new Date().toISOString());
       const terms = semestersFromReport(report);
       setSemesters(terms);
+      // The report's first term is when the student entered, unless they already chose one
+      if (!entryTerm) setEntryTerm(entryTermOf({ semesters: terms }) ?? '');
       const count = terms.reduce((n, t) => n + t.courses.length, 0);
       setImportMessage(`Read ${count} classes across ${terms.length} terms. Check everything below, then save.`);
     } catch (err: any) {
@@ -211,9 +237,23 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
       setError('GPA must be between 0.00 and 4.00.');
       return;
     }
+    const keyOf = (id: string) => {
+      const t = parseTerm({ id });
+      return t ? termKey(t.season, t.year) : 0;
+    };
+    if (entryTerm && expectedGraduation && keyOf(expectedGraduation) <= keyOf(entryTerm)) {
+      setError('Your expected graduation has to come after the term you entered Ohio State.');
+      return;
+    }
+    // Keep the 4-year plan's graduation term in step with the profile
+    const planTerms = initial?.plan_terms && expectedGraduation ? { ...initial.plan_terms, graduation: expectedGraduation } : initial?.plan_terms;
     setSaving(true);
     try {
       await onSave({
+        entry_term: entryTerm || entryTermOf({ semesters }) || null,
+        expected_graduation: expectedGraduation || null,
+        special_program_ids: specialProgramIds,
+        ...(planTerms !== undefined ? { plan_terms: planTerms } : {}),
         full_name: fullName.trim(),
         major: specializationName(specializationId, secondSpecializationId) || major.trim(),
         degree_id: degreeId,
@@ -443,7 +483,81 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
               <span>Cumulative GPA</span>
               <input className={inputCls} value={gpa} onChange={(e) => setGpa(e.target.value)} inputMode="decimal" placeholder="Optional, e.g. 3.45" />
             </label>
+            <label className="text-xs font-semibold text-gray-700 space-y-1">
+              <span>Entered Ohio State *</span>
+              <select className={inputCls} value={entryTerm} onChange={(e) => setEntryTerm(e.target.value)}>
+                <option value="">Select…</option>
+                {ENTRY_TERMS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-gray-700 space-y-1">
+              <span>Expected graduation</span>
+              <select className={inputCls} value={expectedGraduation} onChange={(e) => setExpectedGraduation(e.target.value)}>
+                <option value="">Select…</option>
+                {GRADUATION_TERMS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </label>
           </div>
+          {curriculum && entryTerm && (
+            <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 space-y-1">
+              <p>
+                <strong>Your requirements:</strong> {curriculum.degree.name}, the version for {entryWindowLabel(curriculum.degree)}
+                {expectedGraduation ? ` · ${classOf(expectedGraduation)}` : ''}.
+              </p>
+              {curriculum.cohortNotes.map((n) => (
+                <p key={n} className="text-amber-800">{n}</p>
+              ))}
+            </div>
+          )}
+          {specialOptions.length > 0 && (
+            <div className="space-y-2">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Honors &amp; special programs</h3>
+                <p className="text-xs text-gray-500">
+                  Check any program you&apos;ve been admitted to. BuckAI adds its courses to your requirements and applies its waivers
+                  (for example, Accounting Honors waives BUSMHR 2292).
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {specialOptions.map((p) => {
+                  const version = curriculum?.availableSpecialPrograms.find((v) => v.id === p.id) ?? p;
+                  const checked = specialProgramIds.includes(p.id);
+                  const specs = [specializationId, secondSpecializationId].filter(Boolean);
+                  const needs = p.requires_programs.filter((id) => !specs.includes(id));
+                  return (
+                    <label
+                      key={p.id}
+                      className={`flex items-start gap-2 p-2.5 rounded-md border text-xs cursor-pointer ${
+                        checked ? 'border-[#ba0c2f] bg-red-50' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 accent-[#ba0c2f]"
+                        checked={checked}
+                        onChange={(e) =>
+                          setSpecialProgramIds((prev) => (e.target.checked ? [...prev, p.id] : prev.filter((id) => id !== p.id)))
+                        }
+                      />
+                      <span>
+                        <span className="font-semibold text-gray-900">{p.name}</span>
+                        <span className="block text-gray-500">{version.catalog}</span>
+                        {checked && needs.length > 0 && (
+                          <span className="block text-amber-800">
+                            For {needs.map((id) => curriculum?.specializations.find((sp) => sp.id === id)?.name ?? id).join(' / ')} students.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">

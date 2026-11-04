@@ -7,7 +7,7 @@ import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
 import { MyClassesEditor } from './MyClassesEditor';
-import { PlanTerms, StudentRecord, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
+import { PlanTerms, StudentRecord, entryTermOf, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
 import { Semester } from '../data/sampleData';
 import { CurriculumLibrary, curriculumFor, loadCurriculum } from '../lib/requirements';
 import App from '../App';
@@ -65,8 +65,14 @@ export const AuthGate: React.FC = () => {
       .finally(() => setLoadedFor(userId));
   }, [userId, role]);
 
-  // The signed-in student's own degree and its specializations
-  const curriculum = useMemo(() => (library ? curriculumFor(library, record?.degree_id) : null), [library, record?.degree_id]);
+  // The signed-in student's own degree, its specializations, and their special programs, in the version for
+  // the term they entered Ohio State
+  const entryTerm = record ? entryTermOf(record) : null;
+  const specialKey = (record?.special_program_ids ?? []).join(',');
+  const curriculum = useMemo(
+    () => (library ? curriculumFor(library, record?.degree_id, { entryTerm, specialProgramIds: specialKey ? specialKey.split(',') : [] }) : null),
+    [library, record?.degree_id, entryTerm, specialKey],
+  );
 
   const handleSaveRecord = async (next: StudentRecord) => {
     await saveStudentRecord(userId, next);

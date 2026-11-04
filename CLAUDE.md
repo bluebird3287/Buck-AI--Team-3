@@ -80,6 +80,33 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
   who can't take a minor (`fisher-bsba` = any BSBA student). Regenerate with
   `python3 scripts/fisher_requirements.py minors`.
 
+## Entering class (cohort) and special programs
+
+Requirements depend on when a student entered Ohio State. Students save `entry_term` and
+`expected_graduation` (term ids like `autumn-2024`) on their profile; if `entry_term` is empty, their
+earliest term on record is used (`entryTermOf`).
+
+- `programs.entry_from` / `entry_through` give the entering terms a version applies to (null = open-ended).
+  Other versions of a program point at it with `version_of`; students always save the base id, and
+  `curriculumFor(library, degreeId, { entryTerm, specialProgramIds })` swaps in the matching version
+  (keeping the base id). With no matching version it uses the closest one and adds a `cohortNotes` warning.
+- Current versions: `fisher-bsba` (entered Autumn 2022–Spring 2027) and `fisher-bsba-gel` (before Autumn 2022,
+  GE Legacy instead of the current GE). Entrants from Autumn 2027 on get a warning until Fisher publishes the
+  redesigned curriculum (add it as a new version). Engineering degrees are the 2026-2027 sheets (`entry_from
+  autumn-2026`), so earlier entrants see a "confirm your year's sheet" note.
+- Special programs are `kind = 'special'` rows a student opts into (`student_profiles.special_program_ids`):
+  Accounting Honors (Class of 2028+ from the program director's structure sheet; `-2027` version for earlier
+  classes), Finance Honors, Honors Leadership, Honors Cohort, IBE Core and Software Innovation tracks,
+  Honors Research Distinction, Accelerated BSBA/MAcc, and University Honors (`parent_id` null = any degree).
+  Each adds requirement groups and can change the degree through `adjustments`
+  (`substitute`: ACCTMIS 5200H for 4200; `waive`: BUSMHR 2292 for Accounting Honors, BUSOBA 2321 once
+  ACCTMIS 3100H is on the plan, GENED 4001 for IBE). `requires_programs` names the specialization a program
+  is for (warning only).
+- An honors section always counts for the regular course (ACCTMIS 3200H for ACCTMIS 3200), including prerequisites.
+- When the team sends an updated curriculum sheet (e.g. a new honors structure), add it to
+  `SPECIAL_PROGRAMS` in `scripts/fisher_requirements.py` as a new version with its entry window, and
+  regenerate with `python3 scripts/fisher_requirements.py degree`.
+
 ## College of Engineering curriculum data
 
 All 14 College of Engineering BS degrees (2026-2027 admits) live in the same tables, with

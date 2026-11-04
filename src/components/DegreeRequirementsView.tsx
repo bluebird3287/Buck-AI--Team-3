@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Clock, CalendarClock, Circle, AlertTriangle, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { DegreeAudit, GroupProgress, ItemState, ProgramProgress, geExamples } from '../lib/requirements';
+import { DegreeAudit, GroupProgress, ItemState, ProgramProgress, entryWindowLabel, geExamples, termLabel } from '../lib/requirements';
 
 const STATE_STYLE: Record<ItemState | 'manual', { label: string; cls: string; Icon: React.FC<{ className?: string }> }> = {
   done: { label: 'Complete', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200', Icon: CheckCircle2 },
@@ -53,7 +53,9 @@ export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
                 {item.takenAs && <span className="text-gray-500"> · taken as {item.takenAs}</span>}
                 {item.term && <span className="text-gray-500"> · {item.term}</span>}
                 {item.issue && <span className="block text-[#ba0c2f] mt-0.5">{item.issue}</span>}
-                {(item.viaEquivalent || (g.group.kind === 'ge' && item.notes)) && <span className="block text-amber-700 mt-0.5">{item.notes}</span>}
+                {item.notes && (item.viaEquivalent || g.group.kind === 'ge' || /waive|replaces/i.test(item.notes)) && (
+                  <span className="block text-amber-700 mt-0.5">{item.notes}</span>
+                )}
               </span>
               <Badge state={item.state} />
             </li>
@@ -159,6 +161,16 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
             <p className="text-xs text-gray-600">
               Your classes checked against the published requirements for {audit.degree.program.name}. Your advisor and official degree audit have the final word.
             </p>
+            <p className="text-xs text-gray-600 mt-1">
+              {audit.entryTerm ? (
+                <>
+                  Entered Ohio State <strong>{termLabel(audit.entryTerm)}</strong> · using the version for {entryWindowLabel(audit.degree.program)}
+                </>
+              ) : (
+                <>Add the term you entered Ohio State under <strong>My classes</strong> so BuckAI uses your class&apos;s requirements.</>
+              )}
+              {audit.specialPrograms.length > 0 && <> · Special programs: {audit.specialPrograms.map((p) => p.program.name).join(', ')}</>}
+            </p>
           </div>
           <button onClick={onAskForPlan} className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-semibold px-3 py-2 rounded">
             Plan my remaining requirements
@@ -179,6 +191,11 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
         {audit.specializationGpas.map((g) => (
           <p key={g.name} className="text-xs text-gray-600">
             {g.name} GPA so far: <strong>{g.gpa.toFixed(2)}</strong> (Fisher requires 2.00)
+          </p>
+        ))}
+        {[...audit.cohortNotes, ...audit.specialProgramWarnings].map((n) => (
+          <p key={n} className="text-xs text-amber-800 flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {n}
           </p>
         ))}
         {audit.sharedCourses.length > 0 && (
@@ -223,6 +240,9 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
           Choose your specialization under <strong>My classes</strong> to see its requirements.
         </div>
       ) : null}
+      {audit.specialPrograms.map((p) => (
+        <ProgramSection key={p.program.id} p={p} />
+      ))}
       <ProgramSection p={audit.degree} />
     </div>
   );

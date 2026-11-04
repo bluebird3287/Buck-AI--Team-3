@@ -16,6 +16,10 @@ export interface StudentRecord {
   specialization_id?: string | null; // older rows; use specialization_ids
   specialization_ids?: string[];
   plan_terms?: PlanTerms | null; // which future terms they want to take classes in
+  // Requirements depend on the entering class, so the student confirms when they started and plan to finish
+  entry_term?: string | null; // first Ohio State term, e.g. 'autumn-2024'
+  expected_graduation?: string | null; // e.g. 'spring-2028'
+  special_program_ids?: string[]; // honors, IBE, accelerated MAcc, ... (base program ids)
   // From the advising report, when the student uploaded one
   earned_credits?: number | null;
   advisor_name?: string | null;
@@ -138,6 +142,9 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
       : record.specialization_id
       ? [record.specialization_id]
       : [],
+    specialProgramIds: record.special_program_ids ?? [],
+    entryTerm: entryTermOf(record),
+    expectedGraduation: record.expected_graduation ?? record.plan_terms?.graduation ?? null,
     minor: record.minor || '',
     gpa: Number(record.gpa ?? 0),
     // The report's earned hours include exam and transfer credit, so prefer them.
@@ -151,22 +158,31 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
   };
 }
 
+const RECORD_COLUMNS =
+  'full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, degree_id, specialization_id, specialization_ids, plan_terms';
+// Added by migration 20261104010000; older databases don't have them yet
+const COHORT_FIELDS = ['entry_term', 'expected_graduation', 'special_program_ids'] as const;
+const missingColumn = (error: any) => error?.code === '42703' || error?.code === 'PGRST204';
+
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
-  const { data, error } = await supabase
-    .from('student_profiles')
-    .select('full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, degree_id, specialization_id, specialization_ids, plan_terms')
-    .maybeSingle();
-  if (error) throw error;
-  return data as StudentRecord | null;
+  let res = await supabase.from('student_profiles').select(`${RECORD_COLUMNS}, ${COHORT_FIELDS.join(', ')}`).maybeSingle();
+  if (missingColumn(res.error)) res = await supabase.from('student_profiles').select(RECORD_COLUMNS).maybeSingle();
+  if (res.error) throw res.error;
+  return res.data as StudentRecord | null;
 }
 
 export async function saveStudentRecord(userId: string, record: StudentRecord): Promise<void> {
-  const { error } = await supabase.from('student_profiles').upsert({
+  const row: Record<string, unknown> = {
     user_id: userId,
     ...record,
     semesters: normalizeSemesters(record.semesters.filter((s) => s.courses.length > 0)),
     updated_at: new Date().toISOString(),
-  });
+  };
+  let { error } = await supabase.from('student_profiles').upsert(row);
+  if (missingColumn(error)) {
+    for (const f of COHORT_FIELDS) delete row[f];
+    ({ error } = await supabase.from('student_profiles').upsert(row));
+  }
   if (error) throw error;
 }
 
@@ -228,10 +244,12 @@ export function futureTerms(semesters: Semester[]): TermOption[] {
   return out;
 }
 
-// Default: Autumn and Spring terms (no summers) through Spring of the student's 4th year.
-export function defaultPlanTerms(semesters: Semester[]): PlanTerms {
-  const graduation = termId('Spring', firstAcademicYear(semesters) + 4);
-  const gradKey = termKey('Spring', firstAcademicYear(semesters) + 4);
+// Default: Autumn and Spring terms (no summers) through the student's expected graduation
+// (or Spring of their 4th year).
+export function defaultPlanTerms(semesters: Semester[], expectedGraduation?: string | null): PlanTerms {
+  const grad = expectedGraduation ? parseTerm({ id: expectedGraduation }) : null;
+  const graduation = grad ? expectedGraduation! : termId('Spring', firstAcademicYear(semesters) + 4);
+  const gradKey = grad ? termKey(grad.season, grad.year) : termKey('Spring', firstAcademicYear(semesters) + 4);
   const terms = futureTerms(semesters)
     .filter((t) => t.season !== 'Summer' && termKey(t.season, t.year) <= gradKey)
     .map((t) => t.id);
@@ -246,3 +264,28 @@ export function activePlanTerms(plan: PlanTerms, semesters: Semester[]): TermOpt
   return futureTerms(semesters).filter((t) => chosen.has(t.id) && termKey(t.season, t.year) <= gradKey);
 }
 
+
+// ---------- Entering class ----------
+
+// The term the student entered Ohio State: what they chose, else their earliest term on record.
+export function entryTermOf(record: Pick<StudentRecord, 'entry_term' | 'semesters'>): string | null {
+  if (record.entry_term && parseTerm({ id: record.entry_term })) return record.entry_term;
+  const terms = (record.semesters ?? []).map(parseTerm).filter(Boolean) as { season: Season; year: number }[];
+  if (!terms.length) return null;
+  const first = terms.sort((a, b) => termKey(a.season, a.year) - termKey(b.season, b.year))[0];
+  return termId(first.season, first.year);
+}
+
+// "Class of 2028" from a graduation term id
+export function classOf(graduation: string | null | undefined): string {
+  const t = graduation ? parseTerm({ id: graduation }) : null;
+  return t ? `Class of ${t.year}` : '';
+}
+
+// Entry and graduation choices for the profile form: Autumn/Spring/Summer terms in a range of years.
+export function termChoices(fromYear: number, toYear: number): TermOption[] {
+  const out: TermOption[] = [];
+  for (let y = fromYear; y <= toYear; y++)
+    for (const season of ['Spring', 'Summer', 'Autumn'] as Season[]) out.push({ id: termId(season, y), season, year: y, label: `${season} ${y}` });
+  return out;
+}

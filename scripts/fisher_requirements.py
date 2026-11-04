@@ -475,6 +475,329 @@ PROGRAMS += [
     },
 ]
 
+# ---------- Entry-year (cohort) versions ----------
+# A program applies to students whose first Ohio State term falls in [entry_from, entry_through]
+# (term ids like "autumn-2022"; None = open-ended). Versions of one program share `version_of`
+# (the id students save), and the app picks the version matching the student's entry term.
+
+# Ohio State's current GE started with students who entered in Autumn 2022. Students who began
+# earlier follow the GE Legacy (GEL), so they get a copy of the BSBA without the new GE groups.
+BSBA = PROGRAMS[0]
+BSBA.update(entry_from="autumn-2022", entry_through="spring-2027")
+NEW_GE_GROUPS = {"bsba-ge-bookends"}  # plus every kind="ge" group
+
+
+def legacy_ge_bsba():
+    groups = [
+        dict(g, id="gel-" + g["id"]) for g in BSBA["groups"]
+        if g["kind"] != "ge" and g["id"] not in NEW_GE_GROUPS
+    ]
+    groups.append(group(
+        "gel-ge-legacy", "General Education (GE Legacy)", "manual",
+        notes="You entered Ohio State before Autumn 2022, so you follow the GE Legacy (GEL) requirements, not the "
+              "current GE Foundations and Themes. Your BuckeyeLink advising report lists which GEL categories are still "
+              "open. Confirm with your Fisher advisor.",
+    ))
+    return {
+        **BSBA,
+        "id": "fisher-bsba-gel", "version_of": "fisher-bsba",
+        "catalog": "Fisher BSBA, entered before Autumn 2022 (GE Legacy)",
+        "entry_from": None, "entry_through": "summer-2022",
+        "notes": BSBA["notes"] + " Students who entered before Autumn 2022 follow the GE Legacy instead of the current GE.",
+        "groups": groups,
+    }
+
+
+PROGRAMS.append(legacy_ge_bsba())
+
+# ---------- Special programs (honors and other application programs) ----------
+# kind "special": programs a student is admitted into on top of their degree. They add requirement groups and
+# can change the base degree through `adjustments`:
+#   substitute: [{code, with: [codes], note}]  - the listed courses also satisfy `code` for members
+#   waive:      [{code, note, when_taken?}]   - `code` is waived (only once `when_taken` is on the plan, if given)
+# `requires_programs`: specializations a member must have (shown as a warning when missing).
+# Honors sections (ACCTMIS 3200H) always count for the regular course (ACCTMIS 3200); the app handles that.
+HONORS_URL = "https://fisher.osu.edu/undergraduate/academics/honors/"
+HONORS_GPA = group("{p}-gpa", "Honors GPA standard", "manual",
+                   notes="Keep at least a 3.5 cumulative GPA. Check your current GPA on your advising report.")
+
+
+def gpa_group(prefix, notes=None):
+    return dict(HONORS_GPA, id=f"{prefix}-gpa", notes=notes or HONORS_GPA["notes"])
+
+
+ACCT_HONORS_REQUIRED = [
+    c("ACCTMIS 2200H", "Honors Introduction to Accounting I", 3, "ECON 2001; admission to Accounting Honors", notes="Autumn, sophomore year"),
+    c("ACCTMIS 2300H", "Honors Introduction to Accounting II", 3, "ACCTMIS 2200H", notes="Spring, sophomore year"),
+    c("ACCTMIS 3100H", "Honors Research in Accounting", 3, "ACCTMIS 2200H", notes="Spring, sophomore year. Completing it waives BUSOBA 2321."),
+    c("ACCTMIS 3200H", "Honors Intermediate Accounting I", 3, "ACCTMIS 2300H", notes="Autumn, junior year"),
+    c("ACCTMIS 3201H", "Honors Intermediate Accounting II", 3, "ACCTMIS 3200H", notes="Spring, junior year"),
+    c("ACCTMIS 3300H", "Honors Cost Accounting", 3, "ACCTMIS 2300H", notes="Autumn, junior year"),
+]
+
+SPECIAL_PROGRAMS = [
+    {
+        "id": "sp-accounting-honors", "kind": "special", "name": "Accounting Honors Program",
+        "catalog": "Accounting Honors, Class of 2028 and later (entered Autumn 2024 or later)",
+        "entry_from": "autumn-2024", "requires_programs": ["spec-accounting"], "min_gpa": 3.5,
+        "source_url": HONORS_URL + "accounting",
+        "notes": "Cohort program of about 30 students a year; apply in the spring of your first year (first-year autumn GPA of 3.5+). "
+                 "MATH 1131 is the minimum (1151 or 1161 recommended), and MATH 1151-2 or 1161-2 plus ECON 2001H and 2002H "
+                 "strengthen an application. Extra economics or math, or a minor or second major in Economics or Statistics, "
+                 "is encouraged. The program doesn't allow winter internships; most students intern in the summer after "
+                 "junior year. Students in the combined BSBA/MAcc program may replace senior-year honors courses with MAcc classes "
+                 "(see Professor Patrick Kielty). Source: Accounting Honors program structure for 2025-26 sophomores (Class of 2028 and later).",
+        "adjustments": {
+            "substitute": [
+                {"code": "ACCTMIS 4200", "with": ["ACCTMIS 5200H"], "note": "Honors Advanced Accounting replaces Advanced Financial Accounting"},
+                {"code": "ACCTMIS 4500", "with": ["ACCTMIS 5500H"], "note": "Honors Auditing replaces Auditing Principles & Procedures"},
+            ],
+            "waive": [
+                {"code": "BUSMHR 2292", "note": "Waived for students who complete the Accounting Honors program"},
+                {"code": "BUSOBA 2321", "when_taken": "ACCTMIS 3100H", "note": "Waived once you complete ACCTMIS 3100H"},
+            ],
+        },
+        "groups": [
+            group("acchon-req", "Required honors accounting courses", "all", ACCT_HONORS_REQUIRED),
+            group("acchon-elec", "At least 2 more honors accounting courses", "choose_courses", [
+                c("ACCTMIS 3400H", "Honors Tax Accounting", 3, "ACCTMIS 3200H (or concurrent)", notes="Autumn, junior year, alongside 3200H"),
+                c("ACCTMIS 3600H", "Honors Accounting Information Systems", 3, "ACCTMIS 3200H", notes="Spring, junior year"),
+                c("ACCTMIS 5200H", "Honors Advanced Accounting", 3, "ACCTMIS 3201H", notes="Senior year"),
+                c("ACCTMIS 5500H", "Honors Auditing Principles & Procedures", 3, "ACCTMIS 3201H", notes="Autumn, senior year"),
+            ], min_courses=2, code_pattern=r"^ACCTMIS 4\d{3}H$", exclude_codes=["ACCTMIS 4998H", "ACCTMIS 4999H"],
+                notes="Also counts: the new Professional Research in Accounting elective (ACCTMIS 4XXXH, course number not "
+                      "assigned yet), for seniors who completed ACCTMIS 3201H, offered Autumn or Spring. Together with the "
+                      "six required courses that makes the 8 honors Accounting & MIS courses the program requires."),
+            gpa_group("acchon", "A 3.5 cumulative GPA overall and a 3.5 GPA in all Accounting & MIS courses, plus 60 graded "
+                                "semester hours in residence on the Columbus campus, to graduate with Honors in Accounting."),
+        ],
+    },
+    {
+        "id": "sp-accounting-honors-2027", "version_of": "sp-accounting-honors", "kind": "special",
+        "name": "Accounting Honors Program",
+        "catalog": "Accounting Honors, Class of 2027 and earlier (entered before Autumn 2024)",
+        "entry_through": "summer-2024", "requires_programs": ["spec-accounting"], "min_gpa": 3.5,
+        "source_url": HONORS_URL + "accounting/graduation-requirements",
+        "notes": "From Fisher's Graduation with Honors in Accounting page (requirements sheet for Spring 2027 graduates). "
+                 "Accelerated BSBA/MAcc students may substitute specific MAcc courses for ACCTMIS 5200H and 5500H. "
+                 "Course waivers for earlier classes aren't published; confirm them with the program director.",
+        "adjustments": {
+            "substitute": [
+                {"code": "ACCTMIS 4200", "with": ["ACCTMIS 5200H"], "note": "Honors Advanced Accounting replaces Advanced Financial Accounting"},
+                {"code": "ACCTMIS 4500", "with": ["ACCTMIS 5500H"], "note": "Honors Auditing replaces Auditing Principles & Procedures"},
+            ],
+        },
+        "groups": [
+            group("acchon27-req", "Required honors accounting courses", "all", ACCT_HONORS_REQUIRED),
+            group("acchon27-elec", "At least 2 more honors (or equivalent) courses", "choose_courses", [
+                c("ACCTMIS 3400H", "Honors Tax Accounting", 3, "ACCTMIS 3200H (or concurrent)"),
+                c("ACCTMIS 3600H", "Honors Accounting Information Systems", 3, "ACCTMIS 3200H"),
+                c("ACCTMIS 5200H", "Honors Advanced Accounting", 3, "ACCTMIS 3201H"),
+                c("ACCTMIS 5500H", "Honors Auditing Principles & Procedures", 3, "ACCTMIS 3201H"),
+                c("ACCTMIS 5600", "Accounting & MIS elective (honors equivalent)", 3, None),
+            ], min_courses=2),
+            gpa_group("acchon27", "A 3.5 cumulative GPA overall and a 3.5 GPA in all Accounting & MIS courses, plus 60 graded "
+                                  "semester hours in residence on the Columbus campus."),
+        ],
+    },
+    {
+        "id": "sp-finance-honors", "kind": "special", "name": "Finance Honors Program",
+        "catalog": "Finance Honors (requirements sheet for Spring 2027 graduates)",
+        "requires_programs": ["spec-finance"], "min_gpa": 3.5, "source_url": HONORS_URL + "finance",
+        "notes": "Apply in the spring of sophomore year with a 3.5 GPA; BUSFIN 3220 needs an A- (it can be taken that spring for "
+                 "conditional admission). Also finish ACCTMIS 2200/2300, BUSMHR 2292, and BUSOBA 2320 by then. "
+                 "Contact FCOB-honors@osu.edu with questions.",
+        "adjustments": {
+            "substitute": [{"code": "BUSFIN 4201", "with": ["BUSFIN 4202H"], "note": "Honors Financial Data replaces BUSFIN 4201"}],
+        },
+        "groups": [
+            group("finhon-core", "Core honors finance courses (taken as a cohort)", "all", [
+                c("BUSFIN 4211H", "Honors Corporate Finance", 3, "BUSFIN 3220; admission to Finance Honors"),
+                c("BUSFIN 4221H", "Honors Investments", 3, "BUSFIN 3220; admission to Finance Honors"),
+                c("BUSFIN 4202H", "Honors Financial Data", 1.5, "BUSFIN 3220; admission to Finance Honors"),
+                c("BUSFIN 4250H", "Honors Global Finance", 1.5, "BUSFIN 3220; admission to Finance Honors"),
+            ]),
+            group("finhon-rest", "Rest of the 9-course curriculum, seminars & senior paper", "manual",
+                  notes="Nine courses in the Finance Honors curriculum in all, including an honors seminar each semester "
+                        "(for example BUSFIN 4630H, Finance Honors Seminar-Capstone), at least two more honors or 4000-level "
+                        "courses, and a senior paper approved by the Finance Honors faculty director. Fisher's curriculum "
+                        "sheet names the rest; confirm with your honors advisor."),
+            gpa_group("finhon", "A 3.5 cumulative GPA overall and a 3.5 GPA in your specialization."),
+        ],
+    },
+    {
+        "id": "sp-honors-leadership", "kind": "special", "name": "Honors Leadership Program", "min_gpa": 3.5,
+        "catalog": "Fisher Honors Leadership (current)", "source_url": HONORS_URL + "honors-leadership",
+        "notes": "For any business specialization. Apply in January of sophomore year with a 3.5 GPA, after finishing "
+                 "ACCTMIS 2200, ACCTMIS 2300, BUSOBA 2320, and BUSMHR 2292 (honors versions recommended). No program "
+                 "classes in the spring of junior year. Graduating with Honors in Business Administration also needs a "
+                 "minor, major, or concentration outside business and an approved Leadership Challenge.",
+        "groups": [
+            group("hlead-req", "Honors Leadership curriculum (15 credit hours)", "all", [
+                c("BUSADM 3890H", "Honors Leadership Seminar", 1.5, "Admission to Honors Leadership", notes="Autumn, junior year"),
+                c("BUSMHR 2210H", "Personal Leadership and Team Effectiveness", 3, "Admission to Honors Leadership", notes="Autumn, junior year"),
+                c("BUSMHR 3200H", "Organizational Behavior (Honors)", 3, "ECON 2001; ECON 2002", notes="Autumn, junior year. Counts for BUSMHR 3200."),
+                c("BUSADM 4890H", "Honors Leadership Seminar", 1.5, "BUSADM 3890H", notes="Autumn, senior year"),
+                c("BUSMHR 4235H", "Developing Leaders through Practical Exercises", 3, "Admission to Honors Leadership", notes="Autumn, senior year"),
+                c("BUSMHR 4490H", "Strategic Management (Honors)", 3, "Senior standing", min_standing=90, notes="Spring, senior year. Counts for BUSMHR 4490."),
+            ]),
+            group("hlead-outside", "Minor, major, or concentration outside business", "manual",
+                  notes="Required to graduate with Honors in Business Administration. Pick a non-Fisher minor in the What-If Minor tab."),
+            group("hlead-challenge", "Leadership Challenge", "manual",
+                  notes="An individual project that builds professional and leadership skills, approved by the Honors Leadership faculty director."),
+            gpa_group("hlead"),
+        ],
+    },
+    {
+        "id": "sp-honors-cohort", "kind": "special", "name": "Honors Cohort Program", "min_gpa": 3.5,
+        "catalog": "Fisher Honors Cohort (current)", "source_url": HONORS_URL + "honors-cohort",
+        "notes": "40 juniors and 40 seniors from any business specialization, chosen in a selective process in the spring of "
+                 "sophomore year. Includes a two-day onboarding, business trips (Chicago, Seattle/San Francisco, NYC Summit), "
+                 "a negotiation challenge, a service project, and a senior-year international trip. Fisher's page names the "
+                 "core subjects but not course numbers; the honors sections below are BuckAI's match from Class Search. "
+                 "Confirm with the Honors Cohort graduation requirements sheet.",
+        "groups": [
+            group("hcoh-core", "Cohort core courses (honors sections)", "all", [
+                c("BUSMHR 3200H", "Organizational Behavior (Honors)", 3, "ECON 2001; ECON 2002", notes="Autumn, junior year. Counts for BUSMHR 3200."),
+                c("BUSOBA 3230H", "Operations Management (Honors)", 3, "ECON 2001; ECON 2002; STAT 1430", notes="Spring, junior year. Counts for BUSOBA 3230."),
+                c("BUSMHR 4490H", "Strategic Management (Honors)", 3, "Senior standing", min_standing=90, notes="Autumn, senior year. Counts for BUSMHR 4490."),
+            ]),
+            group("hcoh-seminar", "Two-year Honors Cohort seminar", "choose_courses", [
+                c("BUSADM 3890H", "Honors Seminar", 1.5, "Admission to the Honors Cohort", notes="Junior year"),
+                c("BUSADM 4890H", "Honors Seminar", 1.5, "BUSADM 3890H", notes="Senior year"),
+            ], min_courses=2),
+            gpa_group("hcoh"),
+        ],
+    },
+    {
+        "id": "sp-ibe-core", "kind": "special", "name": "Integrated Business & Engineering (IBE) Honors: Core track",
+        "catalog": "IBE Honors graduation requirements (current)", "min_gpa": 3.5,
+        "source_url": HONORS_URL + "ibe/graduation-requirements",
+        "notes": "Four-year program with a separate application after admission to Fisher, before the first year. BSBA students "
+                 "on the Core track complete an Engineering Sciences minor. All other BSBA requirements still apply, except "
+                 "GENED 4001, which is built into the capstone.",
+        "adjustments": {"waive": [{"code": "GENED 4001", "note": "Built into the IBE capstone"}]},
+        "groups": [
+            group("ibe-req", "IBE courses (all IBE students)", "all", [
+                c("ENGR 1281.01H", "Fundamentals of Engineering for Honors I", 4, "Admission to IBE"),
+                c("ENGR 1282.04H", "Fundamentals of Engineering for Honors II (IBE section)", 4, "ENGR 1281.01H", alternates=["ENGR 1282.01H"],
+                  notes="Fisher lists ENGR 1282.01H; Class Search has a dedicated IBE section, 1282.04H. Either counts."),
+                c("BUSMHR 2400H", "IBE Competitive Analysis Seminar", None, "Admission to IBE"),
+                c("BUSMHR 3400H", "IBE Innovation Management Seminar", None, "BUSMHR 2400H"),
+                c("ENGR 5901.02H", "IBE Capstone I", None, "Senior standing", min_standing=90),
+                c("ENGR 5902.02H", "IBE Capstone II", None, "ENGR 5901.02H", min_standing=90),
+            ]),
+            group("ibe-core-math", "Engineering Sciences minor: math", "choose_courses", [
+                c("MATH 1152", "Calculus II", 5, "MATH 1151"),
+                c("MATH 1161.01", "Accelerated Calculus I", 5, None),
+                c("MATH 1172", "Engineering Mathematics A", 5, "MATH 1151"),
+                c("MATH 1181H", "Honors Calculus I", 5, None),
+            ], min_courses=1),
+            group("ibe-core-sci", "Engineering Sciences minor: physics or chemistry", "choose_courses", [
+                c("PHYSICS 1250", "Mechanics, Thermal Physics, Waves", 5, "MATH 1151"),
+                c("PHYSICS 1200", "Mechanics, Kinematics, Fluids, Waves", 5, None, notes="Must be paired with PHYSICS 1201"),
+                c("CHEM 1210", "General Chemistry I", 5, None),
+            ], min_courses=1, notes="PHYSICS 1250, or PHYSICS 1200 and 1201, or CHEM 1210."),
+            group("ibe-core-eng", "Engineering Sciences minor: engineering elective", "choose_courses", [
+                c("MECHENG 2040", "Statics and Introduction to Strength of Materials", 3, None),
+                c("MATSCEN 2010", "Introduction to Materials Science", 3, None),
+                c("CSE 2221", "Software I: Software Components", 4, None),
+                c("ECE 2060", "Introduction to Digital Logic", 3, None),
+                c("FABENG 3170", "Engineering for Sustainable Food Systems", 3, None, alternates=["FABE 3170"]),
+            ], min_courses=1),
+            group("ibe-core-extra", "One more honors or upper-division course", "manual",
+                  notes="Any additional honors or upper-division (3000+) course for the Engineering Sciences minor; confirm with the IBE office."),
+            gpa_group("ibe-core"),
+        ],
+    },
+    {
+        "id": "sp-ibe-si", "kind": "special", "name": "Integrated Business & Engineering (IBE) Honors: Software Innovation track",
+        "catalog": "IBE Honors graduation requirements (current)", "min_gpa": 3.5,
+        "source_url": HONORS_URL + "ibe/graduation-requirements",
+        "notes": "BSBA students on the Software Innovation track complete a Computer Science minor. All other BSBA requirements "
+                 "still apply, except GENED 4001, which is built into the capstone.",
+        "adjustments": {"waive": [{"code": "GENED 4001", "note": "Built into the IBE capstone"}]},
+        "groups": [
+            group("ibesi-req", "IBE courses (all IBE students)", "all", [
+                c("ENGR 1281.01H", "Fundamentals of Engineering for Honors I", 4, "Admission to IBE"),
+                c("ENGR 1282.04H", "Fundamentals of Engineering for Honors II (IBE section)", 4, "ENGR 1281.01H", alternates=["ENGR 1282.01H"],
+                  notes="Fisher lists ENGR 1282.01H; Class Search has a dedicated IBE section, 1282.04H. Either counts."),
+                c("BUSMHR 2400H", "IBE Competitive Analysis Seminar", None, "Admission to IBE"),
+                c("BUSMHR 3400H", "IBE Innovation Management Seminar", None, "BUSMHR 2400H"),
+                c("CSE 5917.01H", "IBE Software Innovation Capstone I", None, "Senior standing", min_standing=90),
+                c("CSE 5917.02H", "IBE Software Innovation Capstone II", None, "CSE 5917.01H", min_standing=90),
+            ]),
+            group("ibesi-cs", "Computer Science minor courses", "all", [
+                c("MATH 1151", "Calculus I", 5, None),
+                c("CSE 2123", "Data Structures Using Java", 3, "CSE 1223", alternates=["CSE 2122"],
+                  notes="CSE 2122 (C++) or CSE 2123 (Java); CSE 1223 is the prerequisite for 2123."),
+                c("CSE 2321", "Foundations I: Discrete Structures", 3, "CSE 2122 or 2123"),
+                c("CSE 3430", "Overview of Computer Systems for Non-Majors", 3, "CSE 2122 or 2123"),
+            ]),
+            group("ibesi-bus", "At least one IBE Software Innovation business course", "choose_courses", [
+                c("BUSMHR 3240H", "Principles of Management in Digital Markets", 3, None, notes="Spring"),
+                c("BUSFIN 3242H", "Valuation, Fintech and Start-Ups", 3, None, notes="Autumn"),
+                c("BUSOBA 3243H", "Digital Product Management and Innovation", 3, None, notes="Spring"),
+                c("BUSML 3245H", "Marketing in Digital Markets", 3, None, notes="Autumn"),
+            ], min_courses=1),
+            gpa_group("ibesi"),
+        ],
+    },
+    {
+        "id": "sp-research-distinction", "kind": "special", "name": "Honors Research Distinction", "min_gpa": 3.5,
+        "catalog": "Fisher Honors Research Distinction (current)", "source_url": HONORS_URL + "research-distinction",
+        "notes": "Apply by August 1 before senior year with a confirmed faculty advisor and a 1-2 page proposal. To start, you "
+                 "need a 3.5 GPA and 12 hours of honors coursework (graded research in Fisher) or 18 hours (S/U research outside "
+                 "Fisher). Research runs the full academic year, so plan to graduate in spring or summer.",
+        "groups": [
+            group("hrd-research", "Research coursework (at least 6 credit hours)", "choose_credits", [],
+                  min_credits=6, code_pattern=r"^[A-Z]+ 499[89](\.\d{2})?H?$",
+                  notes="Research hours in your faculty advisor's department (for example ACCTMIS 4998H, BUSFIN 4998H, "
+                        "BUSMHR 4998H, BUSML 4998H), usually split across autumn and spring."),
+            group("hrd-thesis", "Thesis, Denman Forum & oral defense", "manual",
+                  notes="A faculty-guided thesis (usually 35+ pages) submitted to the Knowledge Bank, an application to the "
+                        "Denman Undergraduate Research Forum, and an oral defense before a faculty committee."),
+            gpa_group("hrd"),
+        ],
+    },
+    {
+        "id": "sp-bsba-macc", "kind": "special", "name": "Accelerated BSBA/Master of Accounting (MAcc)",
+        "catalog": "Fisher Accelerated MAcc (current)", "requires_programs": ["spec-accounting"], "min_gpa": 3.5,
+        "source_url": "https://fisher.osu.edu/graduate/macc/academics/bsbamacc-program",
+        "notes": "For Fisher Accounting students with a 3.5 GPA. Apply early in your junior year (talk to an advisor by the end "
+                 "of sophomore year). You can leave with just the BSBA after the first MAcc semester once every BSBA course "
+                 "(or its MAcc substitute) is done.",
+        "groups": [
+            group("macc-sub", "MAcc courses that replace senior-year BSBA courses", "manual",
+                  notes="Specific MAcc courses replace senior-year accounting courses (and ACCTMIS 5200H/5500H for Accounting "
+                        "Honors students). See the BSBA/MAcc planning sheet and Professor Patrick Kielty."),
+            gpa_group("macc", "A 3.5 cumulative GPA when you apply."),
+        ],
+    },
+]
+
+for _sp in SPECIAL_PROGRAMS:
+    _sp.setdefault("parent_id", "fisher-bsba")
+
+# Ohio State's University Honors status (any college): open to every degree, so no parent.
+SPECIAL_PROGRAMS.append({
+    "id": "sp-university-honors", "kind": "special", "name": "University Honors (Honors & Scholars)", "parent_id": None,
+    "catalog": "Ohio State Honors Program (current)", "min_gpa": 3.5, "source_url": "https://honors-scholars.osu.edu/honors/programs",
+    "notes": "Admitted through the Common Application, or later with a 3.75 GPA and 12 graded hours. University Honors alone "
+             "doesn't give a Fisher honors designation; finish a Fisher honors program or Honors Research Distinction for that.",
+    "groups": [
+        group("uhon-yearly", "Honors coursework each year", "manual",
+              notes="Take honors or upper-division enrichment courses each year, usually at least one honors course per "
+                    "semester (at least 6 honors credit hours in each of your first two years)."),
+        group("uhon-progress", "Join a Fisher honors program by the end of junior year", "manual",
+              notes="Progress into a Fisher honors program (Accounting, Finance, Leadership, Cohort, IBE) or apply for "
+                    "Honors Research Distinction by the end of junior year."),
+        gpa_group("uhon"),
+    ],
+})
+
+PROGRAMS += SPECIAL_PROGRAMS
+
 MINOR_URL = "https://fisher.osu.edu/undergraduate/academics/minors/"
 ALL_BSBA = ["fisher-bsba"]  # excluded_programs entry meaning "any Fisher BSBA student"
 MINOR_RULES = (
@@ -752,13 +1075,16 @@ def sql(v):
         return "true" if v else "false"
     if isinstance(v, (int, float)):
         return repr(v)
+    if isinstance(v, dict):
+        import json
+        return "'" + json.dumps(v).replace("'", "''") + "'::jsonb"
     if isinstance(v, list):
         return "array[" + ", ".join(sql(x) for x in v) + "]::text[]" if v else "'{}'::text[]"
     return "'" + str(v).replace("'", "''") + "'"
 
 
 def build(programs_in, scope, first_sort, college="Fisher College of Business", script="fisher_requirements.py",
-          catalog=CATALOG, offerings=None):
+          catalog=CATALOG, offerings=None, entry_from=None, entry_through=None):
     """SQL that replaces one college's programs of the given scope with programs_in."""
     offerings = registrar_offerings() if offerings is None else offerings
     ids = ", ".join(sql(p["id"]) for p in programs_in)
@@ -779,6 +1105,12 @@ def build(programs_in, scope, first_sort, college="Fisher College of Business", 
             source_url=p.get("source_url"), sort_order=first_sort + pi, excluded_programs=p.get("excluded_programs", []),
             # the degree a specialization belongs to (every Fisher specialization is part of the BSBA)
             parent_id=p.get("parent_id", "fisher-bsba" if p["kind"] == "specialization" and college == "Fisher College of Business" else None),
+            # which entering students this version applies to (first OSU term, e.g. 'autumn-2022'; null = open-ended)
+            entry_from=p.get("entry_from", entry_from if p["kind"] == "degree" else None),
+            entry_through=p.get("entry_through", entry_through if p["kind"] == "degree" else None),
+            version_of=p.get("version_of"),  # another version of this program (the id students save)
+            requires_programs=p.get("requires_programs", []),
+            adjustments=p.get("adjustments", {}),
         ))
         for gi, g in enumerate(p["groups"]):
             groups.append(dict(
@@ -811,7 +1143,7 @@ def build(programs_in, scope, first_sort, college="Fisher College of Business", 
 
 
 def scope_kinds(scope):
-    return "('degree', 'specialization')" if scope == "degree" else "('minor')"
+    return "('degree', 'specialization', 'special')" if scope == "degree" else "('minor')"
 
 
 FISHER_SUBJECTS = ("ACCTMIS", "BUSADM", "BUSFIN", "BUSMHR", "BUSML", "BUSOBA")

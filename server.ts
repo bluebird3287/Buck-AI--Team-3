@@ -84,6 +84,7 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
   return [
     `- Name: ${profile?.name || 'Not provided'}`,
     `- Class standing: ${profile?.rank || 'Not provided'}`,
+    `- Entered Ohio State: ${termName(profile?.entryTerm) || 'Not provided'}; expected graduation: ${termName(profile?.expectedGraduation) || 'Not provided'} (requirements depend on the entering class)`,
     `- College: ${profile?.college || 'Not provided'}`,
     `- Major / specialization(s): ${profile?.major || 'Not provided'}`,
     `- Minor: ${profile?.minor || 'None'}`,
@@ -97,6 +98,12 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
   ].join('\n');
 }
 
+// 'autumn-2024' -> 'Autumn 2024'
+function termName(id: unknown): string {
+  const m = /^(autumn|spring|summer)-(\d{4})$/.exec(String(id ?? ''));
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}` : '';
+}
+
 const OSU_ADVISING_SYSTEM_INSTRUCTION = `
 You are the Ohio State University (OSU) Native BuckeyeLink AI Academic Advising Assistant.
 Your audience is undergraduate students navigating BuckeyeLink, course registration, prerequisite chains, 4-year degree planning, and advisor scheduling.
@@ -104,6 +111,7 @@ Your audience is undergraduate students navigating BuckeyeLink, course registrat
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
 - Pilot scope: Fisher BSBA students and College of Engineering BS students. Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Entering class and special programs: requirements depend on when the student entered Ohio State (e.g. students who entered before Autumn 2022 follow the GE Legacy; Accounting Honors has a different structure for the Class of 2028 and later) and on any special program they're in (Fisher Honors programs, IBE, Accelerated BSBA/MAcc, University Honors). The requirements check already uses the right version and applies each program's waivers and substitutions (honors sections count for the regular course). Follow it, never another class's curriculum, and repeat any "Catalog note" so the student confirms with their advisor.
 - Course titles: use the title given for a course code in the request (student profile, requirements check, or "Official course titles"); they come from OSU Class Search. Never guess or paraphrase a course's title from its number or subject (e.g. BUSFIN 3500 is Legal Environment of Business, not a finance class). If a code has no title in the request, refer to it by code only.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:

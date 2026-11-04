@@ -28,6 +28,9 @@ export interface StudentProfile {
   college: string;
   major: string;
   specializationIds: string[];
+  specialProgramIds: string[]; // honors / IBE / other special programs (base program ids)
+  entryTerm: string | null; // first Ohio State term, e.g. 'autumn-2024'
+  expectedGraduation: string | null; // e.g. 'spring-2028'
   minor: string;
   gpa: number;
   earnedCredits: number;

@@ -3,6 +3,7 @@ import { Course, Semester } from '../data/sampleData';
 import geData from '../data/geCourses.json';
 import { officialTitle } from './courseTitles';
 import { onlineInSummer } from './onlineCourses';
+import { parseTerm, termKey } from './studentProfile';
 
 // ---------- Curriculum (public tables: programs, requirement_groups, requirement_courses) ----------
 
@@ -18,6 +19,7 @@ export interface RequirementCourse {
   notes: string | null;
   offered_terms?: string[]; // [] = Autumn and Spring; ['Autumn'] / ['Spring'] = that season only; ['None'] = not on the current schedule
   min_standing?: number | null; // earned credit hours needed before taking it (30 sophomore, 60 junior, 90 senior)
+  waived?: { note: string; when_taken?: string | null; by: string } | null; // set by a special program's adjustments
 }
 
 export interface RequirementGroup {
@@ -34,9 +36,16 @@ export interface RequirementGroup {
   courses: RequirementCourse[];
 }
 
+// How a special program changes the student's degree (programs.adjustments)
+export interface ProgramAdjustments {
+  substitute?: { code: string; with: string[]; note?: string }[]; // these courses also satisfy `code`
+  waive?: { code: string; note: string; when_taken?: string | null }[]; // `code` isn't needed (once when_taken is on the plan)
+}
+
 export interface Program {
-  id: string;
-  kind: 'degree' | 'specialization' | 'minor';
+  id: string; // for a cohort version, the base program's id (what students save)
+  version_id?: string; // the version's own id, when it differs from id
+  kind: 'degree' | 'specialization' | 'minor' | 'special';
   name: string;
   college: string;
   parent_id: string | null; // the degree a specialization belongs to
@@ -46,34 +55,149 @@ export interface Program {
   notes: string | null;
   source_url: string | null;
   excluded_programs: string[]; // students in these programs can't add this minor (a degree id = anyone in that degree)
+  entry_from: string | null; // first entering term this version applies to ('autumn-2022'); null = open-ended
+  entry_through: string | null; // last entering term it applies to
+  version_of: string | null; // the base program, for an older/newer cohort version
+  requires_programs: string[]; // specializations a special program's members must have
+  adjustments: ProgramAdjustments;
   groups: RequirementGroup[];
 }
 
-// One student's requirements: their degree, its specializations, and every minor.
+// One student's requirements: their degree, its specializations, every minor, and their special programs,
+// each in the version for the term the student entered Ohio State.
 export interface Curriculum {
   degree: Program;
   specializations: Program[];
   minors: Program[];
+  specialPrograms: Program[]; // the ones the student is in (honors, IBE, ...)
+  availableSpecialPrograms: Program[]; // every special program open to this degree, for pickers
+  entryTerm: string | null; // e.g. 'autumn-2024'
+  cohortNotes: string[]; // where BuckAI had to use a curriculum version that doesn't match the entry term
 }
 
-// Every college's programs (Fisher, Engineering, ...), loaded once.
+// Every college's programs (Fisher, Engineering, ...), loaded once. Cohort versions (version_of set) are kept
+// apart so pickers list each program once.
 export interface CurriculumLibrary {
   degrees: Program[];
   specializations: Program[];
   minors: Program[];
+  specialPrograms: Program[];
+  versions: Program[];
 }
 
 export const DEFAULT_DEGREE_ID = 'fisher-bsba'; // students who haven't picked a degree (the original Fisher pilot)
 
-export function curriculumFor(library: CurriculumLibrary, degreeId?: string | null): Curriculum {
-  const degree =
-    library.degrees.find((p) => p.id === degreeId) ?? library.degrees.find((p) => p.id === DEFAULT_DEGREE_ID) ?? library.degrees[0];
+export interface Cohort {
+  entryTerm?: string | null; // first Ohio State term, e.g. 'autumn-2024'
+  specialProgramIds?: string[];
+}
+
+export const termLabel = (id: string | null | undefined) => {
+  const t = id ? parseTerm({ id }) : null;
+  return t ? `${t.season} ${t.year}` : '';
+};
+
+const entryKey = (id: string | null | undefined) => {
+  const t = id ? parseTerm({ id }) : null;
+  return t ? termKey(t.season, t.year) : null;
+};
+
+// Who a version is for, e.g. "students who entered Autumn 2022 through Spring 2027"
+export function entryWindowLabel(p: Pick<Program, 'entry_from' | 'entry_through'>): string {
+  if (p.entry_from && p.entry_through) return `students who entered ${termLabel(p.entry_from)} through ${termLabel(p.entry_through)}`;
+  if (p.entry_from) return `students who entered ${termLabel(p.entry_from)} or later`;
+  if (p.entry_through) return `students who entered ${termLabel(p.entry_through)} or earlier`;
+  return 'all entering classes';
+}
+
+// The version of a program for a student who entered in `entryTerm`. With no exact match, the closest
+// version is used and a note says so (e.g. Fisher's Autumn 2027 curriculum isn't published yet).
+export function resolveVersion(library: CurriculumLibrary, base: Program, entryTerm: string | null | undefined): { program: Program; note: string | null } {
+  const family = [base, ...library.versions.filter((v) => v.version_of === base.id)];
+  const key = entryKey(entryTerm);
+  const as = (v: Program): Program => (v === base ? base : { ...v, id: base.id, version_id: v.id, version_of: null });
+  if (key == null) return { program: base, note: null };
+  const fits = (v: Program) => {
+    const from = entryKey(v.entry_from);
+    const through = entryKey(v.entry_through);
+    return (from == null || key >= from) && (through == null || key <= through);
+  };
+  const match = family.find(fits);
+  if (match) return { program: as(match), note: null };
+  // Closest window: how many terms the entry term falls outside it
+  const distance = (v: Program) => {
+    const from = entryKey(v.entry_from);
+    const through = entryKey(v.entry_through);
+    return from != null && key < from ? from - key : through != null && key > through ? key - through : 0;
+  };
+  const closest = [...family].sort((a, b) => distance(a) - distance(b))[0];
   return {
-    degree,
-    specializations: library.specializations.filter((p) => (p.parent_id ?? DEFAULT_DEGREE_ID) === degree.id),
-    minors: library.minors,
+    program: as(closest),
+    note:
+      `${base.name}: BuckAI only has the requirements for ${entryWindowLabel(closest)} (${closest.catalog}). ` +
+      `You entered ${termLabel(entryTerm)}, so your requirements may differ. Confirm them with your advisor.`,
   };
 }
+
+// Applies special programs' substitutions and waivers to a degree or specialization.
+function applyAdjustments(program: Program, specials: Program[]): Program {
+  const subs = specials.flatMap((sp) => (sp.adjustments.substitute ?? []).map((a) => ({ ...a, by: sp.name })));
+  const waives = specials.flatMap((sp) => (sp.adjustments.waive ?? []).map((a) => ({ ...a, by: sp.name })));
+  if (!subs.length && !waives.length) return program;
+  return {
+    ...program,
+    groups: program.groups.map((g) => ({
+      ...g,
+      courses: g.courses.map((c) => {
+        const sub = subs.filter((a) => norm(a.code) === norm(c.code));
+        const waive = waives.find((a) => norm(a.code) === norm(c.code));
+        if (!sub.length && !waive) return c;
+        return {
+          ...c,
+          alternates: [...c.alternates, ...sub.flatMap((a) => a.with)],
+          notes: [c.notes, ...sub.map((a) => `${a.by}: ${a.note ?? `${a.with.join(' or ')} counts for this course`}.`)].filter(Boolean).join(' ') || null,
+          waived: waive ? { note: waive.note, when_taken: waive.when_taken ?? null, by: waive.by } : c.waived,
+        };
+      }),
+    })),
+  };
+}
+
+// Special programs a degree's students can join: the degree's own, plus university-wide ones (no parent)
+export const specialProgramsFor = (library: CurriculumLibrary, degreeId: string) =>
+  library.specialPrograms.filter((p) => !p.parent_id || p.parent_id === degreeId);
+
+export function curriculumFor(library: CurriculumLibrary, degreeId?: string | null, cohort: Cohort = {}): Curriculum {
+  const baseDegree =
+    library.degrees.find((p) => p.id === degreeId) ?? library.degrees.find((p) => p.id === DEFAULT_DEGREE_ID) ?? library.degrees[0];
+  const entryTerm = cohort.entryTerm ?? null;
+  const notes: string[] = [];
+  const resolve = (p: Program) => {
+    const r = resolveVersion(library, p, entryTerm);
+    if (r.note) notes.push(r.note);
+    return r.program;
+  };
+  const available = specialProgramsFor(library, baseDegree.id);
+  const specials = (cohort.specialProgramIds ?? [])
+    .map((id) => available.find((p) => p.id === id))
+    .filter((p): p is Program => !!p)
+    .map(resolve);
+  const degree = applyAdjustments(resolve(baseDegree), specials);
+  return {
+    degree,
+    specializations: library.specializations
+      .filter((p) => (p.parent_id ?? DEFAULT_DEGREE_ID) === baseDegree.id)
+      .map((p) => applyAdjustments(resolveVersion(library, p, entryTerm).program, specials)),
+    minors: library.minors,
+    specialPrograms: specials,
+    availableSpecialPrograms: available.map((p) => resolveVersion(library, p, entryTerm).program),
+    entryTerm,
+    cohortNotes: notes,
+  };
+}
+
+// The degree, specializations, and special programs whose courses the plan has to cover.
+const requiredPrograms = (c: Curriculum) => [c.degree, ...c.specializations, ...c.specialPrograms];
 
 // Supabase returns at most 1,000 rows per request, and there are over 2,000 requirement courses, so read in pages.
 // The tie-breaker column keeps the order stable from page to page.
@@ -88,9 +212,17 @@ async function selectAll(table: string, columns: string, tieBreaker: string): Pr
   }
 }
 
+const PROGRAM_COLUMNS = 'id, kind, name, college, parent_id, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs';
+const COHORT_COLUMNS = 'entry_from, entry_through, version_of, requires_programs, adjustments';
+
 export async function loadCurriculum(): Promise<CurriculumLibrary> {
+  // A database without the cohort columns yet (migration 20261104010000) still loads, without cohort versions
+  const loadPrograms = async () => {
+    const res = await selectAll('programs', `${PROGRAM_COLUMNS}, ${COHORT_COLUMNS}`, 'id');
+    return res.error?.code === '42703' ? selectAll('programs', PROGRAM_COLUMNS, 'id') : res;
+  };
   const [programs, groups, courses] = await Promise.all([
-    selectAll('programs', 'id, kind, name, college, parent_id, catalog, min_total_credits, min_gpa, notes, source_url, excluded_programs', 'id'),
+    loadPrograms(),
     selectAll(
       'requirement_groups',
       'id, program_id, title, kind, min_courses, min_credits, max_secondary_credits, code_pattern, exclude_codes, notes, ge_category',
@@ -126,14 +258,23 @@ export async function loadCurriculum(): Promise<CurriculumLibrary> {
     ...p,
     min_total_credits: num(p.min_total_credits),
     min_gpa: num(p.min_gpa),
+    // Older databases may not have the cohort columns yet
+    entry_from: p.entry_from ?? null,
+    entry_through: p.entry_through ?? null,
+    version_of: p.version_of ?? null,
+    requires_programs: p.requires_programs ?? [],
+    adjustments: p.adjustments ?? {},
     groups: byProgram.get(p.id) ?? [],
   }));
-  const degrees = all.filter((p) => p.kind === 'degree');
+  const heads = all.filter((p) => !p.version_of);
+  const degrees = heads.filter((p) => p.kind === 'degree');
   if (!degrees.length) throw new Error('Curriculum has no degree programs.');
   return {
     degrees,
-    specializations: all.filter((p) => p.kind === 'specialization'),
-    minors: all.filter((p) => p.kind === 'minor'),
+    specializations: heads.filter((p) => p.kind === 'specialization'),
+    minors: heads.filter((p) => p.kind === 'minor'),
+    specialPrograms: heads.filter((p) => p.kind === 'special'),
+    versions: all.filter((p) => p.version_of),
   };
 }
 
@@ -222,10 +363,11 @@ interface TakenCourse {
 const norm = (code: string) => code.trim().toUpperCase().replace(/\s+/g, ' ');
 
 // "ECON 2001" matches ECON 2001.01/.02; a code with a decimal must match exactly.
+// An honors section counts for the regular course: "ACCTMIS 3200" matches ACCTMIS 3200H (not the other way).
 function codeMatches(required: string, taken: string): boolean {
   const r = norm(required);
   const t = norm(taken);
-  return r === t || (!r.includes('.') && t.startsWith(r + '.'));
+  return r === t || t === r + 'H' || (!r.includes('.') && t.startsWith(r + '.')) || (r.includes('.') && t === r + 'H');
 }
 
 export function courseGrade(course: Course): string | null {
@@ -326,6 +468,18 @@ function itemFrom(req: RequirementCourse, match: ReturnType<typeof bestMatch>): 
   };
 }
 
+// A required course a special program waives: met outright, or once the course that triggers the waiver
+// (ACCTMIS 3100H waives BUSOBA 2321) is taken or planned.
+function waivedItem(req: RequirementCourse, item: RequirementItem, taken: TakenCourse[]): RequirementItem {
+  const w = req.waived!;
+  if (!w.when_taken) return { ...item, state: 'done', takenAs: 'Waived', issue: undefined, notes: `${w.by}: ${w.note}.` };
+  const trigger = taken
+    .filter((t) => codeMatches(w.when_taken!, t.code) && (t.state !== 'done' || passes(t.grade, null)))
+    .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state])[0];
+  if (!trigger) return { ...item, notes: `${w.by}: waived if you take ${w.when_taken}.` };
+  return { ...item, state: trigger.state, takenAs: `Waived (${trigger.code})`, term: trigger.term, issue: undefined, notes: `${w.by}: ${w.note}.` };
+}
+
 function rollup(states: ItemState[]): ItemState {
   return states.reduce<ItemState>((worst, s) => (STATE_RANK[s] > STATE_RANK[worst] ? s : worst), 'done');
 }
@@ -339,7 +493,8 @@ function checkGroup(group: RequirementGroup, taken: TakenCourse[], used: Set<Tak
     const items = group.courses.map((req) => {
       const m = bestMatch(req, taken, used);
       if (m?.ok) used.add(m.t);
-      return itemFrom(req, m);
+      const item = itemFrom(req, m);
+      return item.state === 'missing' && req.waived ? waivedItem(req, item, taken) : item;
     });
     return {
       ...base,
@@ -624,28 +779,36 @@ function parsePrereqs(text: string): PrereqClause[] | null {
   return clauses;
 }
 
-// Prerequisite codes match loosely: ECON 2001.01 accepts ECON 2001 and the other way around.
-const baseCode = (code: string) => norm(code).replace(/\.\d{2}H?$/, '');
+// Prerequisite codes match loosely: ECON 2001.01 accepts ECON 2001 and the other way around, and an
+// honors section (ACCTMIS 2200H) counts for the regular course.
+const baseCode = (code: string) => norm(code).replace(/\.\d{2}H?$/, '').replace(/(\d)H$/, '$1');
 
 export function checkPrerequisites(curriculum: Curriculum, semesters: Semester[]): PrereqWarning[] {
   const reqs = new Map<string, RequirementCourse>();
-  for (const p of [curriculum.degree, ...curriculum.specializations]) {
+  for (const p of requiredPrograms(curriculum)) {
     for (const g of p.groups) for (const c of g.courses) if (c.prerequisites && !reqs.has(norm(c.code))) reqs.set(norm(c.code), c);
   }
   const equivalents = new Map<string, string[]>();
   for (const g of curriculum.degree.groups) for (const c of g.courses) equivalents.set(baseCode(c.code), [...c.alternates, ...c.equivalents]);
 
+  // Courses a special program waives (BUSMHR 2292 for Accounting Honors) count as met prerequisites
+  const waived = new Set<string>();
+  for (const p of requiredPrograms(curriculum))
+    for (const g of p.groups) for (const c of g.courses) if (c.waived && !c.waived.when_taken) waived.add(baseCode(c.code));
+
   const taken = flatten(semesters);
   const warnings: PrereqWarning[] = [];
   for (const t of taken) {
     if (t.state === 'done') continue;
-    const req = [...reqs.values()].find((r) => codeMatches(r.code, t.code));
+    // An honors section's own prerequisites (ACCTMIS 3200H) before the regular course's (ACCTMIS 3200)
+    const req = reqs.get(t.code) ?? [...reqs.values()].find((r) => codeMatches(r.code, t.code));
     if (!req?.prerequisites) continue;
     const clauses = parsePrereqs(req.prerequisites);
     if (!clauses) continue;
     const missing = clauses
       .filter(
         ({ codes: anyOf, sameTermOk }) =>
+          !anyOf.some((code) => waived.has(baseCode(code))) &&
           !anyOf.some((code) =>
             taken.some(
               (x) =>
@@ -677,7 +840,7 @@ export const isPlaceholderCode = (code: string) => norm(code) !== 'ELECTIVE' && 
 
 export function checkSchedule(curriculum: Curriculum, semesters: Semester[], earnedCredits: number): ScheduleWarning[] {
   const reqs = new Map<string, RequirementCourse>();
-  for (const p of [curriculum.degree, ...curriculum.specializations])
+  for (const p of requiredPrograms(curriculum))
     for (const g of p.groups)
       for (const c of g.courses) {
         const prev = reqs.get(norm(c.code));
@@ -697,7 +860,7 @@ export function checkSchedule(curriculum: Curriculum, semesters: Semester[], ear
         continue;
       }
       if (s.status !== 'planned') continue;
-      const req = [...reqs.values()].find((r) => codeMatches(r.code, code));
+      const req = reqs.get(code) ?? [...reqs.values()].find((r) => codeMatches(r.code, code));
       const offered = req?.offered_terms ?? [];
       if (offered.includes('None'))
         warnings.push({ code, term: s.name, blocking: false, message: `${code} isn't on the Autumn 2026 or Spring 2027 schedule; confirm with your advisor that it will be offered in ${s.name}.` });
@@ -725,7 +888,7 @@ export function checkSchedule(curriculum: Curriculum, semesters: Semester[], ear
 // Official credit hours for a course: the program requirement data first, then the registrar's GE tags.
 export function catalogCredits(curriculum: Curriculum | null, code: string): number | null {
   const c = norm(code);
-  for (const p of curriculum ? [curriculum.degree, ...curriculum.specializations, ...curriculum.minors] : [])
+  for (const p of curriculum ? [...requiredPrograms(curriculum), ...curriculum.minors] : [])
     for (const g of p.groups) for (const r of g.courses) if (r.credits != null && norm(r.code) === c) return r.credits;
   return GE_COURSES[c]?.credits ?? null;
 }
@@ -735,6 +898,10 @@ export function catalogCredits(curriculum: Curriculum | null, code: string): num
 export interface DegreeAudit {
   degree: ProgramProgress;
   specializations: ProgramProgress[]; // a student may have more than one
+  specialPrograms: ProgramProgress[]; // honors, IBE, ... (each checked on its own; its courses also count toward the major)
+  specialProgramWarnings: string[]; // e.g. Accounting Honors without the Accounting specialization
+  entryTerm: string | null;
+  cohortNotes: string[];
   specializationOptions: number; // how many specializations the degree offers (0 = none to choose)
   prereqWarnings: PrereqWarning[];
   scheduleWarnings: ScheduleWarning[];
@@ -784,9 +951,20 @@ export function auditDegree(
   const sum = (status: Semester['status']) =>
     semesters.filter((s) => s.status === status).reduce((n, s) => n + s.courses.reduce((m, c) => m + (Number(c.credits) || 0), 0), 0);
 
+  const specialProgramWarnings = curriculum.specialPrograms.flatMap((sp) => {
+    const missing = sp.requires_programs.filter((id) => !specializationIds.includes(id));
+    if (!missing.length) return [];
+    const names = missing.map((id) => curriculum.specializations.find((p) => p.id === id)?.name ?? id);
+    return [`${sp.name} is for students in the ${names.join(' / ')} specialization, which isn't on your profile.`];
+  });
+
   return {
     degree: checkProgram(curriculum.degree, semesters),
     specializations: specProgress,
+    specialPrograms: curriculum.specialPrograms.map((sp) => checkProgram(sp, semesters)),
+    specialProgramWarnings,
+    entryTerm: curriculum.entryTerm,
+    cohortNotes: curriculum.cohortNotes,
     specializationOptions: curriculum.specializations.length,
     prereqWarnings: checkPrerequisites(curriculum, semesters),
     scheduleWarnings: checkSchedule(curriculum, semesters, earnedCredits),
@@ -839,11 +1017,24 @@ export function describeAudit(audit: DegreeAudit): string {
       );
     }
   };
+  if (audit.entryTerm)
+    lines.push(
+      `Entered Ohio State: ${termLabel(audit.entryTerm)}. Requirements below are the version for that entering class` +
+        ` (${[audit.degree.program, ...audit.specialPrograms.map((p) => p.program)].map((p) => p.catalog).join('; ')}).`,
+    );
+  for (const n of audit.cohortNotes) lines.push(`Catalog note: ${n}`);
   program(audit.degree);
   if (audit.specializations.length) audit.specializations.forEach(program);
   else if (audit.specializationOptions) lines.push('Specialization: not chosen yet (this degree requires one).');
   if (audit.specializations.length > 1)
     lines.push(`The student has ${audit.specializations.length} specializations (${audit.specializations.map((p) => p.program.name).join(' and ')}); each must be completed.`);
+  if (audit.specialPrograms.length) {
+    lines.push(
+      `Special programs (the student is admitted to these; honors sections count for the regular course, and the program's waivers/substitutions are already applied above):`,
+    );
+    audit.specialPrograms.forEach(program);
+  }
+  for (const w of audit.specialProgramWarnings) lines.push(`Special program warning: ${w}`);
   if (audit.sharedCourses.length)
     lines.push(`Courses counted toward more than one specialization (confirm double-counting with an advisor): ${audit.sharedCourses.join(', ')}.`);
   const c = audit.credits;
@@ -866,7 +1057,7 @@ function courseLabel(c: RequirementCourse | undefined): string {
 // Requirements a plan still leaves unmet, worded as instructions for fixing the plan.
 export function planGaps(audit: DegreeAudit): string[] {
   const gaps: string[] = [];
-  for (const p of [audit.degree, ...audit.specializations]) {
+  for (const p of [audit.degree, ...audit.specializations, ...audit.specialPrograms]) {
     for (const g of p.groups) {
       if (g.state !== 'missing') continue;
       const where = `${p.program.name} – ${g.group.title}`;
@@ -906,7 +1097,7 @@ export function planGaps(audit: DegreeAudit): string[] {
 export function summerOnlineOptions(audit: DegreeAudit, plan: Semester[], max = 40): string[] {
   const inPlan = new Set(plan.flatMap((s) => s.courses.map((c) => norm(c.code))));
   const out: string[] = [];
-  for (const p of [audit.degree, ...audit.specializations]) {
+  for (const p of [audit.degree, ...audit.specializations, ...audit.specialPrograms]) {
     for (const g of p.groups) {
       if (g.state === 'done' || g.state === 'manual') continue;
       if (g.group.kind === 'ge') {
