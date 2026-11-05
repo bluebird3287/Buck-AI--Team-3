@@ -18,7 +18,7 @@ import {
   Award,
   Clock
 } from 'lucide-react';
-import { Semester, StudentProfile, INITIAL_ROADMAP } from '../data/sampleData';
+import { Semester, StudentProfile } from '../data/sampleData';
 
 interface RoadmapSidebarProps {
   isOpen: boolean;

@@ -28,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white sticky top-0 z-40 border-b border-gray-200">
+    <header className="bl-site-header bg-white sticky top-0 z-40 border-b border-gray-200">
       {/* 1. Official Top Institutional Header Bar from Screenshot 1 */}
       <div className="bg-white border-b border-gray-200 py-3.5 px-6 sm:px-8">
         <div className="max-w-[1440px] mx-auto flex items-center justify-between text-xs sm:text-sm">

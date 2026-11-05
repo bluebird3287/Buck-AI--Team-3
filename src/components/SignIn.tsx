@@ -4,6 +4,8 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 type Mode = 'signin' | 'signup' | 'forgot';
 
+const OSU_EMAIL = /@(buckeyemail\.)?osu\.edu$/i;
+
 // BuckeyeLink-styled sign-in for the prototype. It mirrors Ohio State's look (scarlet,
 // the "Login Required" layout) but is clearly a class prototype with its OWN accounts:
 // email + a password you make up here, never your real OSU password. Not the official
@@ -40,9 +42,19 @@ export const SignIn: React.FC = () => {
       if (resetError) setError(resetError.message);
       else setNotice('If that email has an account, a password-reset link is on its way. Open it to set a new password.');
     } else if (mode === 'signup') {
-      const { data, error: signUpError } = await supabase.auth.signUp({ email: email.trim(), password });
-      if (signUpError) setError(signUpError.message);
-      else if (!data.session) setNotice('Account created. Turn off "Confirm email" in Supabase to sign in without a confirmation step.');
+      // BuckAI is for the Ohio State community; the database enforces this too (public.reject_non_osu_signup)
+      if (!OSU_EMAIL.test(email.trim())) {
+        setError('Use your Ohio State email (name.#@osu.edu) to create a BuckAI account.');
+        setBusy(false);
+        return;
+      }
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (signUpError) setError(/osu|database error/i.test(signUpError.message) ? 'Use your Ohio State email (name.#@osu.edu) to create a BuckAI account.' : signUpError.message);
+      else if (!data.session) setNotice('Check your OSU email for a confirmation link, then sign in here.');
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (signInError) setError('That email or password is incorrect.');

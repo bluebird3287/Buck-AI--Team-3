@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
+import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
 
 dotenv.config();
 
@@ -28,25 +29,40 @@ function resolvePort(): number {
 }
 const PORT = resolvePort();
 
-app.use(express.json());
+// Raised so students can upload an advising report (Vercel caps request bodies at 4.5 MB)
+app.use(express.json({ limit: '4.5mb' }));
 
 // Claude client (reads ANTHROPIC_API_KEY from the environment)
 const anthropic = new Anthropic({ timeout: 45_000, maxRetries: 1 });
+// Building a whole 4-year plan takes much longer than a chat reply (Vercel allows up to 300s; see vercel.json)
+const ROADMAP_TIMEOUT_MS = 240_000;
 const CLAUDE_MODEL = 'claude-opus-5-5';
 
 // Ask Claude for a JSON reply and return the raw JSON text.
 // Low effort keeps latency down for interactive advising; on a safety refusal the
 // server-side fallback re-runs the request on a suitable model automatically.
-async function generateJson(prompt: string, system?: string): Promise<string> {
+async function generateJson(
+  prompt: string | Anthropic.Beta.BetaContentBlockParam[],
+  system?: string,
+  timeoutMs?: number,
+  maxRetries?: number,
+): Promise<string> {
   const response = await anthropic.beta.messages.create({
     model: CLAUDE_MODEL,
     max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     output_config: { effort: 'low' },
-    ...(system ? { system } : {}),
+    // The system prompts are fixed text, so cache them: repeat requests read them at a fraction of the price.
+    ...(system ? { system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }] } : {}),
     messages: [{ role: 'user', content: prompt }],
-  });
+  }, { ...(timeoutMs ? { timeout: timeoutMs } : {}), ...(maxRetries != null ? { maxRetries } : {}) });
+
+  // Token use per request (no student content), to measure real cost per student
+  const u = response.usage;
+  console.log(
+    `[claude-usage] in=${u.input_tokens} cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0} out=${u.output_tokens}`,
+  );
 
   if (response.stop_reason === 'refusal') {
     throw new Error(`Claude declined the request (${response.stop_details?.category ?? 'unspecified'})`);
@@ -61,14 +77,50 @@ async function generateJson(prompt: string, system?: string): Promise<string> {
   return text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim() || '{}';
 }
 
+// Describes the signed-in student from the profile and classes they entered themselves.
+function describeStudent(profile: any, roadmap: any[] | undefined): string {
+  const terms = Array.isArray(roadmap) ? roadmap : [];
+  const list = (status: string) =>
+    terms
+      .filter((t) => t?.status === status && Array.isArray(t.courses) && t.courses.length)
+      .map((t) => `  - ${t.name}: ${t.courses.map((c: any) => {
+        const name = officialTitle(c.code) ?? c.name;
+        return `${c.code}${name && name !== c.code ? ` (${name})` : ''}${c.notes ? ` [${c.notes}]` : ''}`;
+      }).join(', ')}`)
+      .join('\n') || '  - none entered';
+  return [
+    `- Name: ${profile?.name || 'Not provided'}`,
+    `- Class standing: ${profile?.rank || 'Not provided'}`,
+    `- Entered Ohio State: ${termName(profile?.entryTerm) || 'Not provided'}; expected graduation: ${termName(profile?.expectedGraduation) || 'Not provided'} (requirements depend on the entering class)`,
+    `- College: ${profile?.college || 'Not provided'}`,
+    `- Major / specialization(s): ${profile?.major || 'Not provided'}`,
+    `- Minor: ${profile?.minor || 'None'}`,
+    `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
+    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}`,
+    `- Holds: ${profile?.holds?.length ? profile.holds.join(', ') : 'None reported (not connected to BuckeyeLink)'}`,
+    `- Completed credits: ${profile?.earnedCredits ?? 0} / ${profile?.totalRequiredCredits ?? 120}`,
+    `- Completed classes:\n${list('completed')}`,
+    `- Current term classes:\n${list('in-progress')}`,
+    `- Planned classes:\n${list('planned')}`,
+  ].join('\n');
+}
+
+// 'autumn-2024' -> 'Autumn 2024'
+function termName(id: unknown): string {
+  const m = /^(autumn|spring|summer)-(\d{4})$/.exec(String(id ?? ''));
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}` : '';
+}
+
 const OSU_ADVISING_SYSTEM_INSTRUCTION = `
 You are the Ohio State University (OSU) Native BuckeyeLink AI Academic Advising Assistant.
 Your audience is undergraduate students navigating BuckeyeLink, course registration, prerequisite chains, 4-year degree planning, and advisor scheduling.
 
 Key OSU Context:
-- Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (CSE).
-- Student in prototype: Tyler, Sophomore (2nd year), Business Information Systems & Finance double-interest, currently enrolled in ACCTMIS 2300, CSE 2221, MATH 1152, BUSMHR 2292.
-- Holds: Tyler currently has a "Registration Lock" hold in BuckeyeLink requiring a Second-Year Academic Plan Review check-in before Spring registration opens.
+- Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
+- Pilot scope: Fisher BSBA students and College of Engineering BS students. Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Entering class and special programs: requirements depend on when the student entered Ohio State (e.g. students who entered before Autumn 2022 follow the GE Legacy; Accounting Honors has a different structure for the Class of 2028 and later) and on any special program they're in (Fisher Honors programs, IBE, Accelerated BSBA/MAcc, University Honors). The requirements check already uses the right version and applies each program's waivers and substitutions (honors sections count for the regular course). Follow it, never another class's curriculum, and repeat any "Catalog note" so the student confirms with their advisor.
+- Course titles: use the title given for a course code in the request (student profile, requirements check, or "Official course titles"); they come from OSU Class Search. Never guess or paraphrase a course's title from its number or subject (e.g. BUSFIN 3500 is Legal Environment of Business, not a finance class). If a code has no title in the request, refer to it by code only.
+- Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
   - When students inquire about Marc Smith or accounting evaluations, explicitly provide peer recommendations:
@@ -87,6 +139,7 @@ Key OSU Context:
   - LIBRARIES: Every Ohio State student already has automatic 24/7 access to 18th Avenue Library and open access to Thompson Library on their BuckID. No request is needed for libraries!
   - ACADEMIC BUILDINGS: Students can request evening and weekend access to study spaces in academic buildings (Mason Hall, Dreese Laboratories, Caldwell Lab, Enarson Classroom Building, etc.).
   - CRITICAL POLICY: All approved building access is encoded directly onto the student's BuckID card (simple tap at exterior door readers during authorized evening and weekend hours).
+  - WHO GRANTS IT: The BuckID office doesn't grant door access; the department or college that runs the building does (its building manager or coordinator). The After-Hours Study Access tab names that office for each building and writes the request email, which the student sends from their own OSU email. Never ask for or repeat the 19-digit BuckID number (Ohio State restricted data).
   - Keep explanations dead simple, helpful, and non-bureaucratic: explain lock hours, remind them libraries are already free/open, state that approved access goes straight to their BuckID, and guide them to the After-Hours Study Access tab.
 
 Output Format:
@@ -100,13 +153,23 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   "escalationReason": "string or null (why an advisor meeting is recommended)",
   "highStakesDecision": {
     "isHighStakes": boolean,
-    "actionType": "'drop_class' | 'add_minor' | 'change_major' | 'withdraw' | null",
+    "actionType": "'drop_class' | 'withdraw' | 'pass_nonpass' | 'overload' | 'transfer_credit' | 'change_major' | null",
     "decisionTitle": "string or null (e.g. 'Drop ACCTMIS 2300 (Intro to Accounting 2)' or 'Declare Computer Science (CSE) Minor')",
     "warningSummary": "string or null (concise 1-2 sentence notice: AI cannot modify transcripts; official changes require human advisor authorization)",
     "consequences": ["array of 2-3 short, concise consequences, e.g. 'Dropping drops enrolled hours to 12 cr (Full-Time FAFSA risk)', 'Interrupts core prerequisite chain for BUSFIN 3220, delaying graduation 1-2 terms', 'Dropping after the 4th Friday creates a permanent W mark on transcript'"],
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
+  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
+  "bookingReason": "string or null (when openTab is 'advisor': what the student wants to discuss, in their words, e.g. 'Whether to drop ACCTMIS 2300')",
+  "roadmapRequest": {
+    "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
+    "instructions": "string or null (their preferences for the plan in one or two sentences, e.g. 'Graduate in Spring 2029, keep terms around 15 credits, add the Insurance minor')"
+  },
+  "programChange": null or {
+    "specializations": ["array of exact specialization names: the student's full new list"] or null (no change),
+    "minor": "exact minor name, or \"\" to remove their minor" or null (no change)
+  },
   "roadmapRecommendation": {
     "targetSemester": "string or null (e.g. 'Spring 2027')",
     "courseAdjustment": "string or null",
@@ -114,11 +177,53 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   }
 }
 
-IMPORTANT: When a student asks to make a big decision like dropping a class (e.g. ACCTMIS 2300, CSE 2221, MATH 1152) or picking up a new minor (e.g. CSE minor, Business Analytics minor) as a 'real choice' or asks the AI to actually execute it:
-- Keep the response clear, direct, and concise (not overly verbose).
-- You MUST set "highStakesDecision.isHighStakes" to true.
-- Outline short consequences (financial aid risk, prerequisite bottlenecks, degree delay, transcript notation).
-- Emphasize that automated AI agents are barred by university policy from making unilateral changes to official student transcripts and that this MUST be escalated directly to their human advisor (Sarah Jenkins).
+Big decisions: when the student asks to actually do something that is hard to undo, set "highStakesDecision.isHighStakes" true with the matching "actionType":
+- 'drop_class': dropping a class they're enrolled in now (a class in a PLANNED term is a plan change: use "roadmapRequest" instead).
+- 'withdraw': withdrawing from all classes, leaving school, a leave of absence, or taking a term off.
+- 'pass_nonpass': taking or switching a class to Pass/Non-Pass.
+- 'overload': scheduling more than 18 credit hours in a term.
+- 'transfer_credit': taking a class at another school to transfer in.
+- 'change_major': leaving their degree or college for a different major (a Fisher specialization or minor change is NOT this; use "programChange").
+BuckAI then shows the student a "this is a big decision" card with their own consequences (their real credit load, the requirements and prerequisites the class affects) and asks whether to go through with it or confirm with their advisor first. So in "answer":
+- Keep it to 2-4 short sentences: acknowledge the request, say it's a big decision, and name the one or two things that matter most from the request data (e.g. that the class is a prerequisite for something in their plan).
+- Don't invent numbers or deadlines. Never claim they'll drop below 12 credit hours unless the current-term classes in the request show it.
+- Never say it's done: BuckAI can't change their official record; the student does that in BuckeyeLink, or their advisor does.
+If they're only asking about it ("what happens if I drop…", "should I…"), answer the question and leave "highStakesDecision" null.
+
+Sending the student to the right place: set "openTab" when a tab in this panel does what they want, and BuckAI shows a button to it:
+- 'advisor': booking, moving, or asking about an advisor appointment (put the topic in "bookingReason").
+- 'seatAlerts': a full class, waitlists, or being told when a seat opens.
+- 'studyAccess': after-hours or weekend access to a building.
+- 'rmp': which professor or section to take, faculty ratings, or peer tips. Compare instructors using "Faculty Evaluations" in the student's other tabs (review counts and averages exactly as given; say when there are no reviews yet). Never invent ratings.
+- 'officeHours': office hours, who teaches their class, or how to reach a professor or TA. Answer from "Instructors and office hours" (names, times, place, email exactly as given; if they haven't picked their instructor, list each one). Most syllabi don't list office hours: then say so, give the instructor's email if listed, and point them to Carmen. Never guess hours.
+- 'whatif': comparing or exploring minors.
+- 'requirements': what they still need to graduate.
+- 'roadmap': looking at their 4-year plan.
+Questions about their own status in a tab ("do I have an advisor meeting?", "what classes am I watching?", "did a seat open?") are answered from "The student's other BuckAI tabs"; still set "openTab" to that tab. Never claim an appointment, alert, or review that isn't listed there.
+Refer to instructors, TAs, and advisors by name or as "they"; never guess anyone's pronouns.
+Holds, registration errors, tuition, and financial aid questions aren't tabs here: answer what you can and point them to their advisor, the Registrar, or Student Financial Aid.
+
+What BuckAI can do from this chat (set the matching field; never say something is done unless you set it):
+- Change the student's specializations or minor in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
+- Build or change their plan of future terms: set "roadmapRequest.build" true. This covers building a plan, adding, removing, moving, or swapping specific classes, lighter or heavier terms, graduating earlier or later, adding a minor's or specialization's classes, and fixing gaps. Put exactly what they asked for in "instructions".
+- Show a big-decision card for an irreversible request (see "Big decisions" above).
+- Send them to a tab in this panel: set "openTab".
+What BuckAI can't do from this chat (say so plainly and point them to the right place):
+- Change classes they've completed or are taking now, grades, GPA, or their degree/college: they edit those under "My classes".
+- Register, drop, or withdraw from a class in BuckeyeLink, or change their official record: only they (in BuckeyeLink) or their advisor can.
+- Seat alerts, after-hours building access, and advisor appointments have their own tabs in this panel (set "openTab").
+
+Specializations, majors, and minors (programs, not classes):
+- "Drop", "remove", "switch", or "stop pursuing" a specialization or minor means changing a program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
+- When the student says they want to add, drop, keep only, or switch a specialization or minor (e.g. "drop Finance and only pursue Tech Innovation"), apply it: set "programChange" using exact names from "Programs available" in the request.
+  - "programChange.specializations" is their FULL new list (e.g. ["Technology Innovation"]), not just the one that changed. A Fisher BSBA student must keep at least one specialization.
+  - "programChange.minor" is the new minor's exact name, or "" to remove their minor.
+  - In "answer", say in one or two lines what you're changing (which programs they keep, which they drop) and that BuckAI is updating their requirements and plan. Use the requirements check to name what they still need for the programs they keep. Mention once that the official change goes through their advisor.
+  - Leave "highStakesDecision" null and set "escalationSuggested" true with the advisor reason. Leave "roadmapRequest.build" false unless they asked for something else about the plan too; BuckAI rebuilds the plan itself after a program change.
+- If they're only exploring ("what if I dropped Finance?", "should I add a minor?"), answer the question and leave "programChange" null.
+- If the program they name isn't in "Programs available", leave "programChange" null and tell them which close options exist.
+
+When "roadmapRequest.build" is true, BuckAI builds and saves the plan itself right after your reply, checking it against the student's degree requirements. Keep "answer" short: say you're building their plan and mention what it will prioritize (unmet requirements, prerequisites, balanced terms). Don't list a full plan in "answer". Adding a minor or courses to a plan is planning, not a high-stakes declaration.
 
 Do not wrap the JSON in extra text outside the JSON object.
 `;
@@ -161,7 +266,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
-    const { message, history, studentProfile } = req.body;
+    const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, featureSummary, programOptions } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -173,13 +278,27 @@ app.post('/api/advising-chat', async (req, res) => {
       .join('\n');
 
     const promptText = `
-Student Profile:
-- Name: ${studentProfile?.name || 'Tyler'}
-- Status: ${studentProfile?.rank || 'Sophomore'}
-- Major: ${studentProfile?.major || 'Finance & Information Systems'}
-- Current Holds: ${studentProfile?.holds?.join(', ') || 'Registration Lock (Academic Advising Check-in)'}
-- Current Enrolled: ACCTMIS 2300 (Intro to Accounting 2), CSE 2221 (Software 1), MATH 1152 (Calculus 2), BUSMHR 2292 (Business Communication)
-- Completed Credits: 45 / 121
+Student Profile (entered by the student):
+${describeStudent(studentProfile, roadmap)}
+
+Degree requirements check (computed by BuckAI from the published requirements for the student's degree and specialization):
+${requirementsSummary || 'Not available.'}
+
+Instructors and office hours for the student's current classes (from the instructors' syllabi in Ohio State's Simple Syllabus, emails from the public Fisher/Engineering directories; "the student's instructor" marks the one they picked):
+${officeHoursSummary || 'Not available (no Fisher syllabus for these classes, or the student is not signed in with an OSU account).'}
+
+The student's other BuckAI tabs (advisor appointment, seat alerts, instructors and student reviews):
+${featureSummary || 'Not available.'}
+
+Programs available (use these exact names in "programChange"):
+${programOptions
+  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
+      programOptions.closedMinors?.length ? `\n- Minors closed to this student's major (don't add these; explain why): ${programOptions.closedMinors.join('; ')}` : ''
+    }`
+  : 'Not available. Leave "programChange" null and point the student to "My classes".'}
+
+Official course titles (OSU Class Search) for courses named in this conversation:
+${titlesMentioned(`${conversationContext}\n${message}`).join('\n') || 'None.'}
 
 Conversation History:
 ${conversationContext}
@@ -211,47 +330,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       };
     }
 
-    // Guardrail check: if student prompt asked to drop a class or declare/pick up a minor as a real choice, ensure highStakesDecision is attached
-    const lowerPrompt = (message || '').toLowerCase();
-    const isDroppingClass = lowerPrompt.includes('drop') || lowerPrompt.includes('withdraw') || lowerPrompt.includes('drop a class');
-    const isDeclaringMinor = (lowerPrompt.includes('minor') && (lowerPrompt.includes('add') || lowerPrompt.includes('pick up') || lowerPrompt.includes('declare') || lowerPrompt.includes('real choice') || lowerPrompt.includes('enroll')));
-
-    if ((isDroppingClass || isDeclaringMinor) && (!parsed.highStakesDecision || !parsed.highStakesDecision.isHighStakes)) {
-      if (isDroppingClass) {
-        const courseCode = lowerPrompt.includes('acctmis') ? 'ACCTMIS 2300' : lowerPrompt.includes('math') ? 'MATH 1152' : lowerPrompt.includes('cse') ? 'CSE 2221' : 'Current Enrolled Course';
-        parsed.highStakesDecision = {
-          isHighStakes: true,
-          actionType: 'drop_class',
-          decisionTitle: `Drop ${courseCode} from Autumn 2026 Active Enrollment`,
-          warningSummary: `You are requesting to officially drop ${courseCode}. Per Ohio State University Academic Senate regulations, an AI assistant cannot alter your official registration record directly. Dropping this course carries immediate academic standing, financial aid, and graduation consequences.`,
-          consequences: [
-            'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and triggering Title IV FAFSA / Fisher Merit Scholarship aid clawbacks.',
-            `Prerequisite Disruption: ${courseCode} is a foundational requirement for subsequent 3000-level Fisher finance and technical sequences, pushing your planned graduation back by up to two terms.`,
-            'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
-          ],
-          escalateRecommended: true
-        };
-        parsed.escalationSuggested = true;
-        parsed.escalationReason = `Permanent course withdrawal for ${courseCode} requires human academic advisor verification.`;
-      } else if (isDeclaringMinor) {
-        const minorName = lowerPrompt.includes('cse') || lowerPrompt.includes('computer science') ? 'Computer Science (CSE) Minor' : lowerPrompt.includes('econ') ? 'Economics Minor' : 'Business Analytics & CIS Minor';
-        parsed.highStakesDecision = {
-          isHighStakes: true,
-          actionType: 'add_minor',
-          decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
-          warningSummary: `You are requesting to declare the ${minorName} as your official secondary academic credential. While simulated roadmaps provide instant modeling, only an authorized human academic advisor can petition the college to update your SIS student master record.`,
-          consequences: [
-            'Credit Load & Overlap Cap: Under Fisher College rules, no more than 6 credit hours may overlap between your Finance major core and an official minor program.',
-            'College Committee Review: Inter-college minor additions (e.g. College of Engineering CSE Minor) require formal program coordinator audit and GPA check (minimum 2.50 CPHR).',
-            'Time-to-Degree Audit: Adding this minor locks in 15-16 specific upper-division graded credit hours that must be completed prior to degree certification.'
-          ],
-          escalateRecommended: true
-        };
-        parsed.escalationSuggested = true;
-        parsed.escalationReason = `Adding the ${minorName} requires Sarah Jenkins to enter a curriculum change form in OnCourse SIS.`;
-      }
-    }
-
+    // Big-decision cards are built in the app from the student's own classes and requirements
+    // (src/lib/chatIntents.ts), so nothing is forced here; the AI's flag only tells the app which kind it is.
     res.json(parsed);
   } catch (error: any) {
     console.warn('Claude API unavailable, providing grounded curriculum fallback:', error?.message);
@@ -259,33 +339,28 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
     const isHold = textLower.includes('hold') || textLower.includes('lock');
     const isMarcSmith = textLower.includes('marc smith') || textLower.includes('smith') || textLower.includes('evaluat') || (textLower.includes('accounting') && (textLower.includes('work') || textLower.includes('class') || textLower.includes('hard') || textLower.includes('recommend')));
     const isPrereq = textLower.includes('prereq') || textLower.includes('cse 2231') || (textLower.includes('acctmis 2300') && !isMarcSmith);
-    const isDrop = textLower.includes('drop') || textLower.includes('withdraw');
+    const fallbackPrograms: string[] = [...(req.body?.programOptions?.specializations || []), ...(req.body?.programOptions?.minors || [])]
+      .map((n: string) => n.split(' (')[0].replace(/ minor$/i, '').trim().toLowerCase())
+      .filter(Boolean);
+    const isDrop =
+      (textLower.includes('drop') || textLower.includes('withdraw')) &&
+      !/speciali[sz]|\bmajor\b|\bminor\b|concentration|\btrack\b|\bwhat if\b/.test(textLower) &&
+      !fallbackPrograms.some((n) => textLower.includes(n));
     const isMinor = textLower.includes('minor') || textLower.includes('analytics');
 
-    let answer = `As a Sophomore in Finance with a 3.68 GPA, you are on track for Spring 2029 graduation. For Spring 2027, you satisfy all prerequisites for BUSFIN 3220 and CSE 2231.`;
-    let sourceCitation = 'Fisher College of Business Curriculum Sheet 2026-2027';
+    let answer = `I couldn't reach the advising service just now. Please try again in a moment, or book time with your advisor for anything urgent.`;
+    let sourceCitation = 'OSU Course Bulletin 2026-2027';
     let escalationSuggested = false;
     let escalationReason: string | null = null;
     let highStakesDecision: any = null;
 
     if (isDrop) {
-      const course = textLower.includes('acctmis') ? 'ACCTMIS 2300' : textLower.includes('math') ? 'MATH 1152' : textLower.includes('cse') ? 'CSE 2221' : 'ACCTMIS 2300';
-      answer = `⚠️ **SERIOUS WARNING:** You have requested to drop **${course}** from your active semester schedule as a real academic choice.\n\nPer Ohio State University policy, automated AI systems cannot make unilateral modifications to your official student transcript. Dropping this course carries severe risks to your full-time student status (dropping below 12 credits risks immediate financial aid loss) and disrupts your prerequisite roadmap.\n\nPlease review the critical warnings below. You can escalate directly to your assigned advisor **Sarah Jenkins** or, if you choose to confirm your decision, your request will be immediately dispatched directly to her for human review and expedited sign-off.`;
-      sourceCitation = 'OSU Faculty Rule 3335-8-32 (Course Enrollment Alterations) & Fisher Undergraduate Handbook';
+      // The app builds the big-decision card from the student's own classes; this only says what it is
+      answer = `Dropping a class you're enrolled in is a big decision. I've laid out what it would mean for you below. Choose whether to go through with it yourself in BuckeyeLink, or confirm with your advisor first.`;
+      sourceCitation = 'Your BuckAI classes, plan, and degree requirements';
       escalationSuggested = true;
-      escalationReason = `Course withdrawal requires certified advisor review to safeguard financial aid and prerequisite sequence.`;
-      highStakesDecision = {
-        isHighStakes: true,
-        actionType: 'drop_class',
-        decisionTitle: `Drop ${course} from Autumn 2026 Active Enrollment`,
-        warningSummary: `You are requesting to officially drop ${course}. Doing so carries irreversible financial aid and degree completion implications. Per university policy, an AI assistant cannot modify your official SIS transcript autonomously without certified advisor sign-off.`,
-        consequences: [
-          'Financial Aid Risk: Dropping lowers your enrolled credits below 12 credit hours, terminating full-time student status and triggering Title IV FAFSA / Fisher Merit Scholarship aid clawbacks.',
-          `Prerequisite Disruption: ${course} is a hard prerequisite for next-term courses (such as BUSFIN 3220 or CSE 2231), delaying your graduation by up to two full semesters.`,
-          'Official Transcript Notation: Course drops processed after the 4th Friday deadline generate a permanent "W" (Withdrawal) record on your official Ohio State transcript.'
-        ],
-        escalateRecommended: true
-      };
+      escalationReason = 'Dropping a class can affect full-time status, financial aid, and prerequisites.';
+      highStakesDecision = { isHighStakes: true, actionType: 'drop_class' };
     } else if (isMarcSmith) {
       answer = `📊 **Marc Smith Faculty Evaluations & Workload Recommendations (ACCTMIS 2200 & 2300):**\n\n` +
         `Marc Smith is celebrated as one of Ohio State's most engaging and legendary instructors (4.7/5.0 overall rating), but student evaluations overwhelmingly agree: **his accounting class is A LOT OF WORK.**\n\n` +
@@ -298,31 +373,16 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
         `• 🏢 **Accounting Learning Center (ALC):** Use free drop-in peer tutoring in Mason Hall during the first month rather than waiting for exam week.`;
       sourceCitation = 'OSU Student Course Evaluations (SEI) & r/OSU Community Academic Consensus 2026-2027';
     } else if (isHold) {
-      answer = `Your **Registration Lock** hold is the mandatory Second-Year Academic Plan Review. It prevents adding Spring 2027 classes until verified. A quick 10-minute check-in with your assigned advisor **Sarah Jenkins** will lift this hold immediately. You can choose a mutual free time right now!`;
-      sourceCitation = 'Office of the University Registrar & Fisher Advising Policy § 2.4';
+      answer = `BuckAI can't see your BuckeyeLink holds yet. Check the Holds section in BuckeyeLink; if you have one, your advisor can tell you what's needed to clear it, and you can pick a mutual free time in the Advisor tab.`;
+      sourceCitation = 'Office of the University Registrar registration hold policy';
       escalationSuggested = true;
       escalationReason = 'Registration lock removal requires advisor sign-off.';
     } else if (isPrereq) {
-      answer = `Yes! You can take **CSE 2231 (Software 2)** and **ACCTMIS 2300 (Accounting 2)** together. CSE 2231 requires passing CSE 2221 with a C- or better, which you are taking now. To keep your semester balanced, pair them with a lighter GE Theme course like Citizenship for a Diverse World.`;
-      sourceCitation = 'OSU Course Bulletin 2026-2027 § CSE 2231 & ACCTMIS 2300 Course Profiles';
+      answer = `Prerequisites are listed for each course in the OSU Course Bulletin. Make sure the classes you've already taken are added under **My classes** so I can check them against what you want to take next.`;
+      sourceCitation = 'OSU Course Bulletin 2026-2027';
     } else if (isMinor) {
-      const minorName = textLower.includes('cse') ? 'Computer Science (CSE) Minor' : 'Business Analytics & CIS Minor';
-      answer = `⚠️ **SERIOUS WARNING: Official Curriculum Declaration Requested**\n\nYou asked to officially declare the **${minorName}** as your real academic credential in BuckeyeLink.\n\nWhile the Degree Planner provides instant simulations, declaring a minor permanently binds 15-16 credit hours to your graduation audit and must be formally filed through OnCourse SIS. You can escalate directly to your advisor **Sarah Jenkins**, or if you confirm your choice below, your declaration will be transmitted straight to her desk for official processing.`;
-      sourceCitation = 'Fisher Undergraduate Handbook: Minor Declarations & Inter-College Credential Policies';
-      escalationSuggested = true;
-      escalationReason = `Official declaration requires advisor sign-off in OnCourse SIS.`;
-      highStakesDecision = {
-        isHighStakes: true,
-        actionType: 'add_minor',
-        decisionTitle: `Declare ${minorName} on Official University Degree Audit`,
-        warningSummary: `You are requesting to officially declare ${minorName} on your student master record. University policy prohibits AI agents from filing permanent curriculum declarations without human advisor validation.`,
-        consequences: [
-          'Credit Load & Overlap Limit: Fisher College allows a maximum of 6 credit hours to overlap between your Finance major and any declared minor.',
-          'Inter-College Approval: Engineering and Arts & Sciences minors require college committee review and minimum 2.50 cumulative CPHR verification.',
-          'Graduation Requirement: Declared minors must be fully satisfied or formally dropped prior to degree conferral.'
-        ],
-        escalateRecommended: true
-      };
+      answer = `I couldn't reach the advising service just now, so I didn't change your minor. You can add or remove a minor under **My classes**, or see which minors you can add in the **What-If Minor Audit** tab.`;
+      sourceCitation = 'BuckAI minors (What-If Minor Audit)';
     }
 
     res.json({
@@ -333,7 +393,7 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
       escalationSuggested,
       escalationReason,
       highStakesDecision,
-      suggestedActions: ['Check 4-Year Roadmap', 'Match Availability with Sarah Jenkins', 'Review Degree Audit']
+      suggestedActions: ['Check 4-Year Roadmap', 'Match Availability with My Advisor', 'Review Degree Audit']
     });
   }
 });
@@ -342,9 +402,8 @@ Provide an authoritative, friendly, highly specific OSU advising response follow
 app.post('/api/escalate-decision', async (req, res) => {
   try {
     const {
-      studentName = 'Tyler Rez',
-      osuId = '#03847291',
-      nameDotNum = 'rez.24@osu.edu',
+      studentName = 'Student',
+      nameDotNum = '',
       decisionType,
       decisionTitle,
       userConfirmed,
@@ -381,6 +440,94 @@ app.post('/api/escalate-decision', async (req, res) => {
   }
 });
 
+const ADVISING_REPORT_INSTRUCTION = `
+You read Ohio State University "Advising Report" PDFs (or screenshots of them) and extract the student's academic record as JSON.
+
+Privacy rules (strict):
+- Never output the student ID / emplid, birthdate, test scores, high school, or email. They must not appear anywhere in your output.
+
+Return ONLY this JSON object:
+{
+  "isAdvisingReport": boolean (false if the file is not an OSU advising report or degree record),
+  "fullName": "string (the student's first name as they'd go by, e.g. 'Tyler' from 'REZABEK, TYLER')",
+  "major": "string (readable, e.g. 'Finance (BS Business Admin)' from 'MAJ FINANCE-BS')",
+  "minor": "string or null (readable, e.g. 'International Business' from 'MIN INTLBUS-MN')",
+  "college": "string or null (full OSU college name, e.g. 'Fisher College of Business' for UBUS / BUSINESS)",
+  "classStanding": "one of 'Freshman (Year 1)', 'Sophomore (Year 2)', 'Junior (Year 3)', 'Senior (Year 4)' from the latest RK value (1-4), or null",
+  "gpa": number or null (latest cumulative GPA),
+  "earnedCredits": number or null (latest cumulative EH, earned hours, including exam/transfer credit),
+  "advisorName": "string or null (readable, e.g. 'Lindsay McGory' from 'MCGORY,LINDSAY WEBB')",
+  "terms": [
+    {
+      "season": "Autumn" | "Spring" | "Summer",
+      "year": number,
+      "courses": [
+        { "code": "SUBJECT NUMBER, e.g. 'ACCTMIS 2200' or 'ENGLISH 1110.02'", "name": "readable title in Title Case", "credits": number, "grade": "string or null (final grade; 'EM' means credit by exam; null if in progress)" }
+      ]
+    }
+  ]
+}
+
+Include every term that lists courses, including terms in progress (no grade yet). Read the course table carefully: in extracted text a grade can run into the next course's subject (e.g. '3.00 ABUSMHR 2000' is grade A then BUSMHR 2000).
+`;
+
+// Turns an uploaded OSU advising report into the student's profile and classes.
+// The file is only passed to Claude for reading; it is never stored.
+app.post('/api/parse-advising-report', async (req, res) => {
+  try {
+    const { fileBase64, mediaType } = req.body || {};
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+    if (!fileBase64 || !allowed.includes(mediaType)) {
+      return res.status(400).json({ error: 'Upload your advising report as a PDF or an image (PNG/JPG).' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Report reading is not available right now. Please add your classes by hand.' });
+    }
+
+    const fileBlock: Anthropic.Beta.BetaContentBlockParam =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const raw = await generateJson(
+      [fileBlock, { type: 'text', text: 'Extract this advising report as JSON following the instructions.' }],
+      ADVISING_REPORT_INSTRUCTION,
+      120_000,
+    );
+    const parsed = JSON.parse(raw);
+    if (!parsed.isAdvisingReport) {
+      return res.status(422).json({ error: "That file doesn't look like an OSU advising report. Please check the file and try again." });
+    }
+
+    // Pass through only the academic fields, whatever else the model returned.
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const seasons = ['Autumn', 'Spring', 'Summer'];
+    res.json({
+      fullName: str(parsed.fullName),
+      major: str(parsed.major),
+      minor: str(parsed.minor),
+      college: str(parsed.college),
+      classStanding: str(parsed.classStanding),
+      gpa: num(parsed.gpa),
+      earnedCredits: num(parsed.earnedCredits),
+      advisorName: str(parsed.advisorName),
+      terms: (Array.isArray(parsed.terms) ? parsed.terms : [])
+        .filter((t: any) => seasons.includes(t?.season) && Number.isInteger(t?.year))
+        .map((t: any) => ({
+          season: t.season,
+          year: t.year,
+          courses: (Array.isArray(t.courses) ? t.courses : [])
+            .filter((c: any) => str(c?.code))
+            .map((c: any) => ({ code: str(c.code), name: officialTitle(c.code) ?? str(c.name), credits: num(c.credits) ?? 0, grade: str(c.grade) })),
+        })),
+    });
+  } catch (error: any) {
+    console.error('Advising report parse failed:', error?.message);
+    res.status(500).json({ error: "Couldn't read that report. Please try again, or add your classes by hand." });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Advisor request review: step 1 of the double check. The AI verifies a student's
 // request and summarizes their needs; a human advisor makes the final decision.
@@ -408,7 +555,8 @@ Respond ONLY with a JSON object:
   "riskFlags": ["0-3 short items"],
   "checks": [{ "label": "short check name", "passed": boolean, "detail": "one short sentence" }],
   "suggestedAgenda": ["2-3 short items for the meeting"],
-  "recommendation": "one sentence for the advisor"
+  "recommendation": "one sentence for the advisor",
+  "situation": "3-5 sentences describing the student's problem and current circumstances in detail (what is going on, what they have tried, what they are worried about, what they want). The reader is an experienced advisor: do not explain policies or requirements."
 }
 `;
 
@@ -472,7 +620,17 @@ function ruleBasedReview(request: any) {
   }
 
   const failed = checks.some((c) => !c.passed);
+  const year = String(student.rank ?? 'student').replace(/\s*\(.*\)\s*/, '').toLowerCase();
+  const situation = [
+    `${name} is a ${year} in ${student.major ?? 'their program'} with a ${gpa.toFixed(2)} GPA, ${student.earnedCredits ?? 0} credits earned and ${enrolled} credits this term.`,
+    holds.length ? `There is an active hold on the account: ${holds.join('; ')}.` : '',
+    `They are asking for approval for: ${request?.title ?? 'an advising request'}.`,
+    request?.appointment ? 'They have already picked a meeting time that works for both of you.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return {
+    situation,
     verdict: failed ? 'needs_attention' : 'supported',
     confidence: 'moderate',
     summary,
@@ -528,155 +686,74 @@ ${JSON.stringify(
   }
 });
 
-// Endpoint to dynamically recalculate or balance the 4-year roadmap
-app.post('/api/roadmap-generate', async (req, res) => {
-  try {
-    const { prompt, studentProfile, currentRoadmap } = req.body;
-
-    const requestPrompt = `
-You are the OSU Degree Audit & Academic Planning Engine.
-Student Profile: ${JSON.stringify(studentProfile || { name: 'Tyler', major: 'Finance with Business Analytics Minor', rank: 'Sophomore' })}
-Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
-
-Current Roadmap Plan:
-${JSON.stringify(currentRoadmap || {})}
+// Fixed instructions for building a plan (a system prompt, so it's cached across requests)
+const ROADMAP_SYSTEM_INSTRUCTION = `You are the OSU Degree Audit & Academic Planning Engine.
 
 Return a JSON with:
 {
   "summary": "Brief 1-2 sentence explanation of adjustments made to satisfy prerequisites and workload balance.",
   "workloadBalanced": true,
   "confidence": "high" | "moderate" | "uncertain",
-  "sourceCitation": "Fisher College of Business / Arts & Sciences 4-Year Curriculum Guide 2026",
-  "confidenceExplanation": "Audited with DARS prerequisite validator (MATH 1151 -> CSE 2221 -> CSE 2231 / ACCTMIS 2200 -> ACCTMIS 2300 -> BUSFIN 3220).",
+  "sourceCitation": "the student's degree curriculum (e.g. Fisher BSBA curriculum, or the College of Engineering 2026-2027 curriculum sheet for their major)",
+  "confidenceExplanation": "string (honest reason for the confidence level)",
   "semesters": [
     {
-      "id": "sem-1",
-      "name": "Autumn 2025 (Year 1)",
-      "status": "completed",
+      "id": "autumn-2027",
       "courses": [
-        { "code": "MATH 1151", "name": "Calculus 1", "credits": 5, "type": "GE Foundation", "difficulty": 4, "prereqMet": true },
-        { "code": "ECON 2001.01", "name": "Principles of Microeconomics", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true },
-        { "code": "ENGLISH 1110.01", "name": "First-Year English Comp", "credits": 3, "type": "GE Foundation", "difficulty": 1, "prereqMet": true },
-        { "code": "ARTSSCI 1100.01", "name": "University Survey", "credits": 1, "type": "General", "difficulty": 1, "prereqMet": true },
-        { "code": "GE-SBS", "name": "Social & Behavioral Science Elective", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-2",
-      "name": "Spring 2026 (Year 1)",
-      "status": "completed",
-      "courses": [
-        { "code": "ECON 2002.01", "name": "Principles of Macroeconomics", "credits": 3, "type": "Major Prereq", "difficulty": 2, "prereqMet": true },
-        { "code": "ACCTMIS 2200", "name": "Intro to Accounting 1", "credits": 3, "type": "Major Prereq", "difficulty": 3, "prereqMet": true },
-        { "code": "STAT 1430.01", "name": "Statistics for Business", "credits": 4, "type": "GE Foundation", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-NAT", "name": "Natural Science with Lab", "credits": 4, "type": "GE Foundation", "difficulty": 3, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-3",
-      "name": "Autumn 2026 (Year 2 - In Progress)",
-      "status": "in-progress",
-      "courses": [
-        { "code": "ACCTMIS 2300", "name": "Intro to Accounting 2", "credits": 3, "type": "Major Core", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2221", "name": "Software I: Components", "credits": 4, "type": "Minor/Technical", "difficulty": 4, "prereqMet": true },
-        { "code": "MATH 1152", "name": "Calculus 2", "credits": 5, "type": "Major/Math", "difficulty": 5, "prereqMet": true },
-        { "code": "BUSMHR 2292", "name": "Business Communication", "credits": 3, "type": "Major Core", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Heavy"
-    },
-    {
-      "id": "sem-4",
-      "name": "Spring 2027 (Year 2 - Planning)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 3220", "name": "Business Finance", "credits": 3, "type": "Major Core", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2231", "name": "Software II: Development", "credits": 4, "type": "Minor/Technical", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSOBA 2320", "name": "Decision Sciences", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-THEME-1", "name": "Citizenship for Diverse & Just World", "credits": 4, "type": "GE Theme", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-5",
-      "name": "Autumn 2027 (Year 3)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4211", "name": "Corporate Finance", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 2321", "name": "Foundations I: Discrete Structures", "credits": 3, "type": "Minor Core", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSMGT 3230", "name": "Operations Management", "credits": 3, "type": "Major Core", "difficulty": 3, "prereqMet": true },
-        { "code": "BUSML 3250", "name": "Principles of Marketing", "credits": 3, "type": "Major Core", "difficulty": 2, "prereqMet": true },
-        { "code": "GE-CULT", "name": "Historical & Cultural Studies", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-6",
-      "name": "Spring 2028 (Year 3)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4221", "name": "Investments", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSFIN 4230", "name": "Advanced Corporate Finance", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 3241", "name": "Intro to Database Systems", "credits": 3, "type": "Minor Elective", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-THEME-2", "name": "Theme Elective: Health & Well-being", "credits": 4, "type": "GE Theme", "difficulty": 2, "prereqMet": true },
-        { "code": "EXP-3990", "name": "Internship Prep Seminar", "credits": 1, "type": "Experiential", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 14,
-      "workloadRating": "Balanced"
-    },
-    {
-      "id": "sem-summer",
-      "name": "Summer 2028 (Internship)",
-      "status": "planned",
-      "courses": [
-        { "code": "INTERN 4191", "name": "Summer Industry Internship", "credits": 1, "type": "Experiential", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 1,
-      "workloadRating": "Light"
-    },
-    {
-      "id": "sem-7",
-      "name": "Autumn 2028 (Year 4)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4250", "name": "International Finance", "credits": 3, "type": "Major Specialization", "difficulty": 3, "prereqMet": true },
-        { "code": "BUSMHR 4490", "name": "Strategic Management (Capstone)", "credits": 3, "type": "Major Capstone", "difficulty": 4, "prereqMet": true },
-        { "code": "CSE 3461", "name": "Computer Networking / Cloud", "credits": 3, "type": "Minor Elective", "difficulty": 3, "prereqMet": true },
-        { "code": "GE-LIT", "name": "Literary & Visual Arts", "credits": 3, "type": "GE Foundation", "difficulty": 2, "prereqMet": true },
-        { "code": "FREE-ELEC", "name": "General Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 15,
-      "workloadRating": "Moderate"
-    },
-    {
-      "id": "sem-8",
-      "name": "Spring 2029 (Year 4 - Graduation)",
-      "status": "planned",
-      "courses": [
-        { "code": "BUSFIN 4260", "name": "Financial Modeling & Valuation", "credits": 3, "type": "Major Specialization", "difficulty": 4, "prereqMet": true },
-        { "code": "BUSOBA 4240", "name": "Business Analytics & Predictive Modeling", "credits": 3, "type": "Minor Capstone", "difficulty": 3, "prereqMet": true },
-        { "code": "GRAD-101", "name": "Senior Transition & Career Launch", "credits": 1, "type": "Career", "difficulty": 1, "prereqMet": true },
-        { "code": "FREE-ELEC-2", "name": "Free Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true },
-        { "code": "FREE-ELEC-3", "name": "Free Elective", "credits": 3, "type": "Elective", "difficulty": 1, "prereqMet": true }
-      ],
-      "totalCredits": 13,
-      "workloadRating": "Balanced"
+        { "code": "DEPT 1234", "name": "Course title as listed in the requirements check", "credits": 3, "type": "Major Core", "difficulty": 3 }
+      ]
     }
   ]
 }
 
+Rules for "semesters":
+- Return ONLY planned future terms, after the student's current term. Their completed and in-progress classes are kept as they entered them.
+- Use ids of the form "autumn-2027", "spring-2028", "summer-2028".
+- Never plan a course they've already taken. Respect prerequisites against the classes they entered.
+- "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
+- Plan through graduation at the total credit hours the requirements check lists as required (121 for the Fisher BSBA; 121-132 for Engineering majors).
+- Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options, preferring ones on the current schedule.
+- Use the credit hours shown in the requirements check (several Finance electives are 1.5 credits, not 3).
+- Place every course after its prerequisites (in an earlier term). A course marked "Autumn only" goes in an Autumn term and "Spring only" in a Spring term.
+- Respect class standing: sophomore = 30, junior = 60, senior = 90 earned credit hours before the term starts. BUSMHR 4490 needs senior standing, so it belongs in the final year.
+- GE: fill each MISSING GE category with a real, specific course from the "Real courses that count" list (or another real course in that GEN category). One course can't count for two GE categories. A Theme needs one 4-credit course, or two 3-credit courses from different subjects in the same Theme; Citizenship is required plus one other Theme.
+- Tech Innovation, if the student has it: Builders Studio I-IV run Autumn (3801), Spring (3802), Autumn (4803), Spring (4804) in consecutive terms, starting the Autumn after the immersion semester (BUSADM 2801/2802).
+- The requirements check lists the student's current programs. Don't keep planned classes that only served a program they no longer have (e.g. a dropped specialization or minor); replace them with unmet requirements or "ELECTIVE". Follow the preference request when it asks to add, remove, or move specific classes.
+- Never use made-up placeholder codes (like "GE-ARTS" or "IB-MINOR-1"). Every course must be a real Ohio State course code, except "ELECTIVE" for a free elective when the student needs more hours.
+- Keep each Autumn and Spring term at 12-18 credit hours. Summer terms follow the student's summer limits (number of classes, online only) and may be lighter than 12.
+- Fewest credits: graduate with as few total credit hours as possible. Plan only courses that fill an unmet requirement, plus "ELECTIVE" only for the hours still needed to reach the required total. Prefer courses that fill more than one requirement at once (a major or business-foundation course that also carries the needed GE tag, or a course listed for both of the student's specializations or their minor), and pick the lower-credit option when choices are otherwise equal.
+- Balanced workload: spread credits evenly across the Autumn/Spring terms (each within about 3 credits of the others), and put no more than two hard classes (difficulty 4-5) in one term. Rate "difficulty" honestly from 1 (light) to 5 (heavy), e.g. intro accounting, calculus, and core finance are 4-5.
+- If the student's request limits summers (e.g. "only 1-2 online classes"), follow it exactly and use the online options listed in the request for summer terms.
+
+Keep the JSON compact: only the fields shown, short course titles, no extra commentary. The app computes term names, credit totals, and workload itself.
+
 Return ONLY valid JSON.
+`;
+
+// Endpoint to dynamically recalculate or balance the 4-year roadmap
+app.post('/api/roadmap-generate', async (req, res) => {
+  try {
+    const { prompt, studentProfile, currentRoadmap, requirementsSummary } = req.body;
+
+    const requestPrompt = `
+Student Profile (entered by the student):
+${describeStudent(studentProfile, currentRoadmap)}
+
+Degree requirements check (what is complete, in progress, planned, and still unmet):
+${requirementsSummary || 'Not available.'}
+Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
+
+Current Roadmap Plan:
+${JSON.stringify(currentRoadmap || {})}
 `;
 
     let parsed;
     if (process.env.ANTHROPIC_API_KEY) {
-      parsed = JSON.parse(await generateJson(requestPrompt));
+      // A full plan is a long answer: give it up to 4 minutes, without a retry that would double the wait.
+      parsed = JSON.parse(await generateJson(requestPrompt, ROADMAP_SYSTEM_INSTRUCTION, ROADMAP_TIMEOUT_MS, 0));
+      // The AI writes its own short titles; replace them with the official ones
+      for (const s of Array.isArray(parsed?.semesters) ? parsed.semesters : [])
+        for (const c of Array.isArray(s?.courses) ? s.courses : []) c.name = officialTitle(c.code) ?? c.name;
     } else {
       throw new Error('ANTHROPIC_API_KEY not configured, using balanced roadmap fallback');
     }

@@ -4,15 +4,29 @@
   "buildCommand": "(python3 scripts/make-project-zip.py || echo 'Skipping project zip') && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/download-zip", "destination": "/buckeyelink-advising-ai.zip" },
-    { "source": "/api/(.*)", "destination": "/api" }
+    {
+      "source": "/api/download-zip",
+      "destination": "/buckeyelink-advising-ai.zip"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    }
   ],
   "headers": [
     {
       "source": "/buckeyelink-advising-ai.zip",
       "headers": [
-        { "key": "Content-Disposition", "value": "attachment; filename=\"buckeyelink-advising-ai.zip\"" }
+        {
+          "key": "Content-Disposition",
+          "value": "attachment; filename=\"buckeyelink-advising-ai.zip\""
+        }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300
+    }
+  }
 }
