@@ -9,7 +9,7 @@ import type { Semester, StudentProfile } from '../data/sampleData';
 import type { HighStakesDecisionData, DecisionType } from '../components/HighStakesDecisionCard';
 import { Curriculum, DegreeAudit, catalogCourse, coursesRequiring, requirementsUsing } from './requirements';
 
-export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess';
+export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
 
 export const TAB_LABELS: Record<ChatTab, string> = {
   chat: 'Advising Assistant',
@@ -17,6 +17,7 @@ export const TAB_LABELS: Record<ChatTab, string> = {
   roadmap: '4-Year Degree Plan',
   requirements: 'Degree Requirements',
   rmp: 'Faculty Evaluations',
+  officeHours: 'Office Hours',
   advisor: 'Advisor Scheduling',
   seatAlerts: 'Seat Alerts',
   studyAccess: 'After-Hours Study Access',
@@ -67,6 +68,7 @@ const WHATIF_MINOR =
   /\bwhat[- ]if\b[^.?!]{0,30}\bminor\b|\b(which|what) minors?\b|\bminor (options|audit|ideas)\b|\b(could|can) i (add|get|do|fit) a minor\b|\bclosest to (finishing|completing|done with) a minor\b|\bminors? (i could|i can|that fit)\b/;
 const REQUIREMENTS =
   /\bwhat (do|else do) i (still )?need\b|\brequirements? (do i have )?(left|remaining)\b|\bdegree audit\b|\bhow close am i\b|\bam i on track\b|\bwhat('s| is) left\b|\bgraduation requirements\b|\bwhat classes (do i|i) (still )?need\b/;
+const OFFICE_HOURS = /\boffice hours?\b|\b(when|where) (can|could|do) i (meet|see|find|talk to) (my )?(professor|prof|instructor|ta|teaching assistant)\b|\b(ta|teaching assistant)'?s? (hours|office|email)\b|\b(email|contact) (my )?(professor|prof|instructor|ta)\b/;
 const VIEW_PLAN = /\b(show|see|view|open|pull up|look at) (me )?my (4[- ]?year |four[- ]year |degree )?(plan|roadmap)\b/;
 const EDIT_PROFILE =
   /\b(update|edit|change|fix|correct|add)\b[^.?!]{0,30}\b(my classes|my profile|my gpa|my grades?|classes i (took|have taken|completed)|my entry (term|year)|when i (started|entered)|my graduation (date|term)|my advising report)\b|\bupload (my )?(advising )?report\b/;
@@ -78,6 +80,7 @@ const TAB_WORDS: [RegExp, ChatTab][] = [
   [/seat alert|wait ?list/, 'seatAlerts'],
   [/after[- ]hours|study access|building access/, 'studyAccess'],
   [/faculty eval|evaluations|professor ratings/, 'rmp'],
+  [/office hours/, 'officeHours'],
   [/what[- ]if|minor audit/, 'whatif'],
   [/degree requirements|requirements tab|degree audit/, 'requirements'],
   [/4[- ]year|four[- ]year|degree plan|roadmap/, 'roadmap'],
@@ -152,6 +155,8 @@ export function detectNavigation(text: string): NavigationIntent | null {
   }
   // Questions the AI answers; the button takes them to the full view
   if (WHATIF_MINOR.test(t)) return { id: 'whatif_minor', handleLocally: false, action: { label: 'Compare minors', tab: 'whatif' }, reply: '' };
+  // Office hours: the AI answers from the student's own classes' syllabi, with a button to the full list
+  if (OFFICE_HOURS.test(t)) return { id: 'office_hours', handleLocally: false, action: { label: 'See office hours for my classes', tab: 'officeHours' }, reply: '' };
   if (FACULTY.test(t)) return { id: 'faculty', handleLocally: false, action: { label: 'See faculty evaluations', tab: 'rmp' }, reply: '' };
   if (REQUIREMENTS.test(t)) return { id: 'requirements', handleLocally: false, action: { label: 'See my degree requirements', tab: 'requirements' }, reply: '' };
   return null;

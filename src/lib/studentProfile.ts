@@ -20,6 +20,7 @@ export interface StudentRecord {
   entry_term?: string | null; // first Ohio State term, e.g. 'autumn-2024'
   expected_graduation?: string | null; // e.g. 'spring-2028'
   special_program_ids?: string[]; // honors, IBE, accelerated MAcc, ... (base program ids)
+  office_hours_picks?: Record<string, string> | null; // course code -> the student's instructor (Office Hours tab)
   // From the advising report, when the student uploaded one
   earned_credits?: number | null;
   advisor_name?: string | null;
@@ -143,6 +144,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
       ? [record.specialization_id]
       : [],
     specialProgramIds: record.special_program_ids ?? [],
+    officeHoursPicks: record.office_hours_picks ?? {},
     entryTerm: entryTermOf(record),
     expectedGraduation: record.expected_graduation ?? record.plan_terms?.graduation ?? null,
     minor: record.minor || '',
@@ -160,15 +162,19 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
 
 const RECORD_COLUMNS =
   'full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, degree_id, specialization_id, specialization_ids, plan_terms';
-// Added by migration 20261104010000; older databases don't have them yet
-const COHORT_FIELDS = ['entry_term', 'expected_graduation', 'special_program_ids'] as const;
+// Columns added by later migrations, newest first, dropped one group at a time on an older database:
+// office_hours_picks (20261104040000), then the entering-class fields (20261104010000).
+const OPTIONAL_FIELDS: string[][] = [['office_hours_picks'], ['entry_term', 'expected_graduation', 'special_program_ids']];
 const missingColumn = (error: any) => error?.code === '42703' || error?.code === 'PGRST204';
 
 export async function loadStudentRecord(): Promise<StudentRecord | null> {
-  let res = await supabase.from('student_profiles').select(`${RECORD_COLUMNS}, ${COHORT_FIELDS.join(', ')}`).maybeSingle();
-  if (missingColumn(res.error)) res = await supabase.from('student_profiles').select(RECORD_COLUMNS).maybeSingle();
-  if (res.error) throw res.error;
-  return res.data as StudentRecord | null;
+  for (let skip = 0; ; skip++) {
+    const fields = OPTIONAL_FIELDS.slice(skip).flat();
+    const res = await supabase.from('student_profiles').select([RECORD_COLUMNS, ...fields].join(', ')).maybeSingle();
+    if (missingColumn(res.error) && skip < OPTIONAL_FIELDS.length) continue;
+    if (res.error) throw res.error;
+    return res.data as StudentRecord | null;
+  }
 }
 
 export async function saveStudentRecord(userId: string, record: StudentRecord): Promise<void> {
@@ -179,8 +185,9 @@ export async function saveStudentRecord(userId: string, record: StudentRecord): 
     updated_at: new Date().toISOString(),
   };
   let { error } = await supabase.from('student_profiles').upsert(row);
-  if (missingColumn(error)) {
-    for (const f of COHORT_FIELDS) delete row[f];
+  for (const group of OPTIONAL_FIELDS) {
+    if (!missingColumn(error)) break;
+    for (const f of group) delete row[f];
     ({ error } = await supabase.from('student_profiles').upsert(row));
   }
   if (error) throw error;

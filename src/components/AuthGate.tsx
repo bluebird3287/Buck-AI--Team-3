@@ -179,6 +179,12 @@ export const AuthGate: React.FC = () => {
           onPlanTermsChange={handlePlanTermsChange}
           onProgramChange={handleProgramChange}
           onEditProfile={() => setEditing(true)}
+          onPickInstructor={(code, person) => {
+            const picks = { ...(record!.office_hours_picks ?? {}) };
+            if (person) picks[code.trim().toUpperCase()] = person;
+            else delete picks[code.trim().toUpperCase()];
+            updateRecord({ office_hours_picks: picks }, 'instructor choice');
+          }}
         />
       )}
     </div>

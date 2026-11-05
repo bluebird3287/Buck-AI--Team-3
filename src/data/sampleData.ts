@@ -29,6 +29,7 @@ export interface StudentProfile {
   major: string;
   specializationIds: string[];
   specialProgramIds: string[]; // honors / IBE / other special programs (base program ids)
+  officeHoursPicks?: Record<string, string>; // course code -> the student's instructor
   entryTerm: string | null; // first Ohio State term, e.g. 'autumn-2024'
   expectedGraduation: string | null; // e.g. 'spring-2028'
   minor: string;

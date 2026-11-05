@@ -51,6 +51,10 @@ Notes:
 Email magic links via Supabase Auth. No passwords, ever. Collect only an email,
 never an OSU password or student ID. Sketch: `docs/wireframes/sign-in.png`.
 
+Only @osu.edu / @buckeyemail.osu.edu addresses can create accounts (trigger `reject_non_osu_signup`
+on `auth.users`, plus a check in `SignIn.tsx`); the two demo advisor Gmail logins are allowlisted in
+`is_allowed_signup`. This only means something while Supabase "Confirm email" is on.
+
 ## Fisher curriculum data
 
 The pilot is Fisher College of Business only. Degree requirements live in Supabase
@@ -175,6 +179,16 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
 - Questions ("what happens if I drop…", "should I…") never trigger a card, and specialization or minor changes
   stay with `programChange`. Dropping a class in a planned term is a plan edit, not a big decision.
 - A reply's `action` auto-opens its tab only when the reply is new, never when an old chat is reloaded.
+
+## Office hours (instructors per section)
+
+`public.office_hours` holds who teaches each Fisher section, read from Ohio State's Simple Syllabus
+library (Autumn 2026, 369 syllabi; most are visible only to the OSU community). RLS lets only signed-in
+OSU accounts read it (`is_osu_user()`); nothing writes through the API. **The rows live only in
+Supabase: never commit them to this public repo**, and re-collect them through a signed-in browser
+session (Simple Syllabus blocks scripted downloads). OSU's syllabus template has no office-hours
+section, so almost every row has `hours_text` null and the tab says to check Carmen; never invent
+hours. Students mark their instructor (`student_profiles.office_hours_picks`).
 
 ## After-hours building access
 

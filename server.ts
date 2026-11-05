@@ -153,7 +153,7 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
-  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
+  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
   "bookingReason": "string or null (when openTab is 'advisor': what the student wants to discuss, in their words, e.g. 'Whether to drop ACCTMIS 2300')",
   "roadmapRequest": {
     "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
@@ -188,6 +188,7 @@ Sending the student to the right place: set "openTab" when a tab in this panel d
 - 'seatAlerts': a full class, waitlists, or being told when a seat opens.
 - 'studyAccess': after-hours or weekend access to a building.
 - 'rmp': which professor or section to take, faculty ratings, or peer tips.
+- 'officeHours': office hours, or how to reach a professor or TA. Answer from "Office hours for the student's current classes" (times, place, email exactly as given; if they haven't picked their instructor, list each instructor's hours) and say hours can change, so check the syllabus or Carmen. Never guess hours that aren't listed.
 - 'whatif': comparing or exploring minors.
 - 'requirements': what they still need to graduate.
 - 'roadmap': looking at their 4-year plan.
@@ -256,7 +257,7 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 app.post('/api/advising-chat', async (req, res) => {
   try {
-    const { message, history, studentProfile, roadmap, requirementsSummary, programOptions } = req.body;
+    const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, programOptions } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
@@ -273,6 +274,9 @@ ${describeStudent(studentProfile, roadmap)}
 
 Degree requirements check (computed by BuckAI from the published requirements for the student's degree and specialization):
 ${requirementsSummary || 'Not available.'}
+
+Office hours for the student's current classes (from the instructors' syllabi in Ohio State's Simple Syllabus; "the student's instructor" marks the one they picked):
+${officeHoursSummary || 'Not available (no syllabus office hours for these classes, or the student is not signed in with an OSU account).'}
 
 Programs available (use these exact names in "programChange"):
 ${programOptions

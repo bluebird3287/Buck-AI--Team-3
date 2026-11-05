@@ -26,6 +26,7 @@ import {
 } from './lib/chatLog';
 import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
+import { OfficeHoursLoad, describeOfficeHours, loadOfficeHours } from './lib/officeHours';
 import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, detectNavigation, navigationFromAi } from './lib/chatIntents';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -41,6 +42,7 @@ interface AppProps {
   // Saves a specialization or minor change the student made from the chat
   onProgramChange?: (change: { specialization_ids: string[]; major: string; minor: string | null }) => void;
   onEditProfile?: () => void; // opens My classes
+  onPickInstructor?: (courseCode: string, personName: string | null) => void; // Office Hours tab
 }
 
 // What the advising chat asks BuckAI to change about the student's programs
@@ -84,10 +86,10 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
 const minorTitle = (name: string) => (/\bminor\b/i.test(name) ? name : `${name} minor`);
 const withMinor = (name: string) => `the ${minorTitle(name)}`;
 
-export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange, onEditProfile }: AppProps) {
+export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange, onEditProfile, onPickInstructor }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
-  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
+  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess'>('chat');
   const [isSurveyModalOpen, setIsSurveyModalOpen] = useState<boolean>(false);
   const [alertCourse, setAlertCourse] = useState<WatchedCourse | null>(null);
   const [isSeatDropBannerOpen, setIsSeatDropBannerOpen] = useState<boolean>(false);
@@ -110,6 +112,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     [curriculum, specializationIds, roadmap, profile.earnedCredits],
   );
   const requirementsSummary = audit ? describeAudit(audit) : undefined;
+
+  // Office hours for the student's classes (OSU accounts only), for the Office Hours tab and the chat
+  const [officeHours, setOfficeHours] = useState<OfficeHoursLoad | null>(null);
+  useEffect(() => {
+    loadOfficeHours().then(setOfficeHours).catch((err) => setOfficeHours({ status: 'error', message: String(err?.message ?? err) }));
+  }, []);
+  const officeHoursSummary =
+    officeHours?.status === 'ok' ? describeOfficeHours(officeHours.entries, roadmap, profile.officeHoursPicks ?? {}) || undefined : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greetingFor(profile, initialRoadmap)]);
 
   // Chat history, like ChatGPT/Claude: the sidebar lists past chats, and the open chat saves
@@ -239,6 +249,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           studentProfile: profile,
           roadmap,
           requirementsSummary,
+          officeHoursSummary,
           programOptions: curriculum
             ? {
                 degree: curriculum.degree.name,
@@ -935,6 +946,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         specializationIds={specializationIds}
         onEditProfile={onEditProfile}
         onRemoveFromSchedule={handleRemoveFromSchedule}
+        officeHours={officeHours}
+        onPickInstructor={onPickInstructor}
       />
 
       {/* Which terms to plan, asked before every roadmap build */}

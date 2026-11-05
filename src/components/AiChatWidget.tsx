@@ -33,6 +33,8 @@ import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSl
 import { ScheduleMatcher } from './scheduling/ScheduleMatcher';
 import { HighStakesDecisionCard, HighStakesDecisionData } from './HighStakesDecisionCard';
 import type { ChatAction } from '../lib/chatIntents';
+import { OfficeHoursView } from './OfficeHoursView';
+import type { OfficeHoursLoad } from '../lib/officeHours';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
@@ -93,12 +95,14 @@ interface AiChatWidgetProps {
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
   onNextStep?: () => void;
-  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess';
+  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
   specializationIds: string[];
   onEditProfile?: () => void; // opens My classes
+  officeHours?: OfficeHoursLoad | null; // instructor and TA office hours (OSU accounts only)
+  onPickInstructor?: (courseCode: string, personName: string | null) => void;
   onRemoveFromSchedule?: (course: string) => void; // a class the student dropped in BuckeyeLink
 }
 
@@ -133,10 +137,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   specializationIds,
   onEditProfile,
   onRemoveFromSchedule,
+  officeHours = null,
+  onPickInstructor,
 }) => {
   // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
   const [openGe, setOpenGe] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
 
   useEffect(() => {
     if (initialTab) {
@@ -403,6 +409,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <Star className="w-4 h-4" />
             <span>Faculty Evaluations &amp; Feedback</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('officeHours')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'officeHours'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Office Hours</span>
           </button>
 
           <button
@@ -898,6 +916,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         )}
 
         {activeTab === 'rmp' && <FacultyEvaluationsView />}
+
+        {activeTab === 'officeHours' && (
+          <OfficeHoursView roadmap={roadmap} picks={profile.officeHoursPicks ?? {}} onPick={(c, p) => onPickInstructor?.(c, p)} load={officeHours} />
+        )}
 
         {/* TAB 5: ADVISOR AVAILABILITY MATCHING & HOLD CLEARANCE */}
         {activeTab === 'advisor' && (
