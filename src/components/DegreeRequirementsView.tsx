@@ -26,20 +26,48 @@ function progressText(g: GroupProgress): string {
   return `${g.coursesCounted} of ${g.coursesNeeded} ${g.coursesNeeded === 1 ? 'course' : 'courses'}`;
 }
 
-export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
+// A section that opens and closes: the header always shows what's inside and how it's going.
+export const Dropdown: React.FC<{
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  right?: React.ReactNode;
+  defaultOpen?: boolean;
+  tone?: 'plain' | 'danger' | 'warning';
+  level?: 'program' | 'group';
+  children: React.ReactNode;
+}> = ({ title, subtitle, right, defaultOpen = false, tone = 'plain', level = 'group', children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  const frame =
+    tone === 'danger' ? 'bg-red-50 border-red-200' : tone === 'warning' ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200';
+  return (
+    <div className={`border rounded-lg ${frame}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className={`w-full flex items-center justify-between gap-3 text-left ${level === 'program' ? 'px-4 py-3.5' : 'px-4 py-3'}`}
+      >
+        <div className="min-w-0">
+          <div className={level === 'program' ? 'text-base font-bold text-gray-900' : 'text-sm font-bold text-gray-900'}>{title}</div>
+          {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {right}
+          {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+        </div>
+      </button>
+      {open && <div className={`px-4 pb-4 space-y-3 ${level === 'program' ? 'border-t border-gray-100 pt-3' : ''}`}>{children}</div>}
+    </div>
+  );
+};
+
+// collapsible: shown as a closed dropdown row (Degree Requirements); otherwise an open card (What-If Minor).
+export const GroupCard: React.FC<{ g: GroupProgress; collapsible?: boolean }> = ({ g, collapsible = false }) => {
   const [showOptions, setShowOptions] = useState(false);
   const counted = new Set(g.items.map((i) => i.code));
   const options = g.group.kind === 'all' ? [] : g.group.courses.filter((c) => !counted.has(c.code));
 
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h4 className="font-bold text-sm text-gray-900">{g.group.title}</h4>
-          <p className="text-xs text-gray-500 mt-0.5">{progressText(g)}</p>
-        </div>
-        <Badge state={g.state} />
-      </div>
+  const body = (
+    <>
       {g.group.notes && <p className="text-xs text-gray-600">{g.group.notes}</p>}
 
       {g.items.length > 0 && (
@@ -106,6 +134,29 @@ export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
       {g.group.code_pattern && g.state === 'missing' && (
         <p className="text-xs text-gray-500">Any matching course counts; ask BuckAI for suggestions.</p>
       )}
+    </>
+  );
+
+  if (collapsible)
+    return (
+      <Dropdown title={g.group.title} subtitle={progressText(g)} right={<Badge state={g.state} />}>
+        {body}
+        {!g.group.notes && !g.items.length && !options.length && g.group.kind !== 'ge' && !g.group.code_pattern && (
+          <p className="text-xs text-gray-500">Nothing to list here; your advisor confirms this one.</p>
+        )}
+      </Dropdown>
+    );
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h4 className="font-bold text-sm text-gray-900">{g.group.title}</h4>
+          <p className="text-xs text-gray-500 mt-0.5">{progressText(g)}</p>
+        </div>
+        <Badge state={g.state} />
+      </div>
+      {body}
     </div>
   );
 };
@@ -113,29 +164,39 @@ export const GroupCard: React.FC<{ g: GroupProgress }> = ({ g }) => {
 const ProgramSection: React.FC<{ p: ProgramProgress }> = ({ p }) => {
   const tracked = p.groups.filter((g) => g.state !== 'manual');
   const met = tracked.filter((g) => g.state === 'done').length;
+  const pct = tracked.length ? Math.round((met / tracked.length) * 100) : 0;
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h3 className="text-base font-bold text-gray-900">{p.program.name}</h3>
-          <p className="text-xs text-gray-500">{p.program.catalog}</p>
+    <Dropdown
+      level="program"
+      title={p.program.name}
+      subtitle={p.program.catalog}
+      right={
+        <div className="flex items-center gap-2 text-xs text-gray-600">
+          <span className="whitespace-nowrap">
+            {met} of {tracked.length} complete
+          </span>
+          <span className="hidden sm:block w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <span className="block h-full bg-[#ba0c2f]" style={{ width: `${pct}%` }} />
+          </span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-gray-600">
-          <span>{met} of {tracked.length} requirements complete</span>
+      }
+    >
+      {(p.program.notes || p.program.source_url) && (
+        <div className="flex flex-wrap items-start justify-between gap-2 text-xs text-gray-600">
+          {p.program.notes && <p className="flex-1 min-w-[200px]">{p.program.notes}</p>}
           {p.program.source_url && (
-            <a href={p.program.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[#ba0c2f] hover:underline">
+            <a href={p.program.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[#ba0c2f] hover:underline shrink-0">
               Official source <ExternalLink className="w-3 h-3" />
             </a>
           )}
         </div>
-      </div>
-      {p.program.notes && <p className="text-xs text-gray-600">{p.program.notes}</p>}
-      <div className="grid gap-3 lg:grid-cols-2">
+      )}
+      <div className="space-y-2">
         {p.groups.map((g) => (
-          <GroupCard key={g.group.id} g={g} />
+          <GroupCard key={g.group.id} g={g} collapsible />
         ))}
       </div>
-    </section>
+    </Dropdown>
   );
 };
 
@@ -153,7 +214,7 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
   const plannedPct = Math.min(100 - pct, Math.round((credits.planned / credits.required) * 100));
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#f8fafc]">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#f8fafc]">
       <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -207,30 +268,40 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
       </div>
 
       {audit.prereqWarnings.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-1.5">
-          <h4 className="font-bold text-sm text-[#ba0c2f] flex items-center gap-1.5">
-            <AlertTriangle className="w-4 h-4" /> Prerequisite issues in your plan
-          </h4>
+        <Dropdown
+          tone="danger"
+          title={
+            <span className="flex items-center gap-1.5 text-[#ba0c2f]">
+              <AlertTriangle className="w-4 h-4" /> Prerequisite issues in your plan
+            </span>
+          }
+          right={<span className="text-xs font-semibold text-[#ba0c2f]">{audit.prereqWarnings.length}</span>}
+        >
           {audit.prereqWarnings.map((w) => (
             <p key={w.code + w.term} className="text-xs text-red-900">
               <strong>{w.code}</strong> ({w.term}) needs {w.missing.join('; ')} completed in an earlier term.
             </p>
           ))}
-        </div>
+        </Dropdown>
       )}
 
       {audit.scheduleWarnings.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-1.5">
-          <h4 className="font-bold text-sm text-amber-900 flex items-center gap-1.5">
-            <AlertTriangle className="w-4 h-4" /> Timing issues in your plan
-          </h4>
+        <Dropdown
+          tone="warning"
+          title={
+            <span className="flex items-center gap-1.5 text-amber-900">
+              <AlertTriangle className="w-4 h-4" /> Timing issues in your plan
+            </span>
+          }
+          right={<span className="text-xs font-semibold text-amber-900">{audit.scheduleWarnings.length}</span>}
+        >
           {audit.scheduleWarnings.map((w) => (
             <p key={w.code + w.term + w.message} className={`text-xs ${w.blocking ? 'text-red-900' : 'text-amber-900'}`}>
               {w.blocking ? '' : 'Note: '}
               {w.message}
             </p>
           ))}
-        </div>
+        </Dropdown>
       )}
 
       {audit.specializations.length ? (

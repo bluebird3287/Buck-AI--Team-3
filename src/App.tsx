@@ -27,6 +27,7 @@ import {
 import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { OfficeHoursLoad, describeOfficeHours, loadOfficeHours } from './lib/officeHours';
+import { ReviewStat, describeFeatures, loadReviewStats } from './lib/featureContext';
 import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, detectNavigation, navigationFromAi } from './lib/chatIntents';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
@@ -201,6 +202,16 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
   const [bookedFormat, setBookedFormat] = useState<string>('In-Person');
   const [bookedNotes, setBookedNotes] = useState<string>('');
 
+  // Classes the student is watching in Seat Alerts (kept here so the list survives switching tabs)
+  const [watchedCourses, setWatchedCourses] = useState<WatchedCourse[]>(INITIAL_WATCHED_COURSES);
+  // Student review numbers from Faculty Evaluations, so the chat can compare instructors
+  const [reviewStats, setReviewStats] = useState<ReviewStat[]>([]);
+  useEffect(() => {
+    loadReviewStats().then(setReviewStats).catch(() => setReviewStats([]));
+  }, []);
+  // What's going on in the other tabs, for the chat
+  const featureSummary = describeFeatures({ roadmap, bookedSlot, bookedFormat, watchedCourses, reviews: reviewStats });
+
   // Handle Live Claude AI Chat
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
@@ -250,6 +261,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           roadmap,
           requirementsSummary,
           officeHoursSummary,
+          featureSummary,
           programOptions: curriculum
             ? {
                 degree: curriculum.degree.name,
@@ -937,6 +949,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
         isRoadmapUpdating={isRoadmapUpdating}
         roadmapStage={roadmapStage}
         bookedSlot={bookedSlot}
+        watchedCourses={watchedCourses}
+        onWatchedCoursesChange={setWatchedCourses}
         onConfirmBooking={handleConfirmBooking}
         onUpdateDecision={handleUpdateDecision}
         initialTab={chatTab}

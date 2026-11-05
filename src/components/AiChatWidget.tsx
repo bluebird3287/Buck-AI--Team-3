@@ -91,6 +91,8 @@ interface AiChatWidgetProps {
   isRoadmapUpdating: boolean;
   roadmapStage?: string;
   bookedSlot?: AdvisorSlot | null;
+  watchedCourses?: WatchedCourse[];
+  onWatchedCoursesChange?: React.Dispatch<React.SetStateAction<WatchedCourse[]>>;
   onConfirmBooking: (slot: AdvisorSlot, format: string, notes: string) => void;
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
@@ -128,6 +130,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   isRoadmapUpdating,
   roadmapStage,
   bookedSlot,
+  watchedCourses,
+  onWatchedCoursesChange,
   onConfirmBooking,
   onUpdateDecision,
   initialTab,
@@ -364,18 +368,6 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('whatif')}
-            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
-              activeTab === 'whatif'
-                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
-                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>What-If Minor Audit</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('roadmap')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
               activeTab === 'roadmap'
@@ -385,6 +377,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <BookOpen className="w-4 h-4" />
             <span>4-Year Degree Plan</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('whatif')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'whatif'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>What-If Minor Audit</span>
           </button>
 
           <button
@@ -409,18 +413,6 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <Star className="w-4 h-4" />
             <span>Faculty Evaluations &amp; Feedback</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('officeHours')}
-            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
-              activeTab === 'officeHours'
-                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
-                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-            <span>Office Hours</span>
           </button>
 
           <button
@@ -451,6 +443,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
               1 OPEN
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('officeHours')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'officeHours'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Office Hours</span>
           </button>
 
           <button
@@ -1050,6 +1054,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         {activeTab === 'seatAlerts' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#f8fafc]">
             <SeatAlertsView
+              courses={watchedCourses}
+              onCoursesChange={onWatchedCoursesChange}
               onSimulateSeatDrop={(c) => {
                 if (onSimulateSeatDrop) {
                   onSimulateSeatDrop(c);

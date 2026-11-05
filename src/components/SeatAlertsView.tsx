@@ -47,14 +47,21 @@ interface SeatAlertsViewProps {
   onSimulateSeatDrop: (course: WatchedCourse) => void;
   onQuickEnroll?: (course: WatchedCourse) => void;
   initialAddCourse?: string | null;
+  // The watch list, kept by the app so it survives switching tabs and the chat can see it
+  courses?: WatchedCourse[];
+  onCoursesChange?: React.Dispatch<React.SetStateAction<WatchedCourse[]>>;
 }
 
 export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
   onSimulateSeatDrop,
   onQuickEnroll,
-  initialAddCourse
+  initialAddCourse,
+  courses: sharedCourses,
+  onCoursesChange,
 }) => {
-  const [courses, setCourses] = useState<WatchedCourse[]>(INITIAL_WATCHED_COURSES);
+  const [localCourses, setLocalCourses] = useState<WatchedCourse[]>(INITIAL_WATCHED_COURSES);
+  const courses = sharedCourses ?? localCourses;
+  const setCourses = onCoursesChange ?? setLocalCourses;
   const [phoneNumber, setPhoneNumber] = useState('');
   const [emailAddress, setEmailAddress] = useState('');
   const [isAddingCourse, setIsAddingCourse] = useState(false);
@@ -109,7 +116,7 @@ export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
       notes: 'Monitored continuously via BuckeyeLink Instant Alert.'
     };
 
-    setCourses([newEntry, ...courses]);
+    setCourses((prev) => [newEntry, ...prev]);
     setIsAddingCourse(false);
     setNewCode('');
     setNewInstructor('');

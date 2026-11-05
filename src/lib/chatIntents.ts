@@ -69,6 +69,11 @@ const WHATIF_MINOR =
 const REQUIREMENTS =
   /\bwhat (do|else do) i (still )?need\b|\brequirements? (do i have )?(left|remaining)\b|\bdegree audit\b|\bhow close am i\b|\bam i on track\b|\bwhat('s| is) left\b|\bgraduation requirements\b|\bwhat classes (do i|i) (still )?need\b/;
 const OFFICE_HOURS = /\boffice hours?\b|\b(when|where) (can|could|do) i (meet|see|find|talk to) (my )?(professor|prof|instructor|ta|teaching assistant)\b|\b(ta|teaching assistant)'?s? (hours|office|email)\b|\b(email|contact) (my )?(professor|prof|instructor|ta)\b/;
+const WHO_TEACHES = /\bwho (teaches|is teaching|'s teaching|is my (professor|prof|instructor|ta))\b|\bwho('s| is) my (professor|prof|instructor|ta|teaching assistant)\b|\b(my|the) (professor|prof|instructor)('s)? (name|email)\b/;
+// "Do I have an advisor meeting?", "what classes am I watching?": the AI answers from the tab's data
+const STATUS_QUESTION = /^(do|did|does|have|has|is|are|am|what|which|when|where|any)\b[^.!]*\?*$/;
+const APPOINTMENT_STATUS = /\b(my|an?|the) (advis[oe]r )?(appointment|meeting)\b|\bmeeting with (my|the) advis[oe]r\b|\bappointment with (my|the) advis[oe]r\b/;
+const ALERT_STATUS = /\b(watching|watch list|watchlist|seat alerts?|alerts? (set|on)|seat (open|opened)|waitlist (spot|position))\b/;
 const VIEW_PLAN = /\b(show|see|view|open|pull up|look at) (me )?my (4[- ]?year |four[- ]year |degree )?(plan|roadmap)\b/;
 const EDIT_PROFILE =
   /\b(update|edit|change|fix|correct|add)\b[^.?!]{0,30}\b(my classes|my profile|my gpa|my grades?|classes i (took|have taken|completed)|my entry (term|year)|when i (started|entered)|my graduation (date|term)|my advising report)\b|\bupload (my )?(advising )?report\b/;
@@ -88,6 +93,13 @@ const TAB_WORDS: [RegExp, ChatTab][] = [
 
 export function detectNavigation(text: string): NavigationIntent | null {
   const t = lower(text);
+
+  // Questions about what they already have in a tab: answered by the AI with that tab's data, plus a button
+  if (STATUS_QUESTION.test(t) && !/\b(can|could|want|would like|help me|need)\b/.test(t)) {
+    if (APPOINTMENT_STATUS.test(t))
+      return { id: 'appointment_status', handleLocally: false, action: { label: 'Open Advisor Scheduling', tab: 'advisor' }, reply: '' };
+    if (ALERT_STATUS.test(t)) return { id: 'alert_status', handleLocally: false, action: { label: 'Open Seat Alerts', tab: 'seatAlerts' }, reply: '' };
+  }
 
   if (BOOK_ADVISOR.test(t) && !/\b(cancel|reschedule)\b/.test(t)) {
     const topic = meetingTopic(text);
@@ -156,6 +168,7 @@ export function detectNavigation(text: string): NavigationIntent | null {
   // Questions the AI answers; the button takes them to the full view
   if (WHATIF_MINOR.test(t)) return { id: 'whatif_minor', handleLocally: false, action: { label: 'Compare minors', tab: 'whatif' }, reply: '' };
   // Office hours: the AI answers from the student's own classes' syllabi, with a button to the full list
+  if (WHO_TEACHES.test(t)) return { id: 'who_teaches', handleLocally: false, action: { label: 'See who teaches my classes', tab: 'officeHours' }, reply: '' };
   if (OFFICE_HOURS.test(t)) return { id: 'office_hours', handleLocally: false, action: { label: 'See office hours for my classes', tab: 'officeHours' }, reply: '' };
   if (FACULTY.test(t)) return { id: 'faculty', handleLocally: false, action: { label: 'See faculty evaluations', tab: 'rmp' }, reply: '' };
   if (REQUIREMENTS.test(t)) return { id: 'requirements', handleLocally: false, action: { label: 'See my degree requirements', tab: 'requirements' }, reply: '' };

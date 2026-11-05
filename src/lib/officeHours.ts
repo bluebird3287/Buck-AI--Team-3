@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { Semester } from '../data/sampleData';
+import { directoryEmail } from './featureContext';
 
 // Instructor and TA office hours from Fisher syllabi in Ohio State's Simple Syllabus library
 // (public.office_hours; readable only by signed-in OSU accounts).
@@ -48,6 +49,8 @@ export async function loadOfficeHours(): Promise<OfficeHoursLoad> {
     all.push(...((data ?? []) as OfficeHoursEntry[]));
     if ((data ?? []).length < 1000) break;
   }
+  // Most syllabi list no email; the public Fisher / Engineering directories do.
+  for (const e of all) if (!e.email) e.email = directoryEmail(e.person_name);
   return { status: 'ok', entries: all };
 }
 

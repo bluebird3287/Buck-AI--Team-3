@@ -179,6 +179,13 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
 - Questions ("what happens if I drop…", "should I…") never trigger a card, and specialization or minor changes
   stay with `programChange`. Dropping a class in a planned term is a plan edit, not a big decision.
 - A reply's `action` auto-opens its tab only when the reply is new, never when an old chat is reloaded.
+- The chat sees every tab's data: requirements (`describeAudit`), instructors/office hours
+  (`describeOfficeHours`), and advisor appointment, seat-alert watch list, and instructor reviews
+  (`describeFeatures` in `src/lib/featureContext.ts`). Status questions ("do I have an advisor
+  meeting?", "what am I watching?") go to the AI with that data plus a button, not a canned reply.
+  The seat-alert watch list lives in `App.tsx` so it survives switching tabs.
+- Tab order: Advising Assistant, 4-Year Degree Plan, What-If Minor Audit, Degree Requirements,
+  Faculty Evaluations, Advisor Scheduling, Seat Alerts, Office Hours, After-Hours Study Access.
 
 ## Office hours (instructors per section)
 
