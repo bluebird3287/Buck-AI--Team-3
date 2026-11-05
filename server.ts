@@ -53,9 +53,16 @@ async function generateJson(
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     output_config: { effort: 'low' },
-    ...(system ? { system } : {}),
+    // The system prompts are fixed text, so cache them: repeat requests read them at a fraction of the price.
+    ...(system ? { system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }] } : {}),
     messages: [{ role: 'user', content: prompt }],
   }, { ...(timeoutMs ? { timeout: timeoutMs } : {}), ...(maxRetries != null ? { maxRetries } : {}) });
+
+  // Token use per request (no student content), to measure real cost per student
+  const u = response.usage;
+  console.log(
+    `[claude-usage] in=${u.input_tokens} cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0} out=${u.output_tokens}`,
+  );
 
   if (response.stop_reason === 'refusal') {
     throw new Error(`Claude declined the request (${response.stop_details?.category ?? 'unspecified'})`);
@@ -679,22 +686,8 @@ ${JSON.stringify(
   }
 });
 
-// Endpoint to dynamically recalculate or balance the 4-year roadmap
-app.post('/api/roadmap-generate', async (req, res) => {
-  try {
-    const { prompt, studentProfile, currentRoadmap, requirementsSummary } = req.body;
-
-    const requestPrompt = `
-You are the OSU Degree Audit & Academic Planning Engine.
-Student Profile (entered by the student):
-${describeStudent(studentProfile, currentRoadmap)}
-
-Degree requirements check (what is complete, in progress, planned, and still unmet):
-${requirementsSummary || 'Not available.'}
-Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
-
-Current Roadmap Plan:
-${JSON.stringify(currentRoadmap || {})}
+// Fixed instructions for building a plan (a system prompt, so it's cached across requests)
+const ROADMAP_SYSTEM_INSTRUCTION = `You are the OSU Degree Audit & Academic Planning Engine.
 
 Return a JSON with:
 {
@@ -737,10 +730,27 @@ Keep the JSON compact: only the fields shown, short course titles, no extra comm
 Return ONLY valid JSON.
 `;
 
+// Endpoint to dynamically recalculate or balance the 4-year roadmap
+app.post('/api/roadmap-generate', async (req, res) => {
+  try {
+    const { prompt, studentProfile, currentRoadmap, requirementsSummary } = req.body;
+
+    const requestPrompt = `
+Student Profile (entered by the student):
+${describeStudent(studentProfile, currentRoadmap)}
+
+Degree requirements check (what is complete, in progress, planned, and still unmet):
+${requirementsSummary || 'Not available.'}
+Student Preference Request: "${prompt || 'Balance workload for 4-year graduation and include a summer internship'}"
+
+Current Roadmap Plan:
+${JSON.stringify(currentRoadmap || {})}
+`;
+
     let parsed;
     if (process.env.ANTHROPIC_API_KEY) {
       // A full plan is a long answer: give it up to 4 minutes, without a retry that would double the wait.
-      parsed = JSON.parse(await generateJson(requestPrompt, undefined, ROADMAP_TIMEOUT_MS, 0));
+      parsed = JSON.parse(await generateJson(requestPrompt, ROADMAP_SYSTEM_INSTRUCTION, ROADMAP_TIMEOUT_MS, 0));
       // The AI writes its own short titles; replace them with the official ones
       for (const s of Array.isArray(parsed?.semesters) ? parsed.semesters : [])
         for (const c of Array.isArray(s?.courses) ? s.courses : []) c.name = officialTitle(c.code) ?? c.name;

@@ -17,6 +17,7 @@ import {
   termChoices,
   termKey,
   classOf,
+  isBlankProfile,
 } from '../lib/studentProfile';
 import {
   CurriculumLibrary,
@@ -113,7 +114,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isFirstRun = !initial;
+  const isFirstRun = !initial || isBlankProfile(initial);
 
   // How the major reads elsewhere in the app: "Finance (BSBA)" or "BS Electrical and Computer Engineering: Computer Engineering"
   const specializationName = (...ids: string[]) => {

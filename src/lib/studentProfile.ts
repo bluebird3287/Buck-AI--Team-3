@@ -91,6 +91,11 @@ export function workloadFor(credits: number): Semester['workloadRating'] {
 // Sorts terms, fills in status, credits, workload, and the degree year (1-4) for each one.
 // Course names come from OSU Class Search when the code is known, so a wrong title typed
 // by the student or guessed by the AI (e.g. BUSFIN 3500 as "Personal Finance") never sticks.
+// A profile with a name but no classes, major, or report yet (a new account, or one reset for a demo):
+// the student still needs the setup screen.
+export const isBlankProfile = (r: Pick<StudentRecord, 'major' | 'semesters' | 'report_imported_at'>) =>
+  !r.major?.trim() && !(r.semesters ?? []).some((s) => s.courses?.length) && !r.report_imported_at;
+
 export function normalizeSemesters(semesters: Semester[]): Semester[] {
   const parsed = semesters.map((s) => ({ s, t: parseTerm(s) }));
   const starts = parsed.filter((x) => x.t).map((x) => academicYearStart(x.t!.season, x.t!.year));

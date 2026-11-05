@@ -7,7 +7,7 @@ import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
 import { MyClassesEditor } from './MyClassesEditor';
-import { PlanTerms, StudentRecord, entryTermOf, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters } from '../lib/studentProfile';
+import { PlanTerms, StudentRecord, entryTermOf, loadStudentRecord, saveStudentRecord, toStudentProfile, normalizeSemesters, isBlankProfile } from '../lib/studentProfile';
 import { Semester } from '../data/sampleData';
 import { CurriculumLibrary, curriculumFor, loadCurriculum } from '../lib/requirements';
 import App from '../App';
@@ -131,13 +131,13 @@ export const AuthGate: React.FC = () => {
     );
   }
 
-  if (role === 'student' && (!record || editing)) {
+  if (role === 'student' && (!record || editing || isBlankProfile(record))) {
     return (
       <MyClassesEditor
         library={library}
         initial={record}
         onSave={handleSaveRecord}
-        onCancel={record ? () => setEditing(false) : () => supabase.auth.signOut()}
+        onCancel={record && !isBlankProfile(record) ? () => setEditing(false) : () => supabase.auth.signOut()}
       />
     );
   }
