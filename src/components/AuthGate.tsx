@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, BookOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getRole } from '../lib/roles';
+import { getRole, Role } from '../lib/roles';
 import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
@@ -34,6 +34,12 @@ export const AuthGate: React.FC = () => {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Which view the link asked for (?role=student|advisor from the landing page), if any
+  const [wantedRole, setWantedRole] = useState<Role | null>(() => {
+    const r = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('role') : null;
+    return r === 'student' || r === 'advisor' ? r : null;
+  });
 
   const email = session?.user.email ?? '';
   const userId = session?.user.id ?? '';
@@ -122,6 +128,45 @@ export const AuthGate: React.FC = () => {
   }
 
   if (!session) return <SignIn />;
+
+  // The landing page links to ?role=student or ?role=advisor. The view still comes from the account,
+  // so if the link asks for the other view, say so and offer to switch accounts instead of silently
+  // opening the wrong one.
+  if (wantedRole && wantedRole !== role) {
+    const clearWanted = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('role');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      setWantedRole(null);
+    };
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 max-w-md w-full p-6 text-sm text-gray-700">
+          <h1 className="text-lg font-bold text-gray-900 mb-2">
+            You're signed in with a {role} account
+          </h1>
+          <p className="mb-5">
+            {email} opens the {role} view. To use the {wantedRole} view, sign out and sign in with your{' '}
+            {wantedRole} account.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="flex-1 bg-[#ba0c2f] hover:bg-[#9d0a27] text-white font-semibold rounded-lg px-4 py-2.5"
+            >
+              Sign out and switch to {wantedRole}
+            </button>
+            <button
+              onClick={clearWanted}
+              className="flex-1 border border-gray-300 hover:bg-gray-50 font-semibold rounded-lg px-4 py-2.5 capitalize"
+            >
+              Continue as {role}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (role === 'student' && recordError) {
     return (
