@@ -5,7 +5,9 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
+import { busyBlocksFromIcs, normalizeFeedUrl, IMPORT_WEEKS } from './src/lib/ics.js';
 
 dotenv.config();
 
@@ -264,6 +266,65 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
   }
 });
 
+// ---- Funnel tracking (public.events) ----
+// Rows are written only here, through record_event(), which checks EVENTS_WRITE_TOKEN.
+// The table has RLS with no policies, so nobody can read it through the API.
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const eventsDb = supabaseUrl && supabasePublishableKey
+  ? createClient(supabaseUrl, supabasePublishableKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  : null;
+const REF_PATTERN = /^[a-z0-9_-]{1,64}$/;
+const ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
+// Link unfurlers, crawlers and mail scanners that do run scripts still announce themselves here.
+const BOT_UA = /bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|whatsapp|telegram|discord|slack|skype|outlook|safelinks|proofpoint|mimecast|barracuda|headless|phantom|puppeteer|playwright|lighthouse|curl|wget|python|axios|node-fetch|go-http/i;
+
+const cleanRef = (ref: unknown): string | null =>
+  typeof ref === 'string' && REF_PATTERN.test(ref.trim().toLowerCase()) ? ref.trim().toLowerCase() : null;
+
+// Signed-in account behind the request (verified with Supabase), with its saved sign-up tag.
+async function requestUser(req: express.Request): Promise<{ id: string; ref: string | null } | null> {
+  const token = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+  if (!token || !eventsDb) return null;
+  try {
+    const { data } = await eventsDb.auth.getUser(token);
+    return data.user ? { id: data.user.id, ref: cleanRef(data.user.user_metadata?.ref) } : null;
+  } catch {
+    return null;
+  }
+}
+
+type TrackedEvent = 'visit' | 'core_action' | 'plan_built' | 'seat_alert_added';
+// Actions the browser reports; only signed-in accounts can send them (the account ID comes from the verified token).
+const SIGNED_IN_EVENTS = new Set<TrackedEvent>(['plan_built', 'seat_alert_added']);
+
+async function recordEvent(event: TrackedEvent, actorId: string, ref: string | null) {
+  const token = process.env.EVENTS_WRITE_TOKEN;
+  if (!eventsDb || !token) return;
+  const { error } = await eventsDb.rpc('record_event', { p_token: token, p_event: event, p_actor_id: actorId, p_ref: ref });
+  if (error) console.error('[events] write failed:', error.message);
+}
+
+app.post('/api/events', async (req, res) => {
+  try {
+    const event = req.body?.event as TrackedEvent;
+    if (BOT_UA.test(req.headers['user-agent'] || '')) return res.status(204).end();
+    if (event !== 'visit' && !SIGNED_IN_EVENTS.has(event)) return res.status(204).end();
+    const user = await requestUser(req);
+    if (event !== 'visit') {
+      if (user) await recordEvent(event, user.id, user.ref ?? cleanRef(req.body.ref));
+      return res.status(204).end();
+    }
+    const anonId = typeof req.body.anonId === 'string' && ID_PATTERN.test(req.body.anonId) ? req.body.anonId : null;
+    const actorId = user?.id ?? anonId;
+    if (!actorId) return res.status(204).end();
+    await recordEvent('visit', actorId, cleanRef(req.body.ref) ?? user?.ref ?? null);
+  } catch (err) {
+    console.error('[events] visit error:', err);
+  }
+  return res.status(204).end();
+});
+
 app.post('/api/advising-chat', async (req, res) => {
   try {
     const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, featureSummary, programOptions } = req.body;
@@ -271,6 +332,10 @@ app.post('/api/advising-chat', async (req, res) => {
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
+
+    // core_action = a student asks the advising chat a question
+    const chatUser = await requestUser(req);
+    if (chatUser) await recordEvent('core_action', chatUser.id, chatUser.ref ?? cleanRef(req.body.trackingRef)).catch(() => {});
 
     const conversationContext = (history || [])
       .slice(-6)
@@ -761,6 +826,79 @@ ${JSON.stringify(currentRoadmap || {})}
   } catch (error: any) {
     console.error('Error generating roadmap:', error);
     res.status(500).json({ error: 'Failed to generate roadmap', message: error?.message });
+  }
+});
+
+// ---- Advisor calendar import (Google / Outlook feed links) ----
+// The browser can't fetch these feeds itself (no CORS), so the server does, as the signed-in advisor:
+// every read and write goes through Supabase with the advisor's own token, so row-level security decides
+// which calendar they can sync. Only start/end times are saved, never event titles.
+const MAX_FEED_BYTES = 5 * 1024 * 1024;
+
+async function fetchFeed(url: string): Promise<string> {
+  let current = url;
+  for (let hop = 0; hop < 4; hop++) {
+    const checked = normalizeFeedUrl(current);
+    if (!checked) throw new Error('That link isn’t a Google or Outlook calendar address.');
+    const res = await fetch(checked.url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { Accept: 'text/calendar' } });
+    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+      current = new URL(res.headers.get('location')!, checked.url).toString();
+      continue;
+    }
+    if (res.status === 404 || res.status === 401 || res.status === 403) {
+      throw new Error('The calendar service refused the link. It may have been reset or unpublished; copy a fresh one.');
+    }
+    if (!res.ok) throw new Error(`The calendar service answered with an error (${res.status}). Try again in a minute.`);
+    const declared = Number(res.headers.get('content-length') || 0);
+    if (declared > MAX_FEED_BYTES) throw new Error('That calendar is too large to import.');
+    const text = await res.text();
+    if (text.length > MAX_FEED_BYTES) throw new Error('That calendar is too large to import.');
+    return text;
+  }
+  throw new Error('The calendar link redirected too many times.');
+}
+
+app.post('/api/calendar-sync', async (req, res) => {
+  const token = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+  const calendarId = typeof req.body?.calendarId === 'string' ? req.body.calendarId : '';
+  if (!token || !supabaseUrl || !supabasePublishableKey) return res.status(401).json({ error: 'Sign in again.' });
+  if (!/^[0-9a-f-]{36}$/i.test(calendarId)) return res.status(400).json({ error: 'Unknown calendar.' });
+  const db = createClient(supabaseUrl, supabasePublishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data: cal, error: calError } = await db
+    .from('advisor_calendars')
+    .select('id, advisor_id, feed_url')
+    .eq('id', calendarId)
+    .maybeSingle();
+  if (calError || !cal) return res.status(404).json({ error: 'Calendar not found.' });
+  if (!cal.feed_url) return res.status(400).json({ error: 'This calendar was uploaded as a file; upload a new file to update it.' });
+
+  try {
+    const text = await fetchFeed(cal.feed_url);
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from.getTime() + IMPORT_WEEKS * 7 * 86_400_000);
+    const blocks = busyBlocksFromIcs(text, from, to);
+    const { error: delError } = await db.from('advisor_busy_blocks').delete().eq('calendar_id', cal.id);
+    if (delError) throw new Error(delError.message);
+    for (let i = 0; i < blocks.length; i += 500) {
+      const rows = blocks.slice(i, i + 500).map((b) => ({
+        advisor_id: cal.advisor_id,
+        calendar_id: cal.id,
+        starts_at: b.start.toISOString(),
+        ends_at: b.end.toISOString(),
+      }));
+      const { error } = await db.from('advisor_busy_blocks').insert(rows);
+      if (error) throw new Error(error.message);
+    }
+    await db.from('advisor_calendars').update({ last_synced_at: new Date().toISOString(), last_error: null }).eq('id', cal.id);
+    return res.json({ imported: blocks.length });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Could not read that calendar.';
+    await db.from('advisor_calendars').update({ last_error: message }).eq('id', cal.id);
+    return res.status(422).json({ error: message });
   }
 });
 

@@ -1,14 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Check, BookOpen, Briefcase, Ban, CalendarCheck, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, BookOpen, Briefcase, Ban, CalendarCheck, Sparkles, CalendarX2 } from 'lucide-react';
 import { buildWeek, describeSlot, MatchSlot, SlotStatus, useAdvisingState } from '../../lib/advising';
 
-// One availability grid for both parties. Students pick a mutually free time; advisors
-// open or close their own times and see who is booked. Times when either party is busy
-// (class, meetings) or that have passed are left blank so only usable times stand out.
+// One availability grid for both parties. Students pick a time that's free on their own
+// advisor's calendar and around their classes; advisors see their own week (weekly hours,
+// busy times imported from Google/Outlook, days off, bookings), close or reopen single times,
+// and mark whole days off. Unusable times are left blank so only real openings stand out.
 // Shown statuses use text and an icon as well as color, so they read without color vision.
 
 // Statuses left as blank cells in the grid.
-const HIDDEN: SlotStatus[] = ['student_busy', 'advisor_busy', 'past'];
+const HIDDEN: Record<'student' | 'advisor', SlotStatus[]> = {
+  student: ['student_busy', 'outside_hours', 'calendar_busy', 'day_off', 'past'],
+  advisor: ['outside_hours', 'past'],
+};
 
 type Mode = 'student' | 'advisor';
 
@@ -19,6 +23,9 @@ interface ScheduleMatcherProps {
   onSelect?: (slot: MatchSlot) => void;
   onToggleAvailability?: (slot: MatchSlot) => void;
   onOpenBooking?: (requestId: string) => void;
+  onToggleDayOff?: (dateKey: string, dayOff: boolean) => void;
+  // Whose calendar to show; defaults to the student's assigned advisor or the signed-in advisor.
+  advisorId?: string | null;
 }
 
 const STATUS_UI: Record<SlotStatus, { cell: string; short: (m: Mode) => string; icon: React.ElementType | null }> = {
@@ -28,7 +35,9 @@ const STATUS_UI: Record<SlotStatus, { cell: string; short: (m: Mode) => string; 
     icon: Check,
   },
   student_busy: { cell: 'bg-red-50 border-red-200 text-red-900', short: () => 'Class', icon: BookOpen },
-  advisor_busy: { cell: 'bg-gray-100 border-gray-200 text-gray-700', short: () => 'Advisor busy', icon: Briefcase },
+  outside_hours: { cell: 'bg-gray-50 border-gray-100 text-gray-400', short: () => '—', icon: null },
+  calendar_busy: { cell: 'bg-gray-100 border-gray-200 text-gray-700', short: () => 'Busy', icon: Briefcase },
+  day_off: { cell: 'bg-amber-50 border-amber-200 text-amber-900', short: () => 'Day off', icon: CalendarX2 },
   advisor_closed: {
     cell: 'bg-gray-50 border-dashed border-gray-400 text-gray-700',
     short: (m) => (m === 'advisor' ? 'Closed' : 'Unavailable'),
@@ -45,11 +54,14 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
   onSelect,
   onToggleAvailability,
   onOpenBooking,
+  onToggleDayOff,
+  advisorId,
 }) => {
   const state = useAdvisingState();
   const [weekOffset, setWeekOffset] = useState(0);
+  const calendarOwner = advisorId !== undefined ? advisorId : mode === 'advisor' ? state.meId : state.myAdvisorId;
   const days = useMemo(() => {
-    const week = buildWeek(weekOffset, state);
+    const week = buildWeek(weekOffset, state, { advisorId: calendarOwner, includeStudentClasses: mode === 'student' });
     if (mode === 'advisor') return week;
     // Students never see who else booked their advisor.
     return week.map((d) => ({
@@ -62,7 +74,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
           : s,
       ),
     }));
-  }, [weekOffset, state, mode]);
+  }, [weekOffset, state, mode, calendarOwner]);
   const times = days[0]?.slots.map((s) => ({ start: s.start, label: s.timeLabel })) ?? [];
   const bestTimes = days.flatMap((d) => d.slots).filter((s) => s.status === 'open').slice(0, 3);
   const openCount = days.reduce((n, d) => n + d.slots.filter((s) => s.status === 'open').length, 0);
@@ -80,19 +92,20 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
     else onToggleAvailability?.(s);
   };
 
-  const legend: SlotStatus[] = ['open', 'advisor_closed', 'booked'];
+  const legend: SlotStatus[] = mode === 'advisor' ? ['open', 'calendar_busy', 'advisor_closed', 'day_off', 'booked'] : ['open', 'advisor_closed', 'booked'];
+  const hidden = HIDDEN[mode];
 
   return (
     <section aria-labelledby="matcher-heading" className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 id="matcher-heading" className="text-base font-bold text-gray-900">
-            {mode === 'student' ? 'Times that work for you and your advisor' : `Mutual availability with ${studentName}`}
+            {mode === 'student' ? 'Times that work for you and your advisor' : 'Your week as students see it'}
           </h3>
           <p className="text-sm text-gray-600">
             {mode === 'student'
               ? 'Only times when you and your advisor are both free are shown.'
-              : 'Only times when you and the student are both free are shown. Select an open time to close it, a closed time to reopen it, or a booked student to open their request.'}
+              : 'Built from your weekly hours, days off, and imported calendars. Select an open time to close it, a closed time to reopen it, or a booked student to open their request. Use “Day off” under a date to block the whole day.'}
           </p>
         </div>
         <div className="flex items-center gap-2" role="group" aria-label="Change week">
@@ -120,12 +133,19 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
         </div>
       </div>
 
+      {mode === 'student' && state.loaded && !state.myAdvisorId && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          The advisor on your Advising Report isn’t on BuckAI yet, so these are standard Fisher advising hours and any Fisher advisor
+          can pick up your request. Upload your latest Advising Report in My classes if your advisor has changed.
+        </p>
+      )}
+
       {/* Best mutual times */}
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Sparkles className="w-4 h-4 text-[#ba0c2f]" aria-hidden />
           <span>
-            {openCount} mutual opening{openCount === 1 ? '' : 's'} this week
+            {openCount} {mode === 'student' ? 'mutual ' : ''}opening{openCount === 1 ? '' : 's'} this week
             {bestTimes.length > 0 ? ' · earliest:' : ''}
           </span>
         </div>
@@ -164,7 +184,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
               <span className={`inline-flex items-center justify-center w-5 h-5 rounded border ${ui.cell}`}>
                 {Icon && <Icon className="w-3 h-3" aria-hidden />}
               </span>
-              {s === 'open' ? 'Both free' : ui.short(mode)}
+              {s === 'open' ? (mode === 'student' ? 'Both free' : 'Open') : ui.short(mode)}
             </li>
           );
         })}
@@ -185,6 +205,20 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
                 <th key={d.dateKey} scope="col" className="px-1 py-2 text-center">
                   <span className="block text-xs font-semibold uppercase tracking-wide text-gray-600">{d.weekdayShort}</span>
                   <span className="block text-sm font-bold text-gray-900">{d.dateLabel}</span>
+                  {mode === 'advisor' && onToggleDayOff && (
+                    <button
+                      type="button"
+                      aria-pressed={d.dayOff}
+                      onClick={() => onToggleDayOff(d.dateKey, d.dayOff)}
+                      disabled={d.date < new Date(new Date().setHours(0, 0, 0, 0))}
+                      className={`mt-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ba0c2f] ${
+                        d.dayOff ? 'border-amber-500 bg-amber-100 text-amber-900' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                      }`}
+                      aria-label={`${d.weekdayLong} ${d.dateLabel}: ${d.dayOff ? 'day off. Select to work this day.' : 'select to take the whole day off.'}`}
+                    >
+                      {d.dayOff ? 'Day off ✓' : 'Day off'}
+                    </button>
+                  )}
                 </th>
               ))}
             </tr>
@@ -197,7 +231,7 @@ export const ScheduleMatcher: React.FC<ScheduleMatcherProps> = ({
                 </th>
                 {days.map((d) => {
                   const s = d.slots[row];
-                  if (HIDDEN.includes(s.status)) {
+                  if (hidden.includes(s.status)) {
                     return (
                       <td key={s.key} className="p-0.5">
                         <span className="sr-only">

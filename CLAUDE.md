@@ -35,14 +35,17 @@ user who opens a protected page is sent to sign in.
 | Book an advisor appointment | Own only | No | No → sign in |
 | Escalate a high-stakes decision to an advisor | Own only (creates a request) | No | No → sign in |
 | View faculty evaluations & peer tips | Yes | Yes | Yes, read-only (public) |
-| View the advisor queue (requests routed in) | No | Own advisees only | No |
-| Act on a routed request (clear a hold, approve/deny) | No | Own advisees only | No |
-| View a student's record | Own only | Their advisees only | No |
+| View the advisor queue (requests routed in) | No | All requests, own advisees first and flagged | No |
+| Act on a routed request (clear a hold, approve/deny) | No | Any request (own advisees, or others' when they have time) | No |
+| Set own availability (calendar import, weekly hours, days off) | No | Own only | No |
+| View a student's record | Own only | Through a request only | No |
 
 Notes:
 - Advisors land on their queue of routed student requests, not on a student
-  dashboard. They see a student's details only through that student's request,
-  and only for their own advisees.
+  dashboard. They see a student's details only through that student's request.
+- Each student belongs to the advisor named on their Advising Report. The queue opens on
+  "My advisees"; "Other students" shows everyone else's requests (flagged with whose advisee
+  they are, or "Unassigned") so an advisor with time can answer them.
 - Faculty evaluations are public (readable without signing in), like a shared link.
 - The signed-in user's ID is saved with everything they create.
 
@@ -207,11 +210,31 @@ BuckAI writes the request email and the student sends it from their own OSU emai
 mail app, or copy). `building_access_requests` tracks each request (RLS: students see, update and
 delete only their own). Never put the 19-digit BuckID number in an email (OSU restricted data).
 
-## Advising requests
+## Advising requests and advisors
 
 Student requests to advisors live in `advising_requests` (RLS: students see their own,
-advisors see all and decide) and advisor blocked-off times in `advisor_closed_slots`.
-`booked_slot_keys()` exposes taken times without names. There is no sample data.
+advisors see all and decide). There is no sample data.
+
+- Advisors are rows in `public.advisors` (email, name, `aliases`, `weekly_hours`). `is_advisor()` and
+  `current_advisor_id()` read it; keep `ADVISOR_EMAILS` in `src/lib/roles.ts` in sync. To add an advisor,
+  insert a row (email lowercase) and add the email to `ADVISOR_EMAILS`; non-OSU emails also need
+  `is_allowed_signup`.
+- Assignment: `advisor_for_name()` matches `student_profiles.advisor_name` (from the Advising Report) to an
+  advisor's `full_name` or an alias by first + last name. Trigger `stamp_advising_request` sets
+  `advisor_id` on insert (students can't choose), `handled_by` whenever an advisor updates a request, and
+  `meeting_advisor_id` (whose calendar a meeting is on: the student's advisor when they book, the acting
+  advisor when an advisor schedules). No match = unassigned; any advisor can pick it up and students book
+  against standard hours. The demo login tylerrez3@gmail.com has the alias "Lindsay McGory" (the test
+  students' advisor); Enzo's demo login has none, so it sees them as other advisors' students.
+- Availability per advisor: `advisors.weekly_hours` (minutes, keyed 1=Mon..7=Sun), `advisor_days_off`,
+  `advisor_closed_slots` (single 30-minute times), and `advisor_busy_blocks` imported from Google/Outlook.
+  `buildWeek()` in `src/lib/advising.ts` combines them; `booked_slot_keys(advisor)` exposes taken times
+  without names.
+- Calendar import (`src/lib/ics.ts`): advisors paste Google's "Secret address in iCal format" or Outlook's
+  published ICS link (`advisor_calendars.feed_url`, readable only by its owner; hosts allowlisted to Google
+  and Outlook), or upload an exported .ics. `/api/calendar-sync` fetches feeds as the signed-in advisor
+  (their token, so RLS applies); the browser re-syncs feeds older than 6 hours. Only start/end times are
+  stored, 8 weeks ahead, never event titles.
 
 ## Chat log
 
@@ -220,3 +243,23 @@ the chat tab's sidebar, and each row in `chat_messages` belongs to one (RLS: stu
 rename and delete only their own; advisors can't see chats). A new chat isn't saved until its
 first message; a trigger names it after the first question and bumps `updated_at`. Opening a
 chat reloads its last 200 messages; temporary placeholders (`pending`) aren't saved.
+
+## Funnel tracking (events)
+
+`public.events` gets one row per `visit`, `sign_up`, and `core_action` (a question to the advising chat), each
+with the time, a random browser ID (the account ID once signed in), the first-visit `?ref=` tag, and, on
+`sign_up`, the "How did you hear about us?" answer. Never store names or emails there.
+
+- RLS on, no policies: nobody reads it through the API. Rows are written only by the server
+  (`/api/events`, `/api/advising-chat` in `server.ts`) through `record_event()`, which checks
+  `EVENTS_WRITE_TOKEN` (server-only env; its SHA-256 lives in `private.settings`). Reset it with
+  `zsh scripts/set-events-token.sh`.
+- Visits are sent from `src/lib/tracking.ts` after the page's `load` event, so link previews and mail
+  scanners (which don't run scripts) don't count; known bot user agents are dropped too.
+- More steps: `plan_built` (a 4-year plan finished building) and `seat_alert_added` come from
+  `trackAction()` in the browser, and the server saves them only for a verified signed-in account.
+  `advisor_booked` (`advising_requests.category = 'appointment'`) and `advisor_escalated` (any other
+  category) come from trigger `on_advising_request_record_event`. Track actions, not every click.
+- The first `?ref=` tag is kept in localStorage and sent as sign-up metadata; trigger
+  `on_auth_user_created_record_event` on `auth.users` writes the `sign_up` row, so the tag survives
+  opening the confirmation email on another device.

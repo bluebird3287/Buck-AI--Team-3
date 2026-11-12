@@ -1,6 +1,6 @@
 import React from 'react';
-import { ShieldCheck, AlertTriangle, XCircle, Loader2, Clock, CheckCircle2, HelpCircle, Ban, CalendarCheck } from 'lucide-react';
-import type { AiReview, RequestStatus } from '../../lib/advising';
+import { ShieldCheck, AlertTriangle, XCircle, Loader2, Clock, CheckCircle2, HelpCircle, Ban, CalendarCheck, UserCheck, Users, UserX } from 'lucide-react';
+import type { AiReview, Ownership, RequestStatus } from '../../lib/advising';
 
 // Small status labels shared by the advisor screens. Each pairs color with an icon and
 // words so meaning never depends on color alone.
@@ -63,3 +63,26 @@ export function initials(name: string): string {
     .map((p) => p[0]?.toUpperCase())
     .join('');
 }
+
+// Whose student this is: the advisor named on the student's Advising Report.
+export const OwnershipBadge: React.FC<{ ownership: Ownership; ownerName: string | null }> = ({ ownership, ownerName }) => {
+  if (ownership === 'mine') {
+    return (
+      <span className={`${pill} border-[#ba0c2f] bg-red-50 text-[#8a0a23]`}>
+        <UserCheck className="w-3.5 h-3.5" aria-hidden /> Your advisee
+      </span>
+    );
+  }
+  if (ownership === 'other') {
+    return (
+      <span className={`${pill} border-gray-300 bg-gray-100 text-gray-800`}>
+        <Users className="w-3.5 h-3.5" aria-hidden /> {ownerName ? `${ownerName.replace(/,.*$/, '')}’s advisee` : 'Another advisor’s student'}
+      </span>
+    );
+  }
+  return (
+    <span className={`${pill} border-dashed border-gray-400 bg-white text-gray-700`}>
+      <UserX className="w-3.5 h-3.5" aria-hidden /> Unassigned
+    </span>
+  );
+};

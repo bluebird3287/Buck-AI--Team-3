@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { trackAction } from '../lib/tracking';
 import {
   Bell,
   BellRing,
@@ -117,6 +118,7 @@ export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
     };
 
     setCourses((prev) => [newEntry, ...prev]);
+    trackAction('seat_alert_added');
     setIsAddingCourse(false);
     setNewCode('');
     setNewInstructor('');

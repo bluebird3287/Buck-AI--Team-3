@@ -17,14 +17,17 @@ import {
 import {
   AdvisingRequest,
   ADVISOR,
+  advisorById,
   CATEGORY_LABELS,
+  ownershipOf,
+  useAdvisingState,
   decideRequest,
   describeSlot,
   RECORD_LINKS,
   relativeTime,
   scheduleAppointment,
 } from '../../lib/advising';
-import { AiVerdictBadge, RequestStatusBadge, initials } from './AdvisorBadges';
+import { AiVerdictBadge, OwnershipBadge, RequestStatusBadge, initials } from './AdvisorBadges';
 
 // One request, top to bottom in the order an advisor works it, kept short so the
 // decision is reachable with little scrolling: who -> overview (what they want approved
@@ -50,6 +53,11 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({ request, onDecided
   const s = request.student;
   const decided = request.status === 'approved' || request.status === 'denied';
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const advising = useAdvisingState();
+  const myName = advisorById(advising, advising.meId)?.fullName ?? ADVISOR.name;
+  const ownership = ownershipOf(request, advising.meId);
+  const ownerName = advisorById(advising, request.advisorId)?.fullName ?? null;
+  const handledByOther = request.handledBy && request.handledBy !== advising.meId ? advisorById(advising, request.handledBy)?.fullName : null;
 
   useEffect(() => {
     setNote('');
@@ -62,15 +70,15 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({ request, onDecided
       setError('Add a note explaining the denial to the student.');
       return;
     }
-    decideRequest(request.id, status, note.trim(), ADVISOR.name);
+    decideRequest(request.id, status, note.trim(), myName);
     onDecided(`${request.title} for ${s.name} ${status === 'approved' ? 'approved' : 'denied'}.`);
   };
 
   // Book the soonest time that works for both of us (within 3 days if possible, a week at most).
   const schedule = () => {
-    const result = scheduleAppointment(request.id, ADVISOR.name, note.trim());
+    const result = scheduleAppointment(request.id, myName, note.trim());
     if (!result) {
-      setError('No time is free for both of you in the next 7 days. Reopen some times in Advisor schedule, then try again.');
+      setError('No time is free for both of you in the next 7 days. Open more hours in My availability, then try again.');
       return;
     }
     const when = describeSlot(result.slotKey);
@@ -109,10 +117,21 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({ request, onDecided
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <OwnershipBadge ownership={ownership} ownerName={ownerName} />
             <AiVerdictBadge review={review} />
             <RequestStatusBadge status={request.status} />
           </div>
         </div>
+        {ownership !== 'mine' && (
+          <p className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+            {ownership === 'other'
+              ? `${s.name}’s assigned advisor is ${ownerName ?? 'another advisor'}. You can still answer this if you have time; it will show you handled it, and a meeting you schedule goes on your calendar.`
+              : `${s.name}’s advisor from their Advising Report isn’t on BuckAI yet, so any advisor can pick this up.`}
+          </p>
+        )}
+        {handledByOther && (
+          <p className="mt-2 text-sm text-gray-700">Last handled by {handledByOther}.</p>
+        )}
         {(s.holds.length > 0 || request.appointment) && (
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {s.holds.length > 0 && (

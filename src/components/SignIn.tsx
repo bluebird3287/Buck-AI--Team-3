@@ -1,10 +1,22 @@
 import React, { useState } from 'react';
 import { Loader2, AlertCircle, Info } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { savedRef } from '../lib/tracking';
 
 type Mode = 'signin' | 'signup' | 'forgot';
 
 const OSU_EMAIL = /@(buckeyemail\.)?osu\.edu$/i;
+
+// Fixed choices so the answer can never hold a name or email (saved on the sign_up row in public.events)
+const HEARD_ABOUT_OPTIONS = [
+  { value: 'friend', label: 'A friend or classmate' },
+  { value: 'colleague_email', label: 'An email from a colleague' },
+  { value: 'advisor', label: 'An advisor or OSU staff' },
+  { value: 'class', label: 'A class or student org' },
+  { value: 'social', label: 'Social media' },
+  { value: 'search', label: 'Search engine' },
+  { value: 'other', label: 'Other' },
+];
 
 // BuckeyeLink-styled sign-in for the prototype. It mirrors Ohio State's look (scarlet,
 // the "Login Required" layout) but is clearly a class prototype with its OWN accounts:
@@ -14,13 +26,14 @@ export const SignIn: React.FC = () => {
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [heardAbout, setHeardAbout] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const passwordValid = password.length >= 6;
-  const canSubmit = mode === 'forgot' ? emailValid : emailValid && passwordValid;
+  const canSubmit = mode === 'forgot' ? emailValid : emailValid && passwordValid && (mode !== 'signup' || heardAbout !== '');
 
   const switchMode = (m: Mode) => {
     setMode(m);
@@ -51,7 +64,12 @@ export const SignIn: React.FC = () => {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: window.location.origin },
+        // ref + heard_about ride along as account metadata, so a database trigger can save the
+        // sign_up row with the first-visit tag even if the confirmation email is opened elsewhere.
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: { ref: savedRef(), heard_about: heardAbout },
+        },
       });
       if (signUpError) setError(/osu|database error/i.test(signUpError.message) ? 'Use your Ohio State email (name.#@osu.edu) to create a BuckAI account.' : signUpError.message);
       else if (!data.session) setNotice('Check your OSU email for a confirmation link, then sign in here.');
@@ -138,6 +156,29 @@ export const SignIn: React.FC = () => {
                     autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                     className="w-full text-sm px-3.5 py-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#bb0000] mb-2"
                   />
+                </>
+              )}
+
+              {mode === 'signup' && (
+                <>
+                  <label htmlFor="signup-heard-about" className="block text-xs font-semibold text-gray-700 mb-1.5 mt-2">
+                    How did you hear about us?
+                  </label>
+                  <select
+                    id="signup-heard-about"
+                    value={heardAbout}
+                    onChange={(e) => setHeardAbout(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border border-gray-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-[#bb0000] mb-2"
+                  >
+                    <option value="" disabled>
+                      Choose one
+                    </option>
+                    {HEARD_ABOUT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                 </>
               )}
 

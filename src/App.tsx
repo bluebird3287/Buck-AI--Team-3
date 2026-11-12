@@ -32,6 +32,7 @@ import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, det
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
 import { AdvisorSlot, Semester, StudentProfile } from './data/sampleData';
+import { authHeaders, savedRef, trackAction } from './lib/tracking';
 
 interface AppProps {
   profile: StudentProfile;
@@ -253,9 +254,10 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     try {
       const response = await fetch('/api/advising-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           message: text,
+          trackingRef: savedRef(),
           history: messages.map((m) => ({ role: m.role, text: m.text })),
           studentProfile: profile,
           roadmap,
@@ -504,6 +506,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
 
       if (plan === start) return null;
       setRoadmap(plan);
+      trackAction('plan_built');
       onRoadmapChange(plan);
       return { plan, gaps, notes, summary: planSummary };
     } catch (err) {
