@@ -128,6 +128,19 @@ export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
 
   return (
     <div className="space-y-5 text-[#202124]">
+      {/* Prototype disclaimer: alerts need a real BuckeyeLink integration */}
+      <div
+        role="note"
+        className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 text-xs text-amber-900 flex items-start space-x-2.5"
+      >
+        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <p className="leading-snug">
+          <strong>Demo only:</strong> Live seat drop alerts aren't possible yet. They require Buck AI to be integrated
+          into the real BuckeyeLink, so no classes are actually monitored and no texts or emails are sent. Use
+          "Simulate Instant Seat Drop" to preview how alerts will work.
+        </p>
+      </div>
+
       {/* Top Banner: Real-Time Status & Instant Simulation (Google Workspace Header Aesthetic) */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">

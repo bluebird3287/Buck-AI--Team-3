@@ -72,6 +72,10 @@ export const InstantSeatDropBanner: React.FC<InstantSeatDropBannerProps> = ({
           </button>
         </div>
 
+        <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1.5">
+          <strong>Simulated alert:</strong> real seat drop alerts aren't possible until Buck AI is integrated into the real BuckeyeLink. No text was sent and nothing was added to your cart.
+        </p>
+
         {/* Content: Concise, Non-Verbose */}
         <div className="bg-red-50/50 border border-red-200/70 rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-gray-900 font-medium">
@@ -103,7 +107,7 @@ export const InstantSeatDropBanner: React.FC<InstantSeatDropBannerProps> = ({
         {enrolledSuccess ? (
           <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3 text-emerald-900 flex items-center space-x-2 text-xs font-semibold">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span>Success! {course.code} Section {course.section} has been added directly to your BuckeyeLink enrollment cart!</span>
+            <span>Demo: once Buck AI is integrated into BuckeyeLink, {course.code} Section {course.section} would be added straight to your enrollment cart. Nothing was added this time.</span>
           </div>
         ) : (
           /* Action Buttons */
