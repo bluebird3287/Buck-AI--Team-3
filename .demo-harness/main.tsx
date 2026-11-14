@@ -13,7 +13,9 @@ import '../src/index.css';
 const c = (code: string, credits = 3) => ({ code, name: code, credits, type: 'General' as const, difficulty: 3, prereqMet: true });
 const record: StudentRecord = {
   full_name: 'Maya Thompson', major: 'Business Administration (BSBA)', minor: null, college: 'Fisher College of Business',
-  class_standing: 'Junior', gpa: 3.42, degree_id: 'fisher-bsba', specialization_ids: [], entry_term: 'autumn-2024', expected_graduation: 'spring-2028',
+  class_standing: 'Junior', gpa: 3.42, advisor_name: 'Sarah Jenkins, M.Ed.',
+  advisor_directory: { username: 'jenkins.892', email: 'jenkins.892@osu.edu', name: 'Sarah Jenkins', title: 'Senior Academic Advisor', office: 'Mason Hall 120', isAdvisor: true },
+  degree_id: 'fisher-bsba', specialization_ids: [], entry_term: 'autumn-2024', expected_graduation: 'spring-2028',
   semesters: [
     { id: 'a24', name: 'Autumn 2024', status: 'completed', courses: [c('BUSADM 1100',1), c('ECON 2001.01'), c('MATH 1130',4), c('ENGLISH 1110.01'), c('PSYCH 1100',3)], totalCredits: 0, workloadRating: 'Balanced' },
     { id: 's25', name: 'Spring 2025', status: 'completed', courses: [c('ECON 2002.01'), c('MATH 1131',4), c('STAT 1450'), c('COMM 1100'), c('BUSMHR 2292')], totalCredits: 0, workloadRating: 'Balanced' },

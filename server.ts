@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
 import { busyBlocksFromIcs, normalizeFeedUrl, IMPORT_WEEKS } from './src/lib/ics.js';
+import { lookupAdvisorByName, lookupUsername, toAdvisor } from './src/lib/osuDirectory.js';
 
 dotenv.config();
 
@@ -325,6 +326,54 @@ app.post('/api/events', async (req, res) => {
   return res.status(204).end();
 });
 
+// ---- Advisors from Ohio State's directory ----
+// A signed-in name.#@osu.edu user whose directory entry lists an academic-advising job becomes an advisor:
+// enroll_advisor() (server token only) creates their public.advisors row and assigns them the requests their
+// students already sent. Students are matched to them by the advisor named on their Advising Report.
+app.post('/api/advisor-enroll', async (req, res) => {
+  const token = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+  const writeToken = process.env.EVENTS_WRITE_TOKEN;
+  if (!token || !eventsDb || !writeToken) return res.json({ advisor: false });
+  try {
+    const { data } = await eventsDb.auth.getUser(token);
+    const email = data.user?.email?.toLowerCase() ?? '';
+    const username = email.match(/^([a-z-]+\.[0-9]+)@osu\.edu$/)?.[1];
+    if (!data.user || !username) return res.json({ advisor: false });
+    const person = await lookupUsername(username);
+    if (!person) return res.json({ advisor: false });
+    const adv = toAdvisor(person);
+    if (!adv.isAdvisor) return res.json({ advisor: false });
+    const { data: ok, error } = await eventsDb.rpc('enroll_advisor', {
+      p_token: writeToken,
+      p_user_id: data.user.id,
+      p_email: email,
+      p_username: username,
+      p_full_name: adv.name,
+      p_title: adv.title,
+      p_office: adv.office,
+      p_directory_advisor: true,
+    });
+    if (error) throw new Error(error.message);
+    return res.json({ advisor: ok === true });
+  } catch (err: any) {
+    console.error('[advisor-enroll]', err?.message);
+    return res.json({ advisor: false });
+  }
+});
+
+// The advisor a student's report names, looked up in the directory (for profiles saved before this existed).
+app.post('/api/advisor-lookup', async (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 120) : '';
+  if (!name.trim()) return res.json({ advisor: null });
+  if (!(await requestUser(req))) return res.status(401).json({ advisor: null });
+  try {
+    return res.json({ advisor: await lookupAdvisorByName(name) });
+  } catch (err: any) {
+    console.error('[advisor-lookup]', err?.message);
+    return res.status(502).json({ advisor: null });
+  }
+});
+
 app.post('/api/advising-chat', async (req, res) => {
   try {
     const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, featureSummary, programOptions } = req.body;
@@ -577,6 +626,8 @@ app.post('/api/parse-advising-report', async (req, res) => {
       gpa: num(parsed.gpa),
       earnedCredits: num(parsed.earnedCredits),
       advisorName: str(parsed.advisorName),
+      // The advisor the report names, from Ohio State's directory (null if not found for certain)
+      advisorDirectory: str(parsed.advisorName) ? await lookupAdvisorByName(parsed.advisorName).catch(() => null) : null,
       terms: (Array.isArray(parsed.terms) ? parsed.terms : [])
         .filter((t: any) => seasons.includes(t?.season) && Number.isInteger(t?.year))
         .map((t: any) => ({

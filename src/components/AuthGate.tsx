@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, BookOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getRole, Role } from '../lib/roles';
+import { resolveRole, Role } from '../lib/roles';
 import { SignIn } from './SignIn';
 import { SetNewPassword } from './SetNewPassword';
 import { AdvisorView } from './AdvisorView';
@@ -43,7 +43,19 @@ export const AuthGate: React.FC = () => {
 
   const email = session?.user.email ?? '';
   const userId = session?.user.id ?? '';
-  const role = getRole(email);
+  // From the database (an advisor has a row in public.advisors), after checking Ohio State's directory
+  // so a newly recruited advisor is set up on their first sign-in. Null while that check runs.
+  const [role, setRole] = useState<Role | null>(null);
+  useEffect(() => {
+    setRole(null);
+    if (!session) return;
+    let cancelled = false;
+    resolveRole(session).then((r) => !cancelled && setRole(r));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
 
   // Each student's own profile and classes, read through row-level security.
   const [record, setRecord] = useState<StudentRecord | null>(null);
@@ -70,6 +82,25 @@ export const AuthGate: React.FC = () => {
       .catch((err) => setRecordError(err?.message || 'Could not load your profile.'))
       .finally(() => setLoadedFor(userId));
   }, [userId, role]);
+
+  // Profiles saved before advisors were looked up in Ohio State's directory: find the report's advisor once,
+  // so the student sees their contact details and is matched to them by OSU username.
+  const lookedUpAdvisor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!record?.advisor_name || record.advisor_directory || !session || lookedUpAdvisor.current === userId) return;
+    lookedUpAdvisor.current = userId;
+    fetch('/api/advisor-lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ name: record.advisor_name }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (body) updateRecord({ advisor_directory: body.advisor ?? { username: null } }, 'advisor details');
+      })
+      .catch((err) => console.warn('Advisor lookup failed:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.advisor_name, record?.advisor_directory, userId]);
 
   // The signed-in student's own degree, its specializations, and their special programs, in the version for
   // the term they entered Ohio State
@@ -108,7 +139,7 @@ export const AuthGate: React.FC = () => {
   const handleProgramChange = (change: { specialization_ids: string[]; major: string; minor: string | null }) =>
     updateRecord({ ...change, specialization_id: change.specialization_ids[0] ?? null }, 'program change');
 
-  if (loading || (session && role === 'student' && loadedFor !== userId)) {
+  if (loading || (session && (role === null || (role === 'student' && loadedFor !== userId)))) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-[#ba0c2f] animate-spin" />

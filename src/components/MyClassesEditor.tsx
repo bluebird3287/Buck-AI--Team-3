@@ -107,6 +107,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
   const [drafts, setDrafts] = useState<Record<string, { code: string; name: string; credits: string; grade: string }>>({});
   const [earnedCredits, setEarnedCredits] = useState<number | null>(initial?.earned_credits ?? null);
   const [advisorName, setAdvisorName] = useState<string | null>(initial?.advisor_name ?? null);
+  const [advisorDirectory, setAdvisorDirectory] = useState(initial?.advisor_directory);
   const [reportImportedAt, setReportImportedAt] = useState<string | null>(initial?.report_imported_at ?? null);
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -172,6 +173,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
       if (report.gpa != null) setGpa(report.gpa.toFixed(2));
       setEarnedCredits(report.earnedCredits);
       setAdvisorName(report.advisorName);
+      setAdvisorDirectory(report.advisorName ? report.advisorDirectory ?? { username: null } : null);
       setReportImportedAt(new Date().toISOString());
       const terms = semestersFromReport(report);
       setSemesters(terms);
@@ -267,6 +269,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
         semesters,
         earned_credits: earnedCredits,
         advisor_name: advisorName,
+        ...(advisorDirectory !== undefined ? { advisor_directory: advisorDirectory } : {}),
         report_imported_at: reportImportedAt,
       });
     } catch (err: any) {

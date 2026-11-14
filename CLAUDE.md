@@ -215,12 +215,22 @@ delete only their own). Never put the 19-digit BuckID number in an email (OSU re
 Student requests to advisors live in `advising_requests` (RLS: students see their own,
 advisors see all and decide). There is no sample data.
 
-- Advisors are rows in `public.advisors` (email, name, `aliases`, `weekly_hours`). `is_advisor()` and
-  `current_advisor_id()` read it; keep `ADVISOR_EMAILS` in `src/lib/roles.ts` in sync. To add an advisor,
-  insert a row (email lowercase) and add the email to `ADVISOR_EMAILS`; non-OSU emails also need
-  `is_allowed_signup`.
-- Assignment: `advisor_for_name()` matches `student_profiles.advisor_name` (from the Advising Report) to an
-  advisor's `full_name` or an alias by first + last name. Trigger `stamp_advising_request` sets
+- Advisors are rows in `public.advisors` (email, name, `osu_username`, `aliases`, `weekly_hours`). `is_advisor()`
+  and `current_advisor_id()` read it, and the app's role comes from it (`resolveRole` in `src/lib/roles.ts`).
+- Recruited advisors set themselves up: on sign-in, `/api/advisor-enroll` looks the name.#@osu.edu user up in
+  Ohio State's public directory (`src/lib/osuDirectory.ts`, Find People JSON). If their job there is academic
+  advising, `enroll_advisor()` (server token only, same as `record_event`) creates their row with the directory's
+  name, title and office, and assigns them requests their students already sent. Being named on a student's
+  report is not enough (students write their own profiles). Anyone else (a lecturer who advises, a non-OSU demo
+  login) is added by hand: insert a row (email lowercase); non-OSU emails also need `is_allowed_signup`.
+- Students: the advisor named on the Advising Report is looked up in the directory when the report is read
+  (`student_profiles.advisor_directory`: username, email, name, title, office; `{username: null}` = not found).
+  Older profiles are looked up once on sign-in (`/api/advisor-lookup`). The student sees that advisor's real
+  title, office and email; with no advisor on the report they see their college's advising office, never a
+  made-up person.
+- Assignment: `advisor_for_student()` matches the report's advisor by OSU username (`advisor_directory.username`
+  = `advisors.osu_username`), then `advisor_for_name()` matches `student_profiles.advisor_name` to an advisor's
+  `full_name` or an alias by first + last name. Trigger `stamp_advising_request` sets
   `advisor_id` on insert (students can't choose), `handled_by` whenever an advisor updates a request, and
   `meeting_advisor_id` (whose calendar a meeting is on: the student's advisor when they book, the acting
   advisor when an advisor schedules). No match = unassigned; any advisor can pick it up and students book

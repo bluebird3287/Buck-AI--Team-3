@@ -57,6 +57,14 @@ export interface AdvisorSlot {
 
 // The prototype's placeholder advisor. Every student is assigned to this advisor
 // until we have a real advisor directory.
+// Shown when a student's Advising Report names no advisor.
+export const NO_ADVISOR = {
+  advisorName: 'Undergraduate Advising',
+  advisorEmail: '',
+  advisorTitle: 'Your college advising office',
+  advisorOffice: 'See your Advising Report',
+};
+
 export const DEFAULT_ADVISOR = {
   advisorName: 'Sarah Jenkins, M.Ed.',
   advisorEmail: 'jenkins.892@osu.edu',

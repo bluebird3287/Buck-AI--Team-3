@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Course, Semester, StudentProfile, DEFAULT_ADVISOR } from '../data/sampleData';
+import { Course, Semester, StudentProfile, NO_ADVISOR } from '../data/sampleData';
 import { officialTitle } from './courseTitles';
 
 // One row of public.student_profiles. Row-level security limits every read and write
@@ -24,7 +24,19 @@ export interface StudentRecord {
   // From the advising report, when the student uploaded one
   earned_credits?: number | null;
   advisor_name?: string | null;
+  // The report's advisor as found in Ohio State's directory ({ username: null } = looked up, not found; null = not yet)
+  advisor_directory?: AdvisorDirectoryEntry | null;
   report_imported_at?: string | null;
+}
+
+// Public directory details for a student's advisor (src/lib/osuDirectory.ts, filled in by the server).
+export interface AdvisorDirectoryEntry {
+  username: string | null;
+  email?: string;
+  name?: string;
+  title?: string;
+  office?: string;
+  isAdvisor?: boolean;
 }
 
 // What /api/parse-advising-report returns.
@@ -37,6 +49,7 @@ export interface ParsedAdvisingReport {
   gpa: number | null;
   earnedCredits: number | null;
   advisorName: string | null;
+  advisorDirectory: AdvisorDirectoryEntry | null;
   terms: { season: Season; year: number; courses: { code: string; name: string | null; credits: number; grade: string | null }[] }[];
 }
 
@@ -157,19 +170,30 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
     // The report's earned hours include exam and transfer credit, so prefer them.
     earnedCredits: Number(record.earned_credits ?? enteredCredits),
     totalRequiredCredits: 120,
-    ...(record.advisor_name
-      ? { advisorName: record.advisor_name, advisorEmail: '', advisorTitle: 'Academic Advisor', advisorOffice: 'See OnCourse' }
-      : DEFAULT_ADVISOR),
+    ...advisorDetails(record),
     holds: [],
     toDos: [],
+  };
+}
+
+// Who the student's advisor is: the report's name, with contact details from Ohio State's directory when found.
+// No advisor on the report means the college's advising office (never a made-up person).
+function advisorDetails(record: StudentRecord) {
+  const dir = record.advisor_directory?.username ? record.advisor_directory : null;
+  if (!record.advisor_name && !dir) return NO_ADVISOR;
+  return {
+    advisorName: record.advisor_name || dir?.name || NO_ADVISOR.advisorName,
+    advisorEmail: dir?.email ?? '',
+    advisorTitle: dir?.title ?? 'Academic Advisor',
+    advisorOffice: dir?.office ?? 'See your Advising Report',
   };
 }
 
 const RECORD_COLUMNS =
   'full_name, major, minor, college, class_standing, gpa, semesters, earned_credits, advisor_name, report_imported_at, degree_id, specialization_id, specialization_ids, plan_terms';
 // Columns added by later migrations, newest first, dropped one group at a time on an older database:
-// office_hours_picks (20261104040000), then the entering-class fields (20261104010000).
-const OPTIONAL_FIELDS: string[][] = [['office_hours_picks'], ['entry_term', 'expected_graduation', 'special_program_ids']];
+// advisor_directory (20261114010000), office_hours_picks (20261104040000), then the entering-class fields (20261104010000).
+const OPTIONAL_FIELDS: string[][] = [['advisor_directory'], ['office_hours_picks'], ['entry_term', 'expected_graduation', 'special_program_ids']];
 const missingColumn = (error: any) => error?.code === '42703' || error?.code === 'PGRST204';
 
 export async function loadStudentRecord(): Promise<StudentRecord | null> {

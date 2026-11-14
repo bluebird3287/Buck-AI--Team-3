@@ -936,8 +936,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-gray-900">{profile.advisorName}</h3>
-                  <p className="text-xs text-gray-600">Senior Academic Advisor • Fisher College of Business</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Office: {profile.advisorOffice} • {profile.advisorEmail}</p>
+                  <p className="text-xs text-gray-600">{profile.advisorTitle}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{[profile.advisorOffice, profile.advisorEmail].filter(Boolean).join(' • ')}</p>
                 </div>
               </div>
 
