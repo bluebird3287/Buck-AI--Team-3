@@ -958,7 +958,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                       : myAppointment.status === 'denied'
                       ? 'Appointment not approved'
                       : myAppointment.status === 'scheduled'
-                      ? `${profile.advisorName} scheduled a meeting with you`
+                      ? myAppointment.decision?.keptStudentChoice
+                        ? `Appointment confirmed by ${myAppointment.decision.by || profile.advisorName}`
+                        : `${myAppointment.decision?.by || profile.advisorName} scheduled a meeting with you`
                       : myAppointment.status === 'needs_info'
                       ? 'Your advisor needs more information'
                       : 'Appointment requested'}

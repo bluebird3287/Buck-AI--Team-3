@@ -84,7 +84,8 @@ export interface AdvisingRequest {
   status: RequestStatus;
   aiReview: AiReview | null;
   appointment?: RequestAppointment;
-  decision?: { by: string; note: string; at: string };
+  // keptStudentChoice: set when an advisor schedules; true if they accepted the time the student picked.
+  decision?: { by: string; note: string; at: string; keptStudentChoice?: boolean };
   advisorId: string | null; // the student's assigned advisor (null = not on BuckAI / no report)
   handledBy: string | null; // the advisor who last acted on it
   meetingAdvisorId: string | null; // whose calendar the meeting is on
@@ -744,7 +745,12 @@ export function scheduleAppointment(id: string, by: string, note: string): Sched
     status: 'scheduled',
     meetingAdvisorId: me,
     appointment: { slotKey, format: request.appointment?.format ?? 'In-Person' },
-    decision: { by, note: note || `Let’s meet ${describeSlot(slotKey)} to work through this together.`, at: now.toISOString() },
+    decision: {
+      by,
+      note: note || `Let’s meet ${describeSlot(slotKey)} to work through this together.`,
+      at: now.toISOString(),
+      keptStudentChoice,
+    },
   });
   return { slotKey, daysAway, withinTarget: daysAway <= SCHEDULE_TARGET_DAYS, keptStudentChoice };
 }

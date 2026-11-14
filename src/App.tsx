@@ -30,6 +30,8 @@ import { OfficeHoursLoad, describeOfficeHours, loadOfficeHours } from './lib/off
 import { ReviewStat, describeFeatures, loadReviewStats } from './lib/featureContext';
 import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, detectNavigation, navigationFromAi } from './lib/chatIntents';
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
+import { AdvisorDecisionNotice } from './components/AdvisorDecisionNotice';
+import { studentFromProfile } from './lib/advising';
 import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
 import { AdvisorSlot, Semester, StudentProfile } from './data/sampleData';
 import { authHeaders, savedRef, trackAction } from './lib/tracking';
@@ -826,6 +828,9 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           handleSendMessage(`Register in ${c.code} Section ${c.section} (Instant Seat Drop Alert).`);
         }}
       />
+
+      {/* Advisor decisions (appointment confirmed, approved, denied) reach the student on any page */}
+      <AdvisorDecisionNotice studentEmail={studentFromProfile(profile).email} onView={() => handleOpenChat('advisor')} />
 
       {/* Exact BuckeyeLink Header from Screenshot */}
       <Header
