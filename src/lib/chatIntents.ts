@@ -197,7 +197,8 @@ export interface DecisionContext {
   specializationNames: string[]; // so "switch my specialization to Finance" isn't treated as leaving the college
 }
 
-const PROGRAM_WORDS = /speciali[sz]|\bminor\b|concentration|\btrack\b/;
+// Program changes BuckAI applies itself (an Arts and Sciences second/double major is one of the student's "specializations")
+const PROGRAM_WORDS = /speciali[sz]|\bminor\b|concentration|\btrack\b|\b(second|double|add(ing)? a) major\b/;
 
 // Which big decision a message is asking to make, if any.
 export function detectDecision(text: string, ctx: DecisionContext): DecisionType | null {
@@ -227,7 +228,7 @@ export function detectDecision(text: string, ctx: DecisionContext): DecisionType
   if (
     !PROGRAM_WORDS.test(t) &&
     !mentionsSpec &&
-    (/\b(change|switch|transfer)\b[^.?!]{0,30}\b(my )?(major|college|degree)\b|\b(leave|transfer out of|get out of) (fisher|the college of business|business school|engineering|the college of engineering)\b/.test(t))
+    (/\b(change|switch|transfer)\b[^.?!]{0,30}\b(my )?(major|college|degree)\b|\b(leave|transfer out of|get out of) (fisher|the college of business|business school|engineering|the college of engineering|arts and sciences|the college of arts and sciences|asc)\b/.test(t))
   )
     return 'change_major';
   // "drop ACCTMIS 2300 from my plan" edits future terms, which the plan builder handles

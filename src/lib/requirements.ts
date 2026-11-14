@@ -40,6 +40,7 @@ export interface RequirementGroup {
 export interface ProgramAdjustments {
   substitute?: { code: string; with: string[]; note?: string }[]; // these courses also satisfy `code`
   waive?: { code: string; note: string; when_taken?: string | null }[]; // `code` isn't needed (once when_taken is on the plan)
+  colleges?: string[]; // a special program with no parent degree is open only to these colleges' degrees (e.g. ASC Honors)
 }
 
 export interface Program {
@@ -164,8 +165,19 @@ function applyAdjustments(program: Program, specials: Program[]): Program {
 }
 
 // Special programs a degree's students can join: the degree's own, plus university-wide ones (no parent)
-export const specialProgramsFor = (library: CurriculumLibrary, degreeId: string) =>
-  library.specialPrograms.filter((p) => !p.parent_id || p.parent_id === degreeId);
+export const ASC_COLLEGE = 'College of Arts and Sciences';
+
+// Special programs a degree's students can join: the degree's own, college-wide ones (adjustments.colleges, like ASC
+// Honors), and university-wide ones (no parent, no college list, like University Honors).
+export const specialProgramsFor = (library: CurriculumLibrary, degreeId: string) => {
+  const college = library.degrees.find((p) => p.id === degreeId)?.college;
+  return library.specialPrograms.filter((p) =>
+    p.parent_id ? p.parent_id === degreeId : !p.adjustments?.colleges?.length || (!!college && p.adjustments.colleges.includes(college)),
+  );
+};
+
+// Arts and Sciences majors hang off a college degree (BA, BS, BFA, ...), and a student can have two (a double major).
+export const isAscDegree = (p: Pick<Program, 'college'> | null | undefined) => p?.college === ASC_COLLEGE;
 
 export function curriculumFor(library: CurriculumLibrary, degreeId?: string | null, cohort: Cohort = {}): Curriculum {
   const baseDegree =
@@ -278,14 +290,29 @@ export async function loadCurriculum(): Promise<CurriculumLibrary> {
   };
 }
 
-// Best guess at the degree named in free text such as "Mechanical Engineering" or "Finance (BS Business Admin)".
+// Best guess at the degree named in free text such as "Mechanical Engineering", "Finance (BS Business Admin)", or an
+// Arts and Sciences major like "Psychology - BS" (that major's degree: BS here, BA when the text doesn't say).
 export function guessDegree(library: CurriculumLibrary, major: string): string | null {
   const text = major.toLowerCase();
   const match = library.degrees.find(
-    (p) => p.id !== DEFAULT_DEGREE_ID && text.includes(p.name.replace(/^BS\s+/i, '').toLowerCase()),
+    (p) => p.id !== DEFAULT_DEGREE_ID && !isAscDegree(p) && text.includes(p.name.replace(/^BS\s+/i, '').toLowerCase()),
   );
-  return match?.id ?? null;
+  if (match) return match.id;
+  if (/business|bsba/.test(text)) return null;
+  const asc = library.specializations.filter((p) => isAscDegree(p) && text.includes(ascMajorBase(p.name)));
+  if (!asc.length) return null;
+  const want = /\bb\.?\s?s\.?\b|bachelor of science/.test(text) ? 'asc-bs'
+    : /\bbfa\b|fine arts/.test(text) ? 'asc-bfa'
+    : /\bbme\b|music education/.test(text) ? 'asc-bme'
+    : /\bbm\b|bachelor of music/.test(text) ? 'asc-bm'
+    : /\bbsd\b|science in design/.test(text) ? 'asc-bsd'
+    : /\bbae\b|art education/.test(text) ? 'asc-bae'
+    : 'asc-ba';
+  return (asc.find((p) => p.parent_id === want) ?? asc[0]).parent_id;
 }
+
+// "Biology: Pre-Health Professions" -> "biology"; "Music: Composition (BM)" -> "music"
+const ascMajorBase = (name: string) => name.split(/[:(]/)[0].trim().toLowerCase();
 
 // Best guess at specializations named in free text such as "Finance (BS Business Admin)"
 // or "Finance + Tech Innovation". Programs that share a name (Operations tracks) count once.
@@ -295,8 +322,12 @@ export function guessSpecializations(curriculum: Curriculum, major: string): str
   const ids: string[] = [];
   for (const p of curriculum.specializations) {
     const base = p.name.split(' (')[0].toLowerCase();
-    if (seen.has(base) || !text.includes(base)) continue;
-    seen.add(base);
+    // An Arts and Sciences track ("Biology: Pre-Health Professions") also matches its major's name alone ("Biology")
+    const matches = text.includes(base) || (isAscDegree(p) && text.includes(ascMajorBase(p.name)));
+    // One guess per Arts and Sciences major: its tracks share a name, so the student picks the track
+    const key = isAscDegree(p) ? ascMajorBase(p.name) : base;
+    if (seen.has(key) || !matches) continue;
+    seen.add(key);
     ids.push(p.id);
   }
   return ids;
@@ -944,8 +975,8 @@ export function auditDegree(
       }
     }
     for (const code of used) usedBy.set(code, (usedBy.get(code) ?? 0) + 1);
-    // Fisher requires a 2.00 GPA in each specialization; other colleges don't have this rule
-    if (hours && curriculum.degree.id === DEFAULT_DEGREE_ID)
+    // Fisher requires a 2.00 GPA in each specialization and Arts and Sciences a 2.00 GPA in each major; Engineering has no such rule
+    if (hours && (curriculum.degree.id === DEFAULT_DEGREE_ID || isAscDegree(curriculum.degree)))
       specializationGpas.push({ name: sp.program.name, gpa: Math.round((points / hours) * 100) / 100 });
   }
   const sum = (status: Semester['status']) =>
@@ -1193,7 +1224,7 @@ export function minorBlockReason(minor: Program, degree: Program | undefined, sp
       ? 'This minor is for non-business majors, so Fisher BSBA students can’t add it.'
       : `Students in the ${degree?.name ?? 'your degree'} program can’t add this minor.`;
   }
-  if (specializationIds.some((id) => excluded.includes(id))) return 'A minor must be in a different subject than your specialization.';
+  if (specializationIds.some((id) => excluded.includes(id))) return 'A minor must be in a different subject than your major or specialization.';
   return null;
 }
 

@@ -48,7 +48,7 @@ interface ReviewSummary {
 }
 
 // One tab per college; each has its own instructors and courses (scripts/build-fisher-data.mjs)
-type CollegeId = 'fisher' | 'engineering';
+type CollegeId = 'fisher' | 'engineering' | 'asc';
 type CollegeData = typeof fisherData;
 
 function indexCollege(label: string, short: string, example: string, data: CollegeData) {
@@ -68,14 +68,24 @@ function indexCollege(label: string, short: string, example: string, data: Colle
 }
 type CollegeIndex = ReturnType<typeof indexCollege>;
 
-const COLLEGES: Record<CollegeId, CollegeIndex> = {
+// Arts and Sciences (2,000+ instructors, about 2.6 MB) is loaded only when its tab is opened.
+const COLLEGES: Partial<Record<CollegeId, CollegeIndex>> = {
   fisher: indexCollege('Fisher College of Business', 'Fisher', 'BUSFIN 3220', fisherData),
   engineering: indexCollege('College of Engineering', 'Engineering', 'CSE 2221', engineeringData as unknown as CollegeData),
 };
-const COLLEGE_IDS = Object.keys(COLLEGES) as CollegeId[];
+const COLLEGE_TABS: { id: CollegeId; label: string }[] = [
+  { id: 'fisher', label: 'Fisher College of Business' },
+  { id: 'engineering', label: 'College of Engineering' },
+  { id: 'asc', label: 'College of Arts and Sciences' },
+];
+let ascLoad: Promise<CollegeIndex> | null = null;
+const loadAsc = () =>
+  (ascLoad ??= import('../data/ascFaculty.json').then(
+    (m) => (COLLEGES.asc = indexCollege('College of Arts and Sciences', 'Arts and Sciences', 'PSYCH 1100', m.default as unknown as CollegeData)),
+  ));
 // Instructor names across colleges, for tips and confirmations
 const instructorName = (id: string) =>
-  COLLEGE_IDS.map((c) => COLLEGES[c].facultyById.get(id)?.name).find(Boolean) ?? '';
+  COLLEGE_TABS.map((c) => COLLEGES[c.id]?.facultyById.get(id)?.name).find(Boolean) ?? '';
 const PAGE_SIZE = 20;
 
 const HOURS_OPTIONS = [
@@ -296,7 +306,7 @@ const ReviewForm: React.FC<{
       <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col border border-gray-200">
         <div className="bg-[#ba0c2f] text-white p-4 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-bold text-base">Rate {college.short === 'Fisher' ? 'a Fisher' : 'an Engineering'} course</h2>
+            <h2 className="font-bold text-base">Rate {/^[AEIOU]/.test(college.short) ? 'an' : 'a'} {college.short} course</h2>
             <p className="text-xs text-white/80">
               {chosenInstructor ?? 'Choose an instructor'}
               {courseId && ` · ${courseId}`}
@@ -436,7 +446,16 @@ export const FacultyEvaluationsView: React.FC = () => {
   const [query, setQuery] = useState('');
   const [department, setDepartment] = useState('All');
   const [collegeId, setCollegeId] = useState<CollegeId>('fisher');
-  const college = COLLEGES[collegeId];
+  const [, setAscLoaded] = useState(!!COLLEGES.asc);
+  const [ascError, setAscError] = useState(false);
+  useEffect(() => {
+    if (collegeId !== 'asc' || COLLEGES.asc) return;
+    loadAsc()
+      .then(() => setAscLoaded(true))
+      .catch(() => setAscError(true));
+  }, [collegeId]);
+  const loadingCollege = !COLLEGES[collegeId];
+  const college = COLLEGES[collegeId] ?? COLLEGES.fisher!;
   const { faculty: FACULTY, courses: COURSES, facultyById, courseById, departments: DEPARTMENTS } = college;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -496,7 +515,8 @@ export const FacultyEvaluationsView: React.FC = () => {
     [needle, department, college]
   );
 
-  const results = mode === 'faculty' ? filteredFaculty : filteredCourses;
+  // Nothing to list until a lazily loaded college (Arts and Sciences) arrives
+  const results = loadingCollege ? [] : mode === 'faculty' ? filteredFaculty : filteredCourses;
   const generatedDate = new Date(college.data.generatedAt).toLocaleDateString('en-US', { dateStyle: 'medium' });
 
   const handleSaved = (review: FacultyReview) => {
@@ -509,7 +529,7 @@ export const FacultyEvaluationsView: React.FC = () => {
     <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-[#fcfcfb]">
       <div className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
         <div className="flex flex-wrap gap-1.5 pb-1">
-          {COLLEGE_IDS.map((id) => (
+          {COLLEGE_TABS.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => {
@@ -520,10 +540,15 @@ export const FacultyEvaluationsView: React.FC = () => {
                 collegeId === id ? 'bg-[#ba0c2f] text-white border-[#ba0c2f]' : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#ba0c2f]'
               }`}
             >
-              {COLLEGES[id].label} ({COLLEGES[id].faculty.length})
+              {label}{COLLEGES[id] ? ` (${COLLEGES[id]!.faculty.length})` : ''}
             </button>
           ))}
         </div>
+        {loadingCollege && (
+          <p className="text-xs text-neutral-600">
+            {ascError ? "Couldn't load Arts and Sciences instructors. Refresh to try again." : 'Loading Arts and Sciences instructors and courses…'}
+          </p>
+        )}
         <h3 className="text-base font-bold text-neutral-900">{college.short} Faculty &amp; Course Evaluations</h3>
         <p className="text-xs text-neutral-600">
           Every undergraduate {college.label} course and instructor for {college.data.terms.join(' and ')} ({FACULTY.length} instructors, {COURSES.length} courses).

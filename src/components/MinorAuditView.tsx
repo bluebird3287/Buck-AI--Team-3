@@ -18,10 +18,11 @@ interface MinorAuditViewProps {
 const MINOR_SECTIONS: { title: string; subtitle: string; college: string | null }[] = [
   { title: 'Business minors', subtitle: 'Fisher College of Business', college: 'Fisher College of Business' },
   { title: 'Engineering minors', subtitle: 'College of Engineering', college: 'College of Engineering' },
+  { title: 'Arts and Sciences minors', subtitle: 'College of Arts and Sciences', college: 'College of Arts and Sciences' },
   { title: 'Other minors', subtitle: 'Other colleges', college: null },
 ];
 
-// What-if audit for every minor BuckAI tracks (Fisher and College of Engineering), checked against the classes the student entered.
+// What-if audit for every minor BuckAI tracks (Fisher, Engineering, and Arts and Sciences), checked against the classes the student entered.
 export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
   curriculum,
   specializationIds,
@@ -73,7 +74,7 @@ export const MinorAuditView: React.FC<MinorAuditViewProps> = ({
       <div>
         <h3 className="text-base sm:text-lg font-bold text-gray-900">What-If Minor Audit</h3>
         <p className="text-xs text-gray-600 mt-0.5">
-          Every minor BuckAI tracks (Fisher and College of Engineering), checked against the classes you&apos;ve taken, are taking, and have
+          Every minor BuckAI tracks (Fisher, Engineering, and Arts and Sciences), checked against the classes you&apos;ve taken, are taking, and have
           planned. Minor courses need a C- or better and a 2.00 GPA across the minor.
         </p>
       </div>

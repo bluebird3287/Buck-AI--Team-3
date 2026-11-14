@@ -246,7 +246,7 @@ export const AuthGate: React.FC = () => {
       ) : (
         <App
           key={`${userId}-${version}`}
-          // Credits to graduate come from the student's degree (121 for the Fisher BSBA, 121-132 for Engineering)
+          // Credits to graduate come from the student's degree (121 for the Fisher BSBA and Arts and Sciences degrees, 121-132 for Engineering)
           profile={{ ...toStudentProfile(record!, email), totalRequiredCredits: curriculum?.degree.min_total_credits ?? 120 }}
           initialRoadmap={normalizeSemesters(record!.semesters)}
           onRoadmapChange={handleRoadmapChange}

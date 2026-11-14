@@ -26,6 +26,7 @@ import {
   entryWindowLabel,
   findProgram,
   guessDegree,
+  isAscDegree,
   guessSpecializations,
   minorBlockReason,
   specialProgramsFor,
@@ -78,7 +79,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
   const [fullName, setFullName] = useState(initial?.full_name ?? '');
   const [major, setMajor] = useState(initial?.major ?? '');
   const [minor, setMinor] = useState(initial?.minor ?? '');
-  // Degree (Fisher BSBA or an Engineering BS); its specializations come from the curriculum
+  // Degree (Fisher BSBA, an Engineering BS, or an Arts and Sciences BA/BS/BFA/...); its specializations (ASC: majors) come from the curriculum
   const [degreeId, setDegreeId] = useState<string>(initial?.degree_id ?? DEFAULT_DEGREE_ID);
   // Requirements depend on the entering class (e.g. GE Legacy before Autumn 2022, Accounting Honors Class of 2028+)
   const [entryTerm, setEntryTerm] = useState<string>(initial ? entryTermOf(initial) ?? '' : '');
@@ -87,6 +88,11 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
   const curriculum = library ? curriculumFor(library, degreeId, { entryTerm: entryTerm || null, specialProgramIds }) : null;
   const specialOptions = library ? specialProgramsFor(library, degreeId) : [];
   const isFisher = degreeId === DEFAULT_DEGREE_ID;
+  // Arts and Sciences: the degree is BA/BS/BFA/...; its "specializations" are majors, and a student may have two (double major)
+  const isAsc = isAscDegree(curriculum?.degree);
+  const allowsSecond = isFisher || isAsc;
+  const specLabel = isFisher ? 'Fisher specialization' : isAsc ? 'Major' : 'Specialization';
+  const specOptions = isAsc ? [...(curriculum?.specializations ?? [])].sort((a, b) => a.name.localeCompare(b.name)) : curriculum?.specializations ?? [];
   const [college, setCollege] = useState(initial?.college ?? 'Fisher College of Business');
   // A student can have a second specialization (e.g. Finance + Tech Innovation)
   const initialSpecs = initial?.specialization_ids?.length
@@ -403,7 +409,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
             </label>
             {!!curriculum?.specializations.length && (
             <label className="text-xs font-semibold text-gray-700 space-y-1">
-              <span>{isFisher ? 'Fisher specialization' : 'Specialization'} *</span>
+              <span>{specLabel} *</span>
               <select
                 className={inputCls}
                 value={specializationId}
@@ -413,15 +419,15 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
                 }}
               >
                 <option value="">Select…</option>
-                {curriculum.specializations.map((p) => (
+                {specOptions.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </label>
             )}
-            {isFisher && (
+            {allowsSecond && (
             <label className="text-xs font-semibold text-gray-700 space-y-1">
-              <span>Second specialization</span>
+              <span>{isAsc ? 'Second major (double major)' : 'Second specialization'}</span>
               <select
                 className={inputCls}
                 value={secondSpecializationId}
@@ -431,7 +437,7 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
                 }}
               >
                 <option value="">None</option>
-                {curriculum?.specializations
+                {specOptions
                   .filter((p) => p.id !== specializationId)
                   .map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>

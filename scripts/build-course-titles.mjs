@@ -1,5 +1,5 @@
 // Builds src/data/courseTitles.ts: the official title of every course in the OSU Class Search
-// data we already keep (src/data/fisherFaculty.json, engineeringFaculty.json, geCourses.json).
+// data we already keep (src/data/fisherFaculty.json, engineeringFaculty.json, ascFaculty.json, geCourses.json).
 // The app uses it so course names never come from the AI or a hand-typed label.
 // Run with: npm run build:course-titles (after rebuilding any of those files)
 import fs from 'fs';
@@ -10,7 +10,7 @@ const dataDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 's
 const read = (file) => JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf8'));
 
 const titles = {};
-for (const file of ['fisherFaculty.json', 'engineeringFaculty.json']) {
+for (const file of ['fisherFaculty.json', 'engineeringFaculty.json', 'ascFaculty.json']) {
   for (const c of read(file).courses) if (c.title && !titles[c.id]) titles[c.id] = c.title.trim();
 }
 for (const [code, c] of Object.entries(read('geCourses.json').courses)) {
