@@ -189,7 +189,15 @@ classes over the summers"; `planPrefsFromText`). `plan_terms` also stores `summe
 `summerOnline`. Online-only summers use `src/data/onlineCourses.ts` (courses with fully online sections,
 from OSU Class Search; Summer 2026 stands in for future summers). Refresh it with
 `npm run build:online-courses` when a new summer schedule is posted. Course names come from
-`src/data/courseTitles.ts` (`npm run build:course-titles`). After each draft, App.tsx checks the plan
+`src/data/courseTitles.ts` (`npm run build:course-titles`, which also writes `src/data/courseCatalog.json`: credits and
+Autumn/Spring offerings for every scheduled Fisher, Engineering and ASC course).
+
+In the 4-Year Plan, each planned course shows what it's for: a GE course opens its GE alternatives (`geSlotFor`); a course
+filling a major/specialization/special-program choice ("choose 2", "9 hours of ECON 3000+") opens that requirement's
+alternatives (`choiceSlotFor` / `choiceAlternatives`: the group's own list plus every catalog course matching its
+`code_pattern`, minus individual study/research/internships); a required course is tagged "Required for <program>".
+Picking an option swaps it into the plan (`handleReplaceCourse`). The AI's requirements text lists catalog options for
+pattern-only groups too. After each draft, App.tsx checks the plan
 against requirements, summer limits, workload balance, and extra credits, and sends problems back
 (up to 3 passes).
 

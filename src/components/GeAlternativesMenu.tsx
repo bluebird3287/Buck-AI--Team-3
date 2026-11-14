@@ -1,25 +1,28 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Search, Wifi } from 'lucide-react';
-import { GeOption, GeSlot, geAlternatives } from '../lib/requirements';
+import { ChoiceSlot, GeOption, GeSlot, choiceAlternatives, geAlternatives } from '../lib/requirements';
 import { onlineInSummer } from '../lib/onlineCourses';
 
 interface GeAlternativesMenuProps {
-  slot: GeSlot;
+  slot: GeSlot | ChoiceSlot;
   current: string; // the planned course's code
   term: string; // the planned term, e.g. 'Spring 2028'
   inPlan: string[]; // codes already in the plan, which can't be picked again
   onPick: (option: GeOption) => void;
 }
 
-// Opens under a planned GE course in the 4-Year Plan: every course that fills the same GE
-// requirement, with the ones offered in that term's season (or online, for summers) first.
+// Opens under a planned course in the 4-Year Plan: every course that fills the same requirement, with the ones
+// offered in that term's season (or online, for summers) first. A GE slot lists the registrar's GEN-tagged courses;
+// a major/specialization choice (ChoiceSlot) lists that requirement group's courses and pattern matches.
+const isChoice = (slot: GeSlot | ChoiceSlot): slot is ChoiceSlot => 'group' in slot;
 export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, current, term, inPlan, onPick }) => {
   const [query, setQuery] = useState('');
   const season = term.split(' ')[0];
   const isSummer = season === 'Summer';
 
   const options = useMemo(() => {
-    const all = geAlternatives(slot, inPlan.filter((c) => c !== current));
+    const others = inPlan.filter((c) => c !== current);
+    const all = isChoice(slot) ? choiceAlternatives(slot, others) : geAlternatives(slot, others);
     const fits = (o: GeOption) => (isSummer ? onlineInSummer(o.code) : o.terms.some((t) => t.startsWith(season)));
     return [...all.filter(fits), ...all.filter((o) => !fits(o))];
   }, [slot, current, inPlan, season, isSummer]);
@@ -27,12 +30,14 @@ export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, cu
   const q = query.trim().toLowerCase();
   const shown = q ? options.filter((o) => `${o.code} ${o.title}`.toLowerCase().includes(q)) : options;
 
+  const choice = isChoice(slot);
   return (
     <div className="mt-1.5 rounded-lg border border-[#ba0c2f]/30 bg-white shadow-md text-xs" role="listbox" aria-label={`${slot.label} alternatives`}>
       <div className="px-3 pt-2.5 pb-2 border-b border-gray-100">
         <div className="font-semibold text-gray-900">
-          GE {slot.label}: {options.length} course{options.length === 1 ? '' : 's'} fill this requirement
+          {choice ? slot.label : `GE ${slot.label}`}: {options.length} course{options.length === 1 ? '' : 's'} fill this requirement
         </div>
+        {choice && slot.group.notes && <div className="mt-1 text-[10px] text-gray-500 line-clamp-2">{slot.group.notes}</div>}
         <label className="mt-2 flex items-center gap-2 px-2 py-1.5 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-[#ba0c2f]">
           <Search className="w-3.5 h-3.5 text-gray-400" />
           <input
@@ -82,7 +87,9 @@ export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, cu
         {!shown.length && <div className="px-3 py-3 text-gray-500">No courses match "{query}".</div>}
       </div>
       <div className="px-3 py-2 border-t border-gray-100 text-[10px] text-gray-500">
-        From the registrar's GEN tags (Autumn 2026 / Spring 2027 schedules). Confirm in your Buckeye Degree Planner.
+        {choice
+          ? "From your program's requirement list and OSU Class Search (Autumn 2026 / Spring 2027). Confirm electives with your advisor."
+          : "From the registrar's GEN tags (Autumn 2026 / Spring 2027 schedules). Confirm in your Buckeye Degree Planner."}
       </div>
     </div>
   );

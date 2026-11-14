@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { Course, Semester } from '../data/sampleData';
 import geData from '../data/geCourses.json';
+import courseCatalog from '../data/courseCatalog.json';
 import { officialTitle } from './courseTitles';
 import { onlineInSummer } from './onlineCourses';
 import { parseTerm, termKey } from './studentProfile';
@@ -1037,8 +1038,17 @@ export function describeAudit(audit: DegreeAudit): string {
         g.group.kind === 'choose_credits' ? `${g.creditsCounted}/${g.creditsNeeded} credits` : `${g.coursesCounted}/${g.coursesNeeded} courses`;
       // Long elective lists (some engineering majors list 70+ courses) are trimmed to keep the prompt short
       const MAX_OPTIONS = 25;
-      const listed = g.group.courses.slice(0, MAX_OPTIONS).map(courseLabel).join(', ');
-      const more = g.group.courses.length > MAX_OPTIONS ? `, …and ${g.group.courses.length - MAX_OPTIONS} more` : '';
+      // Pattern-only groups ("any ECON 5000-level course") list real scheduled courses from the course catalog
+      const patternOnly = !g.group.courses.length && !!g.group.code_pattern;
+      const fromCatalog = patternOnly
+        ? choiceAlternatives({ programName: p.program.name, group: g.group, label: g.group.title }, g.items.map((i) => i.takenAs ?? i.code))
+            .filter((o) => o.terms.length)
+        : [];
+      const listed = patternOnly
+        ? fromCatalog.slice(0, MAX_OPTIONS).map((o) => `${o.code} ${o.title} (${o.credits ?? '?'} cr, ${o.terms.join('/')})`).join(', ')
+        : g.group.courses.slice(0, MAX_OPTIONS).map(courseLabel).join(', ');
+      const total = patternOnly ? fromCatalog.length : g.group.courses.length;
+      const more = total > MAX_OPTIONS ? `, …and ${total - MAX_OPTIONS} more` : '';
       const options =
         g.group.kind !== 'all' && g.state === 'missing'
           ? `; options: ${listed ? listed + more : ''}${g.group.notes ? `${listed ? '. ' : ''}${g.group.notes}` : ''}`
@@ -1199,6 +1209,77 @@ export function geAlternatives(slot: GeSlot, exclude: string[]): GeOption[] {
     .filter(([code, e]) => e.categories.includes(slot.category) && (e.credits ?? 0) >= slot.minCredits && !skip.has(code))
     .map(([code, e]) => ({ code, title: officialTitle(code) ?? e.title, credits: e.credits, terms: e.terms }))
     .sort((a, b) => b.terms.length - a.terms.length || a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
+// ---------- Major / specialization alternatives (the plan's "pick from a list" menus) ----------
+// Requirement groups are either required courses (kind 'all') or a choice: "choose N from this list" / "N credit hours
+// from this list or any course matching a pattern" (e.g. any ECON 3000+). For a planned course that fills a choice, the
+// plan offers every other course that fills the same choice: the group's own list, plus every scheduled course in
+// src/data/courseCatalog.json (OSU Class Search) that matches the group's pattern.
+
+const CATALOG = courseCatalog as unknown as Record<string, [number | null, string]>;
+
+export interface ChoiceSlot {
+  programName: string; // e.g. 'Economics' or 'Finance'
+  group: RequirementGroup;
+  label: string; // e.g. 'Economics: ECON 5000-level electives (2 courses, 6 hours)'
+}
+
+// The major/specialization/special-program choice a planned course fills, from the degree check. Null when it fills
+// nothing there (a GE course, an elective) or a required ('all') course, which has no alternatives.
+export function choiceSlotFor(audit: DegreeAudit | null, code: string): ChoiceSlot | null {
+  if (!audit) return null;
+  const c = norm(code);
+  for (const p of [...audit.specializations, ...audit.specialPrograms, audit.degree]) {
+    for (const g of p.groups) {
+      if (g.group.kind !== 'choose_courses' && g.group.kind !== 'choose_credits') continue;
+      if (!g.items.some((i) => norm(i.takenAs ?? i.code) === c)) continue;
+      return { programName: p.program.name, group: g.group, label: `${p.program.name}: ${g.group.title}` };
+    }
+  }
+  return null;
+}
+
+// The program a planned course is required for ('all' group), for the plan's "Required" tag.
+export function requiredFor(audit: DegreeAudit | null, code: string): string | null {
+  if (!audit) return null;
+  const c = norm(code);
+  for (const p of [...audit.specializations, ...audit.specialPrograms, audit.degree])
+    for (const g of p.groups)
+      if (g.group.kind === 'all' && g.items.some((i) => i.state !== 'missing' && norm(i.takenAs ?? i.code) === c)) return p.program.name;
+  return null;
+}
+
+const seasonsOf = (offered: string[] | undefined): string[] =>
+  !offered || !offered.length ? ['Autumn', 'Spring'] : offered.includes('None') ? [] : offered;
+
+// Every course that fills the same choice, scheduled ones first (the menu then puts the term's season first).
+export function choiceAlternatives(slot: ChoiceSlot, exclude: string[]): GeOption[] {
+  const skip = new Set([...exclude, ...slot.group.exclude_codes].map(norm));
+  const seen = new Set<string>();
+  const out: GeOption[] = [];
+  const add = (code: string, title: string | null, credits: number | null, terms: string[]) => {
+    const c = norm(code);
+    if (seen.has(c) || skip.has(c) || c === 'ELECTIVE') return;
+    seen.add(c);
+    out.push({ code: c, title: officialTitle(c) ?? title ?? c, credits, terms });
+  };
+  for (const r of slot.group.courses) {
+    const cat = CATALOG[norm(r.code)];
+    const terms = cat ? [...(cat[1].includes('A') ? ['Autumn'] : []), ...(cat[1].includes('S') ? ['Spring'] : [])] : seasonsOf(r.offered_terms);
+    add(r.code, r.title === 'Listed on the advising sheet' ? null : r.title, r.credits ?? cat?.[0] ?? null, terms);
+  }
+  if (slot.group.code_pattern) {
+    const pattern = new RegExp(slot.group.code_pattern, 'i');
+    for (const [code, [credits, seasons]] of Object.entries(CATALOG)) {
+      if (!pattern.test(code)) continue;
+      // Individual studies, research, internships and group studies need a department's OK, so they're not suggested
+      if (/ (\d)19[1-4]|499[89]/.test(code)) continue;
+      add(code, null, credits, [...(seasons.includes('A') ? ['Autumn'] : []), ...(seasons.includes('S') ? ['Spring'] : [])]);
+    }
+  }
+  const scheduled = (o: GeOption) => (o.terms.length ? 0 : 1);
+  return out.sort((a, b) => scheduled(a) - scheduled(b));
 }
 
 // ---------- What-if: adding a minor ----------

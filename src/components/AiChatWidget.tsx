@@ -38,7 +38,7 @@ import type { OfficeHoursLoad } from '../lib/officeHours';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
-import { Curriculum, DegreeAudit, GeOption, geSlotFor } from '../lib/requirements';
+import { Curriculum, DegreeAudit, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
 import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -794,8 +794,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
                               <div className="space-y-2">
                                 {sem.courses.map((course, idx) => {
-                                  // Planned GE courses open a menu of every course that fills the same GE
-                                  const slot = sem.status === 'planned' && onReplaceCourse ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
+                                  // Planned GE courses and major/specialization electives open a menu of every course that fills the
+                                  // same requirement; required major courses are tagged instead.
+                                  const planned = sem.status === 'planned' && !!onReplaceCourse;
+                                  const geSlot = planned ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
+                                  const slot = geSlot ?? (planned ? choiceSlotFor(audit, course.code) : null);
+                                  const required = planned && !slot ? requiredFor(audit, course.code) : null;
                                   const key = `${sem.id}:${idx}`;
                                   const open = !!slot && openGe === key;
                                   const body = (
@@ -805,9 +809,12 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                         <div className="text-gray-600 text-[11px]">{course.name}</div>
                                         {slot && (
                                           <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-[#ba0c2f]">
-                                            GE {slot.label} · {open ? 'Close' : 'See alternatives'}
+                                            {geSlot ? `GE ${slot.label}` : slot.label} · {open ? 'Close' : 'See alternatives'}
                                             {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                           </div>
+                                        )}
+                                        {required && (
+                                          <div className="mt-1 text-[10px] font-semibold text-gray-500">Required for {required}</div>
                                         )}
                                       </div>
                                       <div className="text-right">
