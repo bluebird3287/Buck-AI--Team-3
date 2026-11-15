@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Search, Wifi } from 'lucide-react';
-import { ChoiceSlot, GeOption, GeSlot, choiceAlternatives, geAlternatives } from '../lib/requirements';
+import { ChoiceSlot, DegreeAudit, ElectiveSlot, GeOption, GeSlot, choiceAlternatives, electiveOptions, geAlternatives } from '../lib/requirements';
 import { onlineInSummer } from '../lib/onlineCourses';
 
 interface GeAlternativesMenuProps {
-  slot: GeSlot | ChoiceSlot;
+  slot: GeSlot | ChoiceSlot | ElectiveSlot;
+  audit?: DegreeAudit | null; // needed for an ELECTIVE slot
   current: string; // the planned course's code
   term: string; // the planned term, e.g. 'Spring 2028'
   inPlan: string[]; // codes already in the plan, which can't be picked again
@@ -14,30 +15,40 @@ interface GeAlternativesMenuProps {
 // Opens under a planned course in the 4-Year Plan: every course that fills the same requirement, with the ones
 // offered in that term's season (or online, for summers) first. A GE slot lists the registrar's GEN-tagged courses;
 // a major/specialization choice (ChoiceSlot) lists that requirement group's courses and pattern matches.
-const isChoice = (slot: GeSlot | ChoiceSlot): slot is ChoiceSlot => 'group' in slot;
-export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, current, term, inPlan, onPick }) => {
+const isChoice = (slot: GeSlot | ChoiceSlot | ElectiveSlot): slot is ChoiceSlot => 'group' in slot;
+const isElective = (slot: GeSlot | ChoiceSlot | ElectiveSlot): slot is ElectiveSlot => 'electives' in slot;
+export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, audit, current, term, inPlan, onPick }) => {
   const [query, setQuery] = useState('');
   const season = term.split(' ')[0];
   const isSummer = season === 'Summer';
 
   const options = useMemo(() => {
     const others = inPlan.filter((c) => c !== current);
-    const all = isChoice(slot) ? choiceAlternatives(slot, others) : geAlternatives(slot, others);
+    const all = isElective(slot)
+      ? electiveOptions(audit ?? null, others)
+      : isChoice(slot)
+      ? choiceAlternatives(slot, others)
+      : geAlternatives(slot, others);
     const fits = (o: GeOption) => (isSummer ? onlineInSummer(o.code) : o.terms.some((t) => t.startsWith(season)));
+    // Electives keep their requirement order (unfinished first); within it, this term's season first
+    if (isElective(slot)) return all.slice().sort((a, b) => Number(!fits(a)) - Number(!fits(b)));
     return [...all.filter(fits), ...all.filter((o) => !fits(o))];
-  }, [slot, current, inPlan, season, isSummer]);
+  }, [slot, audit, current, inPlan, season, isSummer]);
 
   const q = query.trim().toLowerCase();
-  const shown = q ? options.filter((o) => `${o.code} ${o.title}`.toLowerCase().includes(q)) : options;
+  const shown = q ? options.filter((o) => `${o.code} ${o.title} ${o.group ?? ''}`.toLowerCase().includes(q)) : options;
 
-  const choice = isChoice(slot);
+  const choice = isChoice(slot) || isElective(slot);
   return (
     <div className="mt-1.5 rounded-lg border border-[#ba0c2f]/30 bg-white shadow-md text-xs" role="listbox" aria-label={`${slot.label} alternatives`}>
       <div className="px-3 pt-2.5 pb-2 border-b border-gray-100">
         <div className="font-semibold text-gray-900">
-          {choice ? slot.label : `GE ${slot.label}`}: {options.length} course{options.length === 1 ? '' : 's'} fill this requirement
+          {isElective(slot)
+            ? `Electives for your major and minor: ${options.length} course${options.length === 1 ? '' : 's'}`
+            : `${choice ? slot.label : `GE ${slot.label}`}: ${options.length} course${options.length === 1 ? '' : 's'} fill this requirement`}
         </div>
-        {choice && slot.group.notes && <div className="mt-1 text-[10px] text-gray-500 line-clamp-2">{slot.group.notes}</div>}
+        {isChoice(slot) && slot.group.notes && <div className="mt-1 text-[10px] text-gray-500 line-clamp-2">{slot.group.notes}</div>}
+        {isElective(slot) && <div className="mt-1 text-[10px] text-gray-500">Each option shows which requirement it would fill; ones you still need come first.</div>}
         <label className="mt-2 flex items-center gap-2 px-2 py-1.5 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-[#ba0c2f]">
           <Search className="w-3.5 h-3.5 text-gray-400" />
           <input
@@ -69,6 +80,7 @@ export const GeAlternativesMenu: React.FC<GeAlternativesMenuProps> = ({ slot, cu
                   {o.code}
                 </div>
                 <div className="text-gray-600 text-[11px] truncate">{o.title}</div>
+                {o.group && <div className="text-[10px] text-[#ba0c2f] truncate">{o.group}</div>}
               </div>
               <div className="text-right shrink-0">
                 <div className="font-medium text-gray-700">{o.credits ?? '?'} cr</div>

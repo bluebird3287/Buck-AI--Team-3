@@ -196,7 +196,8 @@ In the 4-Year Plan, each planned course shows what it's for: a GE course opens i
 filling a major/specialization/special-program choice ("choose 2", "9 hours of ECON 3000+") opens that requirement's
 alternatives (`choiceSlotFor` / `choiceAlternatives`: the group's own list plus every catalog course matching its
 `code_pattern`, minus individual study/research/internships); a required course is tagged "Required for <program>".
-Picking an option swaps it into the plan (`handleReplaceCourse`). The AI's requirements text lists catalog options for
+An `ELECTIVE` placeholder opens every elective for the student's majors/specializations, minor, and special
+programs (`electiveOptions`), each labeled with the requirement it fills, unfinished ones first. Picking an option swaps it into the plan (`handleReplaceCourse`). The AI's requirements text lists catalog options for
 pattern-only groups too. After each draft, App.tsx checks the plan
 against requirements, summer limits, workload balance, and extra credits, and sends problems back
 (up to 3 passes).
@@ -233,6 +234,9 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
   and Summer 2026 online options when a question mentions summer/online. The student's declared minor is part of the
   audit (`audit.minor`), so plans, gaps, and the chat cover it.
 - Chat replies render light Markdown (`ChatText`: bold, links, bullets).
+- The system prompt explains how BuckAI itself works (Advising Report upload, plans built on request, the declared
+  minor in plans since 2026-11-14, the plan dropdowns, what the chat can do) so students can ask about the app in a
+  normal conversation; the profile says when the report was uploaded (`reportImportedAt`).
 - The chat sees every tab's data: requirements (`describeAudit`), instructors/office hours
   (`describeOfficeHours`), and advisor appointment, seat-alert watch list, and instructor reviews
   (`describeFeatures` in `src/lib/featureContext.ts`). Status questions ("do I have an advisor

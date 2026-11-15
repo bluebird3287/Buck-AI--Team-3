@@ -1226,6 +1226,7 @@ export interface GeOption {
   title: string;
   credits: number | null;
   terms: string[]; // e.g. ['Autumn 2026', 'Spring 2027']
+  group?: string; // for an ELECTIVE slot: the requirement this option would fill, e.g. 'Finance: Electives (9 credit hours)'
 }
 
 // The GE requirement a planned course fills, from the degree check (falling back to its GEN tags).
@@ -1294,6 +1295,35 @@ export function choiceSlotFor(audit: DegreeAudit | null, code: string): ChoiceSl
     }
   }
   return null;
+}
+
+// An ELECTIVE placeholder in the plan: any elective for the student's major/specializations, minor, or special programs.
+export interface ElectiveSlot {
+  label: string;
+  electives: true;
+}
+
+// Every elective that would fill one of the student's major/minor choice requirements, unfinished requirements first
+// (each option says which requirement it fills). Required ('all') courses and GE categories aren't electives.
+export function electiveOptions(audit: DegreeAudit | null, exclude: string[]): GeOption[] {
+  if (!audit) return [];
+  const programs = [...audit.specializations, ...(audit.minor ? [audit.minor] : []), ...audit.specialPrograms, audit.degree];
+  const groups = programs.flatMap((p) =>
+    p.groups
+      .filter((g) => g.group.kind === 'choose_courses' || g.group.kind === 'choose_credits')
+      .map((g) => ({ p, g, open: g.state === 'missing' || g.state === 'planned' || g.state === 'in_progress' })),
+  );
+  const seen = new Set<string>();
+  const out: GeOption[] = [];
+  for (const { p, g } of [...groups.filter((x) => x.open), ...groups.filter((x) => !x.open)]) {
+    const slot: ChoiceSlot = { programName: p.program.name, group: g.group, label: `${p.program.name}: ${g.group.title}` };
+    for (const o of choiceAlternatives(slot, exclude).slice(0, 80)) {
+      if (seen.has(o.code)) continue;
+      seen.add(o.code);
+      out.push({ ...o, group: g.state === 'done' ? `${slot.label} (already complete)` : slot.label });
+    }
+  }
+  return out;
 }
 
 // The program a planned course is required for ('all' group), for the plan's "Required" tag.

@@ -38,7 +38,7 @@ import type { OfficeHoursLoad } from '../lib/officeHours';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
-import { Curriculum, DegreeAudit, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
+import { Curriculum, DegreeAudit, ElectiveSlot, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
 import { ChatText } from './ChatText';
 import { MinorAuditView } from './MinorAuditView';
@@ -799,7 +799,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                   // same requirement; required major courses are tagged instead.
                                   const planned = sem.status === 'planned' && !!onReplaceCourse;
                                   const geSlot = planned ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
-                                  const slot = geSlot ?? (planned ? choiceSlotFor(audit, course.code) : null);
+                                  // An ELECTIVE placeholder offers every major/minor elective
+                                  const electiveSlot: ElectiveSlot | null =
+                                    planned && course.code.toUpperCase() === 'ELECTIVE' ? { label: 'Elective', electives: true } : null;
+                                  const slot = electiveSlot ?? geSlot ?? (planned ? choiceSlotFor(audit, course.code) : null);
                                   const required = planned && !slot ? requiredFor(audit, course.code) : null;
                                   const key = `${sem.id}:${idx}`;
                                   const open = !!slot && openGe === key;
@@ -810,7 +813,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                         <div className="text-gray-600 text-[11px]">{course.name}</div>
                                         {slot && (
                                           <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-[#ba0c2f]">
-                                            {geSlot ? `GE ${slot.label}` : slot.label} · {open ? 'Close' : 'See alternatives'}
+                                            {electiveSlot ? 'Elective · Pick a major or minor elective' : geSlot ? `GE ${slot.label}` : slot.label} ·{' '}
+                                            {open ? 'Close' : electiveSlot ? 'Choose' : 'See alternatives'}
                                             {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                           </div>
                                         )}
@@ -839,6 +843,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                       {open && (
                                         <GeAlternativesMenu
                                           slot={slot}
+                                          audit={audit}
                                           current={course.code}
                                           term={sem.name}
                                           inPlan={roadmap.flatMap((s) => s.courses.map((c) => c.code))}

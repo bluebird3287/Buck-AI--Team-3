@@ -166,6 +166,7 @@ export function toStudentProfile(record: StudentRecord, email: string): StudentP
     entryTerm: entryTermOf(record),
     expectedGraduation: record.expected_graduation ?? record.plan_terms?.graduation ?? null,
     minor: record.minor || '',
+    reportImportedAt: record.report_imported_at ?? null,
     gpa: Number(record.gpa ?? 0),
     // The report's earned hours include exam and transfer credit, so prefer them.
     earnedCredits: Number(record.earned_credits ?? enteredCredits),

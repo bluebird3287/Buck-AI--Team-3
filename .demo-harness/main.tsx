@@ -51,7 +51,7 @@ function Harness() {
   // ?view=plan adds a planned term with two GE courses (taken from a real Buck AI plan) so the GE picker can be captured
   const withPlan = new URLSearchParams(location.search).get('view') === 'plan';
   const ascPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('ECON 4002.01'), c('PSYCH 3325'), c('ECON 5130'), c('AFAMAST 2050'), c('COMM 2367')], totalCredits: 0, workloadRating: 'Balanced' }];
-  const fisherPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('BUSOBA 2320'), c('BUSFIN 4211'), c('AFAMAST 2050'), c('ENGLISH 3304'), c('ANTHROP 1101')], totalCredits: 0, workloadRating: 'Balanced' }];
+  const fisherPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('BUSOBA 2320'), c('BUSFIN 4211'), c('AFAMAST 2050'), c('ENGLISH 3304'), c('ANTHROP 1101'), { ...c('ELECTIVE'), name: 'Elective' }], totalCredits: 0, workloadRating: 'Balanced' }];
   // ?minor=International%20Business puts a declared minor on the profile (as an advising report would)
   const minorParam = new URLSearchParams(location.search).get('minor');
   const rec: StudentRecord = useMemo(() => {
