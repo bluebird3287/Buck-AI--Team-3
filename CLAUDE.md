@@ -71,7 +71,9 @@ specialization's major core (https://fisher.osu.edu/undergraduate/academics/curr
 - Students can have more than one specialization (`student_profiles.specialization_ids`).
   Fisher doesn't publish a double-counting rule, so a course shared by two specializations
   counts for both and is flagged for the advisor. Tech Innovation (new Autumn 2026) comes from
-  the OAA proposal's curriculum sheet.
+  the OAA proposal's curriculum sheet. Its Builders Studio I–IV are offered Autumn and Spring (including Spring 2027),
+  in order, and a student may take up to two in one semester (each studio's prerequisite allows concurrent enrollment;
+  `checkSchedule` blocks a third). Per the team, Nov 2026; migration 20261115010000.
 - `src/lib/requirements.ts` checks a student's classes against those requirements (grades,
   "choose N" and credit-hour electives, prerequisites) and feeds the result to the AI.
 - GE Foundations and Themes (requirement group kind `ge`) are checked against the registrar's

@@ -912,6 +912,15 @@ export function checkSchedule(curriculum: Curriculum, semesters: Semester[], ear
           message: `${code} needs ${STANDING_NAMES[req.min_standing] ?? ''} standing (${req.min_standing}+ earned credit hours); the student will have about ${creditsBefore} before ${s.name}.`,
         });
     }
+    // Tech Innovation: up to two Builders Studio courses in one semester
+    const studios = s.courses.filter((c) => /^BUSADM (3801|3802|4803|4804)\b/.test(norm(c.code)));
+    if (s.status === 'planned' && studios.length > 2)
+      warnings.push({
+        code: '',
+        term: s.name,
+        blocking: true,
+        message: `${s.name} has ${studios.length} Builders Studio courses (${studios.map((c) => c.code).join(', ')}); Tech Innovation allows at most two in one semester.`,
+      });
     const load = s.courses.reduce((n, c) => n + (Number(c.credits) || 0), 0);
     // Ohio State: 12+ hours is full time; more than 18 needs college approval
     if (s.status === 'planned' && load > 18)
