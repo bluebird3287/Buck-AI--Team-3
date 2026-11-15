@@ -222,6 +222,17 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
 - Questions ("what happens if I drop…", "should I…") never trigger a card, and specialization or minor changes
   stay with `programChange`. Dropping a class in a planned term is a plan edit, not a big decision.
 - A reply's `action` auto-opens its tab only when the reply is new, never when an old chat is reloaded.
+- Everything is doable from the chat itself: "set a seat alert for BUSML 4254" adds it to the watch list
+  (`newWatchedCourse`), "I need after-hours access to Gerlach Hall" drafts the request email to the granting office
+  (with Outlook/mail-app links) and saves it, program changes cover specializations/majors, the minor, and special
+  programs (`programChange.specialPrograms`).
+- What the AI sees beyond the student's own data: `server.ts` adds "Course facts" for every course named in the
+  conversation (`src/lib/courseFacts.ts`: Class Search title, credits, sections per term, instructors, prerequisites,
+  description, BuckAI review averages; `vercel.json` `includeFiles` ships the `*Faculty.json` files), the browser adds
+  the full requirements of any minor/special program/specialization the question names (`describeProgramsMentioned`)
+  and Summer 2026 online options when a question mentions summer/online. The student's declared minor is part of the
+  audit (`audit.minor`), so plans, gaps, and the chat cover it.
+- Chat replies render light Markdown (`ChatText`: bold, links, bullets).
 - The chat sees every tab's data: requirements (`describeAudit`), instructors/office hours
   (`describeOfficeHours`), and advisor appointment, seat-alert watch list, and instructor reviews
   (`describeFeatures` in `src/lib/featureContext.ts`). Status questions ("do I have an advisor

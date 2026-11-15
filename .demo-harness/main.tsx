@@ -52,10 +52,16 @@ function Harness() {
   const withPlan = new URLSearchParams(location.search).get('view') === 'plan';
   const ascPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('ECON 4002.01'), c('PSYCH 3325'), c('ECON 5130'), c('AFAMAST 2050'), c('COMM 2367')], totalCredits: 0, workloadRating: 'Balanced' }];
   const fisherPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('BUSOBA 2320'), c('BUSFIN 4211'), c('AFAMAST 2050'), c('ENGLISH 3304'), c('ANTHROP 1101')], totalCredits: 0, workloadRating: 'Balanced' }];
+  // ?minor=International%20Business puts a declared minor on the profile (as an advising report would)
+  const minorParam = new URLSearchParams(location.search).get('minor');
   const rec: StudentRecord = useMemo(() => {
+    const r = recBase();
+    return minorParam ? { ...r, minor: minorParam } : r;
+  }, [spec, withPlan, asc]);
+  function recBase(): StudentRecord {
     if (asc) return { ...ascRecord, semesters: [...ascRecord.semesters, ...(withPlan ? ascPlan : [])] };
     return { ...record, specialization_ids: spec ? [spec] : [], semesters: [...record.semesters, ...(withPlan ? fisherPlan : [])] };
-  }, [spec, withPlan, asc]);
+  }
   if (!library) return <div style={{ padding: 40 }}>Loading curriculum…</div>;
   // ?view=signin | upload | review renders the onboarding screens for teaser captures (nothing is submitted)
   const view = new URLSearchParams(location.search).get('view');

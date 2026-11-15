@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
+import { codesIn, describeCourses, summarizeReviews } from './src/lib/courseFacts.js';
 import { busyBlocksFromIcs, normalizeFeedUrl, IMPORT_WEEKS } from './src/lib/ics.js';
 import { lookupAdvisorByName, lookupUsername, toAdvisor } from './src/lib/osuDirectory.js';
 
@@ -99,7 +100,9 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
     `- Major / specialization(s): ${profile?.major || 'Not provided'}`,
     `- Minor: ${profile?.minor || 'None'}`,
     `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
-    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}`,
+    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}${profile?.advisorTitle ? `, ${profile.advisorTitle}` : ''}${
+      profile?.advisorEmail ? ` | email: ${profile.advisorEmail}` : ''
+    }${profile?.advisorOffice ? ` | office: ${profile.advisorOffice}` : ''}`,
     `- Holds: ${profile?.holds?.length ? profile.holds.join(', ') : 'None reported (not connected to BuckeyeLink)'}`,
     `- Completed credits: ${profile?.earnedCredits ?? 0} / ${profile?.totalRequiredCredits ?? 120}`,
     `- Completed classes:\n${list('completed')}`,
@@ -120,8 +123,8 @@ Your audience is undergraduate students navigating BuckeyeLink, course registrat
 
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
-- Pilot scope: Fisher BSBA students, College of Engineering BS students, and College of Arts and Sciences students (BA, BS, BFA, BM, BME, BSD, BAE). Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE; for Arts and Sciences: the college requirements (world language through 1103, BS calculus, the BA's extra arts/humanities/social science course for Autumn 2026+ entrants, College Survey, Civic Literacy), the full GE, and each major).
-- Arts and Sciences: the degree is BA/BS/etc. and the student's "specializations" are their majors; a second one is a double major (each major needs 18 hours that don't overlap, so shared courses are flagged), and some majors are split into tracks ("Biology: Pre-Health Professions"). Majors need C- in each course and a 2.00 major GPA. ASC minors can't be in the same subject as a major. ASC special programs include ASC Honors, Research Distinction, Scholars, combined BS/MS and BA/MA programs, the BA/BS + Fisher BSBA dual degree, and pre-health prerequisites. Where a major's check says a list lives on the department's sheet, tell the student to confirm with their ASC advisor. Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Pilot scope: Fisher BSBA students, College of Engineering BS students, and College of Arts and Sciences students (BA, BS, BFA, BM, BME, BSD, BAE). Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE; for Arts and Sciences: the college requirements (world language through 1103, BS calculus, the BA's extra arts/humanities/social science course for Autumn 2026+ entrants, College Survey, Civic Literacy), the full GE, and each major). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Arts and Sciences: the degree is BA/BS/etc. and the student's "specializations" are their majors; a second one is a double major (each major needs 18 hours that don't overlap, so shared courses are flagged), and some majors are split into tracks ("Biology: Pre-Health Professions"). Majors need C- in each course and a 2.00 major GPA. ASC minors can't be in the same subject as a major. ASC special programs include ASC Honors, Research Distinction, Scholars, combined BS/MS and BA/MA programs, the BA/BS + Fisher BSBA dual degree, and pre-health prerequisites. Where a major's check says a list lives on the department's sheet, tell the student to confirm with their ASC advisor.
 - Entering class and special programs: requirements depend on when the student entered Ohio State (e.g. students who entered before Autumn 2022 follow the GE Legacy; Accounting Honors has a different structure for the Class of 2028 and later) and on any special program they're in (Fisher Honors programs, IBE, Accelerated BSBA/MAcc, University Honors). The requirements check already uses the right version and applies each program's waivers and substitutions (honors sections count for the regular course). Follow it, never another class's curriculum, and repeat any "Catalog note" so the student confirms with their advisor.
 - Course titles: use the title given for a course code in the request (student profile, requirements check, or "Official course titles"); they come from OSU Class Search. Never guess or paraphrase a course's title from its number or subject (e.g. BUSFIN 3500 is Legal Environment of Business, not a finance class). If a code has no title in the request, refer to it by code only.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
@@ -172,7 +175,8 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   },
   "programChange": null or {
     "specializations": ["array of exact specialization names: the student's full new list"] or null (no change),
-    "minor": "exact minor name, or \"\" to remove their minor" or null (no change)
+    "minor": "exact minor name, or \"\" to remove their minor" or null (no change),
+    "specialPrograms": ["array of exact special program names (honors programs, combined degrees, scholars...): the student's full new list"] or null (no change)
   },
   "roadmapRecommendation": {
     "targetSemester": "string or null (e.g. 'Spring 2027')",
@@ -208,7 +212,7 @@ Refer to instructors, TAs, and advisors by name or as "they"; never guess anyone
 Holds, registration errors, tuition, and financial aid questions aren't tabs here: answer what you can and point them to their advisor, the Registrar, or Student Financial Aid.
 
 What BuckAI can do from this chat (set the matching field; never say something is done unless you set it):
-- Change the student's specializations or minor in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
+- Change the student's specializations/majors, minor, or special programs (honors programs, combined degrees, scholars) in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
 - Build or change their plan of future terms: set "roadmapRequest.build" true. This covers building a plan, adding, removing, moving, or swapping specific classes, lighter or heavier terms, graduating earlier or later, adding a minor's or specialization's classes, and fixing gaps. Put exactly what they asked for in "instructions".
 - Show a big-decision card for an irreversible request (see "Big decisions" above).
 - Send them to a tab in this panel: set "openTab".
@@ -392,6 +396,18 @@ app.post('/api/advising-chat', async (req, res) => {
       .map((h: { role: string; text: string }) => `${h.role === 'user' ? 'Student' : 'Assistant'}: ${h.text}`)
       .join('\n');
 
+    // Facts about every course named in the question (or the last few messages): Class Search data plus BuckAI reviews
+    const factCodes = [...new Set([...codesIn(String(message ?? '')), ...codesIn(conversationContext, 4)])].slice(0, 8);
+    let reviewSummary = {};
+    if (factCodes.length && eventsDb) {
+      const { data } = await eventsDb
+        .from('faculty_reviews')
+        .select('course_id, overall, difficulty, hours_per_week, would_take_again, tip')
+        .in('course_id', factCodes);
+      reviewSummary = summarizeReviews(data ?? []);
+    }
+    const courseFacts = factCodes.length ? describeCourses(factCodes, reviewSummary) : '';
+
     const promptText = `
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, roadmap)}
@@ -407,10 +423,13 @@ ${featureSummary || 'Not available.'}
 
 Programs available (use these exact names in "programChange"):
 ${programOptions
-  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
+  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Special programs this student can join: ${(programOptions.specialPrograms || []).join('; ') || 'none'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
       programOptions.closedMinors?.length ? `\n- Minors closed to this student's major (don't add these; explain why): ${programOptions.closedMinors.join('; ')}` : ''
     }`
   : 'Not available. Leave "programChange" null and point the student to "My classes".'}
+
+Course facts (OSU Class Search, Autumn 2026 and Spring 2027, plus BuckAI student reviews) for courses named in this conversation. Use them to answer questions about when a course is offered, who teaches it, its prerequisites, credits, and what students say, even when the course isn't on the student's plan:
+${courseFacts || 'None.'}
 
 Official course titles (OSU Class Search) for courses named in this conversation:
 ${titlesMentioned(`${conversationContext}\n${message}`).join('\n') || 'None.'}
@@ -830,6 +849,7 @@ Rules for "semesters":
 - "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
 - Plan through graduation at the total credit hours the requirements check lists as required (121 for the Fisher BSBA and every Arts and Sciences degree, 127 for Dance BFA and Voice BM; 121-132 for Engineering majors).
 - Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options, preferring ones on the current schedule.
+- That includes the student's declared minor ("Declared minor" in the requirements check): plan every unmet minor course (required core and electives up to its credit hours), using type "Minor Core" / "Minor Elective". Never drop a minor the student has.
 - Use the credit hours shown in the requirements check (several Finance electives are 1.5 credits, not 3).
 - Place every course after its prerequisites (in an earlier term). A course marked "Autumn only" goes in an Autumn term and "Spring only" in a Spring term.
 - Respect class standing: sophomore = 30, junior = 60, senior = 90 earned credit hours before the term starts. BUSMHR 4490 needs senior standing, so it belongs in the final year.

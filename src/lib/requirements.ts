@@ -777,6 +777,7 @@ export interface PrereqWarning {
   code: string;
   term: string;
   missing: string[];
+  planned: boolean; // in a planned term (fixable by moving it); false = a class the student is taking now
 }
 
 // Turns "BUSMHR 2000, 2292; ECON 2001 & ECON 2002; MATH 1131/1151 or 1161" into clauses, each a list
@@ -852,7 +853,7 @@ export function checkPrerequisites(curriculum: Curriculum, semesters: Semester[]
           ),
       )
       .map(({ codes }) => codes.join(' or '));
-    if (missing.length) warnings.push({ code: t.code, term: t.term, missing });
+    if (missing.length) warnings.push({ code: t.code, term: t.term, missing, planned: t.state === 'planned' });
   }
   return warnings;
 }
@@ -931,6 +932,7 @@ export interface DegreeAudit {
   degree: ProgramProgress;
   specializations: ProgramProgress[]; // a student may have more than one
   specialPrograms: ProgramProgress[]; // honors, IBE, ... (each checked on its own; its courses also count toward the major)
+  minor: ProgramProgress | null; // the student's declared minor, which plans must cover too
   specialProgramWarnings: string[]; // e.g. Accounting Honors without the Accounting specialization
   entryTerm: string | null;
   cohortNotes: string[];
@@ -949,7 +951,9 @@ export function auditDegree(
   specializationIds: string[],
   semesters: Semester[],
   earnedCredits: number,
+  minorName?: string | null, // the student's declared minor ("International Business" or its exact name)
 ): DegreeAudit {
+  const declaredMinor = minorName?.trim() ? findProgram(curriculum.minors, minorName) : undefined;
   const specs = specializationIds
     .map((id) => curriculum.specializations.find((p) => p.id === id))
     .filter((p): p is Program => !!p);
@@ -994,6 +998,7 @@ export function auditDegree(
     degree: checkProgram(curriculum.degree, semesters),
     specializations: specProgress,
     specialPrograms: curriculum.specialPrograms.map((sp) => checkProgram(sp, semesters)),
+    minor: declaredMinor ? checkProgram(declaredMinor, semesters) : null,
     specialProgramWarnings,
     entryTerm: curriculum.entryTerm,
     cohortNotes: curriculum.cohortNotes,
@@ -1011,53 +1016,96 @@ export function auditDegree(
   };
 }
 
+// Minors, special programs, and specializations a chat message names ("What would the Psychology minor take?",
+// "How do I get into Finance Honors?"), with their full requirements and the student's progress, so the chat can answer
+// about programs the student isn't in yet. A general "honors"/"combined degree" question lists every program open to them.
+export function describeProgramsMentioned(curriculum: Curriculum, text: string, semesters: Semester[], max = 4): string {
+  const t = ` ${text.toLowerCase().replace(/[^a-z0-9&+ ]/g, ' ').replace(/\s+/g, ' ')} `;
+  const key = (name: string) =>
+    name.toLowerCase().replace(/\(.*?\)/g, ' ').replace(/\b(minor|program|specialization|track)\b/g, ' ').replace(/[^a-z0-9&+ ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const pool = [...curriculum.availableSpecialPrograms, ...curriculum.minors, ...curriculum.specializations];
+  const named = pool
+    .map((p) => ({ p, k: key(p.name) }))
+    .filter(({ k }) => k.length >= 4 && t.includes(` ${k} `))
+    // "Business Analytics" over "Business" when both match
+    .sort((a, b) => b.k.length - a.k.length)
+    .filter(({ k }, i, all) => !all.slice(0, i).some((x) => x.k.includes(k)))
+    .slice(0, max)
+    .map(({ p }) => p);
+  const lines: string[] = [];
+  for (const p of named) {
+    const kind = p.kind === 'special' ? 'special program' : p.kind === 'minor' ? 'minor' : 'specialization/major';
+    lines.push(`${p.name} (${kind}; ${p.catalog}${p.min_gpa ? `; GPA ${p.min_gpa}` : ''}${p.source_url ? `; source ${p.source_url}` : ''})`);
+    if (p.notes) lines.push(`  About: ${p.notes}`);
+    lines.push(...programLines(checkProgram(p, semesters)).slice(1));
+  }
+  if (!named.length && /\b(honors|combined|accelerated|dual degree|scholars|research distinction|special program)\b/.test(t)) {
+    lines.push('Special programs open to this student (none is on their profile unless listed in the requirements check):');
+    for (const p of curriculum.availableSpecialPrograms) lines.push(`- ${p.name}: ${p.notes ?? ''}`.slice(0, 600));
+  }
+  return lines.join('\n');
+}
+
+// Every program the student's plan must complete: degree, specializations/majors, special programs, declared minor.
+export const auditPrograms = (audit: DegreeAudit): ProgramProgress[] => [
+  audit.degree,
+  ...audit.specializations,
+  ...audit.specialPrograms,
+  ...(audit.minor ? [audit.minor] : []),
+];
+
 // Plain-text version for the AI prompts.
+// One program's requirement progress as text lines (degree, major, minor, special program).
+export function programLines(p: ProgramProgress): string[] {
+  const lines: string[] = [];
+  lines.push(`${p.program.name}:`);
+  for (const g of p.groups) {
+    if (g.state === 'manual') {
+      lines.push(`  - ${g.group.title}: not tracked automatically (${g.group.notes ?? 'confirm with advisor'})`);
+      continue;
+    }
+    if (g.group.kind === 'ge') {
+      const met = g.state !== 'missing';
+      const courses = g.items.map((i) => `${i.code}${i.notes ? ` – ${i.notes}` : ''}${i.issue ? ` (${i.issue})` : ''}`).join(', ');
+      lines.push(
+        `  - ${g.group.title}: ${met ? `${g.state.replace('_', ' ')} (${courses})` : `MISSING${courses ? `; has ${courses}` : ''}`}` +
+          (met ? '' : `; ${g.group.notes ? `${g.group.notes} ` : ''}Real courses that count: ${geExamples(g.group.ge_category ?? '').join('; ')}`),
+      );
+      continue;
+    }
+    const missing =
+      g.group.kind === 'all'
+        ? g.items.filter((i) => i.state === 'missing').map((i) => `${courseLabel(g.group.courses.find((c) => c.code === i.code))}${i.issue ? ` (${i.issue})` : ''}`)
+        : [];
+    const progress =
+      g.group.kind === 'choose_credits' ? `${g.creditsCounted}/${g.creditsNeeded} credits` : `${g.coursesCounted}/${g.coursesNeeded} courses`;
+    // Long elective lists (some engineering majors list 70+ courses) are trimmed to keep the prompt short
+    const MAX_OPTIONS = 25;
+    // Pattern-only groups ("any ECON 5000-level course") list real scheduled courses from the course catalog
+    const patternOnly = !g.group.courses.length && !!g.group.code_pattern;
+    const fromCatalog = patternOnly
+      ? choiceAlternatives({ programName: p.program.name, group: g.group, label: g.group.title }, g.items.map((i) => i.takenAs ?? i.code))
+          .filter((o) => o.terms.length)
+      : [];
+    const listed = patternOnly
+      ? fromCatalog.slice(0, MAX_OPTIONS).map((o) => `${o.code} ${o.title} (${o.credits ?? '?'} cr, ${o.terms.join('/')})`).join(', ')
+      : g.group.courses.slice(0, MAX_OPTIONS).map(courseLabel).join(', ');
+    const total = patternOnly ? fromCatalog.length : g.group.courses.length;
+    const more = total > MAX_OPTIONS ? `, …and ${total - MAX_OPTIONS} more` : '';
+    const options =
+      g.group.kind !== 'all' && g.state === 'missing'
+        ? `; options: ${listed ? listed + more : ''}${g.group.notes ? `${listed ? '. ' : ''}${g.group.notes}` : ''}`
+        : '';
+    lines.push(
+      `  - ${g.group.title}: ${g.state.replace('_', ' ')} (${progress})${missing.length ? `; still needs ${missing.join(', ')}` : ''}${options}`,
+    );
+  }
+  return lines;
+}
+
 export function describeAudit(audit: DegreeAudit): string {
   const lines: string[] = [];
-  const program = (p: ProgramProgress) => {
-    lines.push(`${p.program.name}:`);
-    for (const g of p.groups) {
-      if (g.state === 'manual') {
-        lines.push(`  - ${g.group.title}: not tracked automatically (${g.group.notes ?? 'confirm with advisor'})`);
-        continue;
-      }
-      if (g.group.kind === 'ge') {
-        const met = g.state !== 'missing';
-        const courses = g.items.map((i) => `${i.code}${i.notes ? ` – ${i.notes}` : ''}${i.issue ? ` (${i.issue})` : ''}`).join(', ');
-        lines.push(
-          `  - ${g.group.title}: ${met ? `${g.state.replace('_', ' ')} (${courses})` : `MISSING${courses ? `; has ${courses}` : ''}`}` +
-            (met ? '' : `; ${g.group.notes ? `${g.group.notes} ` : ''}Real courses that count: ${geExamples(g.group.ge_category ?? '').join('; ')}`),
-        );
-        continue;
-      }
-      const missing =
-        g.group.kind === 'all'
-          ? g.items.filter((i) => i.state === 'missing').map((i) => `${courseLabel(g.group.courses.find((c) => c.code === i.code))}${i.issue ? ` (${i.issue})` : ''}`)
-          : [];
-      const progress =
-        g.group.kind === 'choose_credits' ? `${g.creditsCounted}/${g.creditsNeeded} credits` : `${g.coursesCounted}/${g.coursesNeeded} courses`;
-      // Long elective lists (some engineering majors list 70+ courses) are trimmed to keep the prompt short
-      const MAX_OPTIONS = 25;
-      // Pattern-only groups ("any ECON 5000-level course") list real scheduled courses from the course catalog
-      const patternOnly = !g.group.courses.length && !!g.group.code_pattern;
-      const fromCatalog = patternOnly
-        ? choiceAlternatives({ programName: p.program.name, group: g.group, label: g.group.title }, g.items.map((i) => i.takenAs ?? i.code))
-            .filter((o) => o.terms.length)
-        : [];
-      const listed = patternOnly
-        ? fromCatalog.slice(0, MAX_OPTIONS).map((o) => `${o.code} ${o.title} (${o.credits ?? '?'} cr, ${o.terms.join('/')})`).join(', ')
-        : g.group.courses.slice(0, MAX_OPTIONS).map(courseLabel).join(', ');
-      const total = patternOnly ? fromCatalog.length : g.group.courses.length;
-      const more = total > MAX_OPTIONS ? `, …and ${total - MAX_OPTIONS} more` : '';
-      const options =
-        g.group.kind !== 'all' && g.state === 'missing'
-          ? `; options: ${listed ? listed + more : ''}${g.group.notes ? `${listed ? '. ' : ''}${g.group.notes}` : ''}`
-          : '';
-      lines.push(
-        `  - ${g.group.title}: ${g.state.replace('_', ' ')} (${progress})${missing.length ? `; still needs ${missing.join(', ')}` : ''}${options}`,
-      );
-    }
-  };
+  const program = (p: ProgramProgress) => lines.push(...programLines(p));
   if (audit.entryTerm)
     lines.push(
       `Entered Ohio State: ${termLabel(audit.entryTerm)}. Requirements below are the version for that entering class` +
@@ -1076,6 +1124,12 @@ export function describeAudit(audit: DegreeAudit): string {
     audit.specialPrograms.forEach(program);
   }
   for (const w of audit.specialProgramWarnings) lines.push(`Special program warning: ${w}`);
+  if (audit.minor) {
+    lines.push(
+      `Declared minor (on the student's profile/advising report; plans must finish it too, C- or better in each course). ${audit.minor.program.notes ?? ''}`,
+    );
+    program(audit.minor);
+  }
   if (audit.sharedCourses.length)
     lines.push(`Courses counted toward more than one specialization (confirm double-counting with an advisor): ${audit.sharedCourses.join(', ')}.`);
   const c = audit.credits;
@@ -1098,7 +1152,7 @@ function courseLabel(c: RequirementCourse | undefined): string {
 // Requirements a plan still leaves unmet, worded as instructions for fixing the plan.
 export function planGaps(audit: DegreeAudit): string[] {
   const gaps: string[] = [];
-  for (const p of [audit.degree, ...audit.specializations, ...audit.specialPrograms]) {
+  for (const p of auditPrograms(audit)) {
     for (const g of p.groups) {
       if (g.state !== 'missing') continue;
       const where = `${p.program.name} – ${g.group.title}`;
@@ -1125,7 +1179,9 @@ export function planGaps(audit: DegreeAudit): string[] {
       }
     }
   }
-  for (const w of audit.prereqWarnings) gaps.push(`Move ${w.code} after ${w.missing.join(' and ')} (prerequisites must be in an earlier term)`);
+  // Only planned classes can move; a current class missing a prerequisite is for the student and advisor, not the planner
+  for (const w of audit.prereqWarnings)
+    if (w.planned) gaps.push(`Move ${w.code} after ${w.missing.join(' and ')} (prerequisites must be in an earlier term)`);
   for (const w of audit.scheduleWarnings) if (w.blocking) gaps.push(w.message);
   const c = audit.credits;
   const total = c.earned + c.inProgress + c.planned;
@@ -1138,7 +1194,7 @@ export function planGaps(audit: DegreeAudit): string[] {
 export function summerOnlineOptions(audit: DegreeAudit, plan: Semester[], max = 40): string[] {
   const inPlan = new Set(plan.flatMap((s) => s.courses.map((c) => norm(c.code))));
   const out: string[] = [];
-  for (const p of [audit.degree, ...audit.specializations, ...audit.specialPrograms]) {
+  for (const p of auditPrograms(audit)) {
     for (const g of p.groups) {
       if (g.state === 'done' || g.state === 'manual') continue;
       if (g.group.kind === 'ge') {
@@ -1230,7 +1286,7 @@ export interface ChoiceSlot {
 export function choiceSlotFor(audit: DegreeAudit | null, code: string): ChoiceSlot | null {
   if (!audit) return null;
   const c = norm(code);
-  for (const p of [...audit.specializations, ...audit.specialPrograms, audit.degree]) {
+  for (const p of [...audit.specializations, ...audit.specialPrograms, ...(audit.minor ? [audit.minor] : []), audit.degree]) {
     for (const g of p.groups) {
       if (g.group.kind !== 'choose_courses' && g.group.kind !== 'choose_credits') continue;
       if (!g.items.some((i) => norm(i.takenAs ?? i.code) === c)) continue;
@@ -1244,7 +1300,7 @@ export function choiceSlotFor(audit: DegreeAudit | null, code: string): ChoiceSl
 export function requiredFor(audit: DegreeAudit | null, code: string): string | null {
   if (!audit) return null;
   const c = norm(code);
-  for (const p of [...audit.specializations, ...audit.specialPrograms, audit.degree])
+  for (const p of [...audit.specializations, ...audit.specialPrograms, ...(audit.minor ? [audit.minor] : []), audit.degree])
     for (const g of p.groups)
       if (g.group.kind === 'all' && g.items.some((i) => i.state !== 'missing' && norm(i.takenAs ?? i.code) === c)) return p.program.name;
   return null;
@@ -1377,7 +1433,7 @@ export function coursesRequiring(curriculum: Curriculum | null, code: string): s
 export function requirementsUsing(audit: DegreeAudit | null, code: string): string[] {
   if (!audit) return [];
   const c = norm(code);
-  return [audit.degree, ...audit.specializations, ...audit.specialPrograms].flatMap((p) =>
+  return auditPrograms(audit).flatMap((p) =>
     p.groups
       .filter((g) => g.items.some((i) => i.state !== 'missing' && (norm(i.takenAs ?? '') === c || (norm(i.code) === c && !i.takenAs))))
       // "Business Foundation (BSBA)" rather than repeating the degree's full name

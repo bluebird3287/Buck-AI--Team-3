@@ -40,6 +40,7 @@ import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
 import { Curriculum, DegreeAudit, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
+import { ChatText } from './ChatText';
 import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
@@ -558,7 +559,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                         : 'bg-white text-gray-900 border border-gray-200 rounded-tl-none space-y-3'
                     }`}
                   >
-                    <div className="whitespace-pre-line text-xs sm:text-sm">{msg.text}</div>
+                    <ChatText text={msg.text} className="text-xs sm:text-sm break-words" />
                     {msg.action && (
                       <button
                         onClick={() => runAction(msg.action!)}
@@ -870,7 +871,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                   }`}
                 >
                   {roadmapResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-px" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-px" />}
-                  <span className="flex-1">{roadmapResult.text}</span>
+                  <ChatText text={roadmapResult.text} className="flex-1" />
                   <button type="button" onClick={() => setRoadmapResult(null)} aria-label="Dismiss" className="opacity-60 hover:opacity-100">
                     <X className="w-3.5 h-3.5" />
                   </button>

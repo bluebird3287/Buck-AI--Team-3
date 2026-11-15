@@ -24,7 +24,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, Program, auditDegree, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
+import { Curriculum, Program, auditDegree, describeProgramsMentioned, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { OfficeHoursLoad, describeOfficeHours, loadOfficeHours } from './lib/officeHours';
 import { ReviewStat, describeFeatures, loadReviewStats } from './lib/featureContext';
@@ -32,7 +32,10 @@ import { DecisionContext, buildDecision, decisionTypeFromAi, detectDecision, det
 import { InstantSeatDropBanner } from './components/InstantSeatDropBanner';
 import { AdvisorDecisionNotice } from './components/AdvisorDecisionNotice';
 import { studentFromProfile } from './lib/advising';
-import { WatchedCourse, INITIAL_WATCHED_COURSES } from './components/SeatAlertsView';
+import { WatchedCourse, INITIAL_WATCHED_COURSES, newWatchedCourse } from './components/SeatAlertsView';
+import { coursesMentioned } from './lib/courseTitles';
+import { ALL_CAMPUS_BUILDINGS } from './components/AfterHoursAccessView';
+import { buildAccessEmail, mailtoLink, officeForBuilding, outlookLink, saveAccessRequest } from './lib/buildingAccess';
 import { AdvisorSlot, Semester, StudentProfile } from './data/sampleData';
 import { authHeaders, savedRef, trackAction } from './lib/tracking';
 
@@ -44,7 +47,7 @@ interface AppProps {
   planTerms?: PlanTerms | null; // saved term choices; asked again before each roadmap build
   onPlanTermsChange?: (plan: PlanTerms) => void;
   // Saves a specialization or minor change the student made from the chat
-  onProgramChange?: (change: { specialization_ids: string[]; major: string; minor: string | null }) => void;
+  onProgramChange?: (change: { specialization_ids: string[]; major: string; minor: string | null; special_program_ids?: string[] }) => void;
   onEditProfile?: () => void; // opens My classes
   onPickInstructor?: (courseCode: string, personName: string | null) => void; // Office Hours tab
 }
@@ -53,6 +56,7 @@ interface AppProps {
 interface ProgramChangeRequest {
   specializations?: string[] | null; // the student's full new list of specializations
   minor?: string | null; // a minor's name, "" to remove it
+  specialPrograms?: string[] | null; // the student's full new list of special programs (honors, combined degrees...)
 }
 
 // The student's profile, plan, and requirements after a change, for building a plan right away
@@ -89,6 +93,8 @@ function greetingFor(profile: StudentProfile, roadmap: Semester[]): ChatMessage 
 // "Entrepreneurship Minor" stays as is; a bare "Finance" becomes "Finance minor"
 const minorTitle = (name: string) => (/\bminor\b/i.test(name) ? name : `${name} minor`);
 const withMinor = (name: string) => `the ${minorTitle(name)}`;
+// A URL safe inside a Markdown link: encodeURIComponent leaves parentheses, which would end the link early
+const mdUrl = (url: string) => url.replace(/\(/g, '%28').replace(/\)/g, '%29');
 
 export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange, onEditProfile, onPickInstructor }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -112,8 +118,8 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     [curriculum, profile.specializationIds, profile.major],
   );
   const audit = useMemo(
-    () => (curriculum ? auditDegree(curriculum, specializationIds, roadmap, profile.earnedCredits) : null),
-    [curriculum, specializationIds, roadmap, profile.earnedCredits],
+    () => (curriculum ? auditDegree(curriculum, specializationIds, roadmap, profile.earnedCredits, profile.minor) : null),
+    [curriculum, specializationIds, roadmap, profile.earnedCredits, profile.minor],
   );
   const requirementsSummary = audit ? describeAudit(audit) : undefined;
 
@@ -228,6 +234,69 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     // "Book an appointment with my advisor", "open seat alerts", "I need after-hours access to Dreese":
     // take the student straight there, no AI round trip needed.
     const navigation = detectNavigation(text);
+    // "Set a seat alert for BUSML 4254": add the class(es) to the watch list right here, not just open the tab
+    if (navigation?.id === 'seat_alerts') {
+      const codes = coursesMentioned(text);
+      const fresh = codes.filter((c) => !watchedCourses.some((w) => w.code === c));
+      if (codes.length) {
+        if (fresh.length) {
+          setWatchedCourses((prev) => [...fresh.map((c) => newWatchedCourse(c)), ...prev]);
+          fresh.forEach(() => trackAction('seat_alert_added'));
+        }
+        navigation.reply =
+          (fresh.length
+            ? `Done. I added **${fresh.join(', ')}** to your Seat Alerts watch list.`
+            : `**${codes.join(', ')}** ${codes.length === 1 ? 'is' : 'are'} already on your Seat Alerts watch list.`) +
+          ` Open Seat Alerts to pick a specific section or change how you're notified.\n\nDemo only: live seat alerts need BuckAI to be connected to the real BuckeyeLink, so no texts or emails are sent yet.`;
+      }
+    }
+    // "I need after-hours access to Gerlach Hall": draft the request to the office that grants it, right in the chat
+    if (navigation?.id === 'building_access') {
+      const lower = text.toLowerCase();
+      const building = ALL_CAMPUS_BUILDINGS.find(
+        (b) => lower.includes(b.name.split(' (')[0].toLowerCase()) || (b.code.length >= 3 && new RegExp(`\\b${b.code.toLowerCase()}\\b`).test(lower)),
+      );
+      if (building?.isLibrary) {
+        navigation.reply = `You don't need to request anything for **${building.name}**: ${building.notes} Locks: ${building.locksAt}.`;
+      } else if (building) {
+        const office = officeForBuilding(building.id);
+        const why = /\b(exam|final|midterm)/.test(lower) ? 'Studying for exams' : /\b(project|group|team)/.test(lower) ? 'Group project work' : 'Studying after the building locks';
+        const mail = buildAccessEmail({
+          office,
+          buildingName: building.name,
+          hours: 'Evenings (weeknights after the building locks)',
+          term: 'The whole semester',
+          reason: why,
+          studentName: profile.name,
+          nameDotNum: profile.nameDotNum.split('@')[0],
+          email: profile.nameDotNum.includes('@') ? profile.nameDotNum : `${profile.nameDotNum}@osu.edu`,
+          rank: profile.rank,
+          major: profile.major,
+        });
+        void saveAccessRequest({
+          building_id: building.id,
+          building_name: building.name,
+          office_name: office.name,
+          office_email: office.email,
+          hours: 'Evenings (weeknights after the building locks)',
+          term: 'The whole semester',
+          reason: why,
+        });
+        navigation.reply = [
+          `**${building.name}** locks at ${building.locksAt}. After-hours BuckID access comes from **${office.name}**${office.verified ? '' : ' (confirm this is the right office)'}, so I drafted your request to them. Send it from your OSU email:`,
+          '',
+          `- **To:** ${mail.to}`,
+          `- **Subject:** ${mail.subject}`,
+          '',
+          mail.body,
+          '',
+          `[Open in Outlook on the web](${mdUrl(outlookLink(mail))}) · [Open in my mail app](${mdUrl(mailtoLink(mail))})`,
+          '',
+          "I saved it under After-Hours Study Access so you can mark it granted or denied later. Never put your 19-digit BuckID number in an email; your 9-digit OSU ID is fine if they ask.",
+        ].join('\n');
+        navigation.action = { label: 'Open After-Hours Study Access', tab: 'studyAccess' };
+      }
+    }
     if (navigation?.handleLocally) {
       setMessages((prev) => [
         ...prev,
@@ -263,13 +332,26 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           history: messages.map((m) => ({ role: m.role, text: m.text })),
           studentProfile: profile,
           roadmap,
-          requirementsSummary,
+          requirementsSummary: [
+            requirementsSummary,
+            // Summer/online questions: the courses offered fully online last summer that fill the student's remaining requirements
+            audit && /\b(summer|online|remote|distance)\b/i.test(text)
+              ? `Offered fully online in Summer 2026 (the latest published summer; use as the guide for future summers) and filling the student's remaining or planned requirements:\n- ${
+                  summerOnlineOptions(audit, []).join('\n- ') || 'none found'
+                }`
+              : '',
+            // Minors, special programs, or majors the question names, with their requirements and the student's progress
+            curriculum ? describeProgramsMentioned(curriculum, text, roadmap) : '',
+          ]
+            .filter(Boolean)
+            .join('\n\nPrograms or options the question asks about:\n'),
           officeHoursSummary,
           featureSummary,
           programOptions: curriculum
             ? {
                 degree: curriculum.degree.name,
                 specializations: curriculum.specializations.map((p) => p.name),
+                specialPrograms: curriculum.availableSpecialPrograms.map((p) => p.name),
                 minors: curriculum.minors.filter((p) => !minorBlockReason(p, curriculum.degree, specializationIds)).map((p) => p.name),
                 closedMinors: curriculum.minors
                   .map((p) => ({ p, why: minorBlockReason(p, curriculum.degree, specializationIds) }))
@@ -287,7 +369,9 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       const wantsRoadmap = typeof data.roadmapRequest?.build === 'boolean' ? data.roadmapRequest.build : ROADMAP_REQUEST.test(text);
 
       // A specialization or minor change in the chat is applied to the student's BuckAI profile and plan
-      const changeRequested = !!data.programChange && (Array.isArray(data.programChange.specializations) || typeof data.programChange.minor === 'string');
+      const changeRequested =
+        !!data.programChange &&
+        (Array.isArray(data.programChange.specializations) || typeof data.programChange.minor === 'string' || Array.isArray(data.programChange.specialPrograms));
       const change = changeRequested ? applyProgramChange(data.programChange) : null;
       const planning = wantsRoadmap || !!change?.applied;
 
@@ -411,7 +495,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       const onlineList = () =>
         summerOnline && curriculum
           ? `\nUnmet requirements offered fully online last summer (Summer 2026), for the summer terms:\n- ${
-              summerOnlineOptions(auditDegree(curriculum, specIds, start, student.earnedCredits), start).join('\n- ') || 'none found; leave summers empty rather than use in-person classes'
+              summerOnlineOptions(auditDegree(curriculum, specIds, start, student.earnedCredits, student.minor), start).join('\n- ') || 'none found; leave summers empty rather than use in-person classes'
             }`
           : '';
       const termRule = `Schedule classes ONLY in these terms: ${allowed.map((t) => t.label).join(', ')} (graduating ${
@@ -469,7 +553,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             : `Fixing ${gaps.length} gap${gaps.length === 1 ? '' : 's'} in the plan (pass ${round + 1} of 3)`,
         );
         const summary = curriculum
-          ? describeAudit(auditDegree(curriculum, specIds, plan, student.earnedCredits))
+          ? describeAudit(auditDegree(curriculum, specIds, plan, student.earnedCredits, student.minor))
           : requirementsSummary;
         const response = await fetch('/api/roadmap-generate', {
           method: 'POST',
@@ -500,7 +584,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
             })),
         ]);
         setRoadmapStage('Checking the plan against your requirements, prerequisites, and workload');
-        gaps = [...termGaps(plan), ...(curriculum ? planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits)) : [])];
+        gaps = [...termGaps(plan), ...(curriculum ? planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits, student.minor)) : [])];
         notes = balanceNotes(plan);
         if (!gaps.length && !notes.length) break;
         prompt = `Revise the plan so it meets every requirement with a balanced workload and no extra credits. Keep what already works and fix only these problems:\n- ${[...gaps, ...notes].join('\n- ')}\n${keepRequest}\n${termRule}${onlineList()}`;
@@ -582,11 +666,18 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
           ? `${changed}\n\nIt still doesn't cover everything:\n- ${result.gaps.slice(0, 5).join('\n- ')}${
               result.gaps.length > 5 ? `\n- …and ${result.gaps.length - 5} more` : ''
             }\nSee the Degree Requirements tab, or bring this to your advisor.`
-          : changed) + workloadNotes(result.notes),
+          : changed) + overloadNote(result.plan) + workloadNotes(result.notes),
     };
   };
 
   const workloadNotes = (notes: string[]) => (notes.length ? `\n\nWorkload notes:\n- ${notes.join('\n- ')}` : '');
+
+  // Autumn/Spring terms over 18 credits mean the chosen terms can't hold what's left: say so plainly, with the fix.
+  const overloadNote = (plan: Semester[]) => {
+    const over = plan.filter((s) => s.status === 'planned' && !s.id.startsWith('summer-') && s.totalCredits > 18);
+    if (!over.length) return '';
+    return `\n\n**Your terms are too full.** ${over.map((s) => `${s.name} has ${s.totalCredits} credits`).join(', ')}; Ohio State caps a term at 18 without college approval. The terms you picked can't hold everything you have left. Graduate a term or two later, or add summer terms, and ask me to rebuild the plan.`;
+  };
 
   // From the chat ("build me a roadmap"): build and save the plan, then summarize it in the chat
   // and open the 4-Year Plan tab.
@@ -613,7 +704,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       ),
     );
     const result = await buildRoadmap(
-      `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}) and specialization(s) with as few total credit hours as possible, respects prerequisites, and balances workload evenly across terms.`,
+      `${instructions}\nBuild a complete plan through graduation that covers every remaining requirement for the student's degree (${degreeName}), specialization(s)/major(s), special programs, and declared minor with as few total credit hours as possible, respects prerequisites, and balances workload evenly across terms.`,
       terms,
       context,
     );
@@ -636,7 +727,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       reply = {
         id: statusId,
         role: 'assistant',
-        text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${status}${workloadNotes(result.notes)}`,
+        text: `Your 4-year plan is ready and saved (${planned.length} planned terms, about ${Math.round(total)} credit hours total):\n\n${terms}${overloadNote(result.plan)}${status}${workloadNotes(result.notes)}`,
         sourceCitation: requirementsSource,
         confidence: result.gaps.length ? 'moderate' : 'high',
         confidenceExplanation: `Checked against the published ${degreeName} requirements and the classes you entered. Your advisor has the final word.`,
@@ -686,6 +777,18 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       if (request.minor.trim() && !p) unmatched.push(request.minor);
       else minor = p?.name ?? '';
     }
+    // Special programs (honors, combined degrees, ...) the student joins or leaves
+    const currentSpecials = profile.specialProgramIds ?? [];
+    let specialIds = currentSpecials;
+    if (Array.isArray(request.specialPrograms)) {
+      const found = request.specialPrograms.map((name) => {
+        const p = findProgram(curriculum.availableSpecialPrograms, String(name));
+        if (!p) unmatched.push(String(name));
+        return p?.id;
+      });
+      specialIds = [...new Set(found.filter((id): id is string => !!id))];
+    }
+    const sameSpecials = specialIds.length === currentSpecials.length && specialIds.every((id) => currentSpecials.includes(id));
     if (unmatched.length)
       return unchanged(
         `I couldn't match ${unmatched.map((n) => `"${n}"`).join(' and ')} to a program in BuckAI, so I didn't change anything. You can pick it under **My classes**.`,
@@ -695,17 +798,26 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const blocked = chosenMinor && minor !== (profile.minor || '') ? minorBlockReason(chosenMinor, curriculum.degree, specIds) : null;
     if (blocked) return unchanged(`I can't add the **${chosenMinor!.name}**: ${blocked} The What-If Minor Audit tab shows the minors you can add.`);
     const sameSpecs = specIds.length === specializationIds.length && specIds.every((id) => specializationIds.includes(id));
-    if (sameSpecs && minor === (profile.minor || ''))
+    if (sameSpecs && minor === (profile.minor || '') && sameSpecials)
       return unchanged(
         `Your BuckAI profile already lists **${majorLabel(curriculum, specIds) || profile.major}**${minor ? ` with the **${minorTitle(minor)}**` : ' with no minor'}, so nothing changed.`,
       );
 
     const programs = (ids: string[]) => ids.map((id) => curriculum.specializations.find((p) => p.id === id)).filter((p): p is Program => !!p);
+    const specials = (ids: string[]) => ids.map((id) => curriculum.availableSpecialPrograms.find((p) => p.id === id)).filter((p): p is Program => !!p);
     const oldMinor = profile.minor ? findProgram(curriculum.minors, profile.minor) : undefined;
     const newMinor = minor ? findProgram(curriculum.minors, minor) : undefined;
-    const dropped = [...programs(specializationIds.filter((id) => !specIds.includes(id))), ...(oldMinor && oldMinor !== newMinor ? [oldMinor] : [])];
-    const added = [...programs(specIds.filter((id) => !specializationIds.includes(id))), ...(newMinor && newMinor !== oldMinor ? [newMinor] : [])];
-    const kept = [curriculum.degree, ...programs(specIds), ...(newMinor ? [newMinor] : [])];
+    const dropped = [
+      ...programs(specializationIds.filter((id) => !specIds.includes(id))),
+      ...(oldMinor && oldMinor !== newMinor ? [oldMinor] : []),
+      ...specials(currentSpecials.filter((id) => !specialIds.includes(id))),
+    ];
+    const added = [
+      ...programs(specIds.filter((id) => !specializationIds.includes(id))),
+      ...(newMinor && newMinor !== oldMinor ? [newMinor] : []),
+      ...specials(specialIds.filter((id) => !currentSpecials.includes(id))),
+    ];
+    const kept = [curriculum.degree, ...programs(specIds), ...(newMinor ? [newMinor] : []), ...specials(specialIds)];
 
     // Planned classes that only counted toward a dropped program come out; completed ones stay as electives
     const removed: string[] = [];
@@ -725,7 +837,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     );
 
     const major = majorLabel(curriculum, specIds) || profile.major;
-    onProgramChange?.({ specialization_ids: specIds, major, minor: minor || null });
+    onProgramChange?.({ specialization_ids: specIds, major, minor: minor || null, ...(sameSpecials ? {} : { special_program_ids: specialIds }) });
     if (removed.length) {
       setRoadmap(plan);
       onRoadmapChange(plan);
@@ -735,12 +847,14 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
     const summary = [
       dropped.length && `The student dropped ${names(dropped)}; plan no classes for ${dropped.length > 1 ? 'them' : 'it'}.`,
       added.length && `The student added ${names(added)}; include every requirement for ${added.length > 1 ? 'them' : 'it'}.`,
-      `Their programs are now: ${major}${minor ? ` with the ${minorTitle(minor)}` : ''}.`,
+      `Their programs are now: ${major}${minor ? ` with the ${minorTitle(minor)}` : ''}${specialIds.length ? `; special programs: ${names(specials(specialIds))}` : ''}.`,
     ]
       .filter(Boolean)
       .join(' ');
     const lines = [
-      `Done. Your BuckAI profile now lists **${major}**${minor ? ` with the **${minorTitle(minor)}**` : ''}${dropped.length ? `, without ${names(dropped)}` : ''}.`,
+      `Done. Your BuckAI profile now lists **${major}**${minor ? ` with the **${minorTitle(minor)}**` : ''}${
+        specialIds.length ? ` in ${names(specials(specialIds))}` : ''
+      }${dropped.length ? `, without ${names(dropped)}` : ''}.`,
       removed.length
         ? `I took ${removed.length} class${removed.length === 1 ? '' : 'es'} out of your planned terms that only counted toward ${names(dropped)}: ${removed.join(', ')}.`
         : dropped.length
@@ -752,7 +866,7 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       applied: true,
       message: say(lines.filter(Boolean).join('\n\n')),
       summary,
-      context: { specIds, profile: { ...profile, major, minor, specializationIds: specIds }, plan },
+      context: { specIds, profile: { ...profile, major, minor, specializationIds: specIds, specialProgramIds: specialIds }, plan },
     };
   };
 

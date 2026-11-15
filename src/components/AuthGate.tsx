@@ -136,7 +136,7 @@ export const AuthGate: React.FC = () => {
   const handleRoadmapChange = (semesters: Semester[]) => updateRecord({ semesters }, 'roadmap');
 
   // A specialization or minor the student changed from the chat
-  const handleProgramChange = (change: { specialization_ids: string[]; major: string; minor: string | null }) =>
+  const handleProgramChange = (change: { specialization_ids: string[]; major: string; minor: string | null; special_program_ids?: string[] }) =>
     updateRecord({ ...change, specialization_id: change.specialization_ids[0] ?? null }, 'program change');
 
   if (loading || (session && (role === null || (role === 'student' && loadedFor !== userId)))) {
