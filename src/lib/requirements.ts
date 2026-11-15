@@ -265,7 +265,9 @@ export async function loadCurriculum(): Promise<CurriculumLibrary> {
   }
   for (const c of courses.data ?? []) {
     // Some seeded titles are track labels or outdated names; OSU Class Search has the official one
-    groupById.get(c.group_id)?.courses.push({ ...(c as any), title: officialTitle(c.code) ?? c.title, credits: num(c.credits) });
+    // Credits a sheet leaves out (several minor electives) come from the course catalog
+    const credits = num(c.credits) ?? (courseCatalog as unknown as Record<string, [number | null, string]>)[norm(c.code)]?.[0] ?? null;
+    groupById.get(c.group_id)?.courses.push({ ...(c as any), title: officialTitle(c.code) ?? c.title, credits });
   }
   const all: Program[] = (programs.data ?? []).map((p: any) => ({
     ...p,
