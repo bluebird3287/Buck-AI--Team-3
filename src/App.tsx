@@ -24,7 +24,7 @@ import {
   renameConversation,
   saveChatMessage,
 } from './lib/chatLog';
-import { Curriculum, Program, auditDegree, describeProgramsMentioned, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, GeOption } from './lib/requirements';
+import { Curriculum, Program, auditDegree, describeProgramsMentioned, catalogCredits, describeAudit, findProgram, guessSpecializations, majorLabel, minorBlockReason, planGaps, programIncludes, summerOnlineOptions, fillOpenRequirements, GeOption } from './lib/requirements';
 import { SurveyModal } from './components/SurveyModal';
 import { OfficeHoursLoad, describeOfficeHours, loadOfficeHours } from './lib/officeHours';
 import { ReviewStat, describeFeatures, loadReviewStats } from './lib/featureContext';
@@ -591,6 +591,17 @@ export default function App({ profile, initialRoadmap, onRoadmapChange, curricul
       }
 
       if (plan === start) return null;
+      // Whatever major/minor/program requirement the planner left short (or as ELECTIVE placeholders) gets real courses
+      if (curriculum) {
+        const filled = fillOpenRequirements(curriculum, specIds, plan, student.earnedCredits, student.minor, allowedIds);
+        if (filled.added.length) {
+          plan = normalizeSemesters(filled.plan);
+          gaps = [...termGaps(plan), ...planGaps(auditDegree(curriculum, specIds, plan, student.earnedCredits, student.minor))];
+          notes = balanceNotes(plan);
+          const list = filled.added.map((a) => `${a.code} (${a.term}) for ${a.requirement}`).join('; ');
+          planSummary = `${planSummary ? `${planSummary}\n\n` : ''}I also added ${list}. Each has a "See alternatives" menu in the 4-Year Plan if you'd rather take a different option.`;
+        }
+      }
       setRoadmap(plan);
       trackAction('plan_built');
       onRoadmapChange(plan);

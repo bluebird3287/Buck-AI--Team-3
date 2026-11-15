@@ -200,7 +200,12 @@ An `ELECTIVE` placeholder opens every elective for the student's majors/speciali
 programs (`electiveOptions`), each labeled with the requirement it fills, unfinished ones first. Picking an option swaps it into the plan (`handleReplaceCourse`). The AI's requirements text lists catalog options for
 pattern-only groups too. After each draft, App.tsx checks the plan
 against requirements, summer limits, workload balance, and extra credits, and sends problems back
-(up to 3 passes).
+(up to 3 passes). Then `fillOpenRequirements` (requirements.ts) fills whatever major, minor, special-program or degree
+requirement is still missing with real courses: required ones first (intro courses early, 4000-level late), then
+choices from the group's list/pattern (lower-level first), replacing `ELECTIVE` placeholders before adding to a term
+(max 18 credits), and only where the season, standing and prerequisites check out. Added courses then show the same
+"See alternatives" menus. The declared minor's own prerequisites take precedence over a same-named specialization's
+(`checkPrerequisites`/`checkSchedule` take the minor as `extra`).
 
 ## Chat intents (where a request goes)
 
