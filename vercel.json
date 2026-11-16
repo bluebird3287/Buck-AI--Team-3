@@ -26,7 +26,8 @@
   ],
   "functions": {
     "api/index.ts": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "includeFiles": "src/data/*.json"
     }
   }
 }

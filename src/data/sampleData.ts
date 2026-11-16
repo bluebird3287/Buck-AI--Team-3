@@ -33,6 +33,7 @@ export interface StudentProfile {
   entryTerm: string | null; // first Ohio State term, e.g. 'autumn-2024'
   expectedGraduation: string | null; // e.g. 'spring-2028'
   minor: string;
+  reportImportedAt?: string | null; // when the student last uploaded their Advising Report
   gpa: number;
   earnedCredits: number;
   totalRequiredCredits: number;

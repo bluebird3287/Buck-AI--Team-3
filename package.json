@@ -13,7 +13,9 @@
     "build:fisher-data": "node scripts/build-fisher-data.mjs",
     "build:engineering-data": "node scripts/build-fisher-data.mjs engineering",
     "build:course-titles": "node scripts/build-course-titles.mjs",
-    "build:online-courses": "node scripts/build-online-courses.mjs"
+    "build:online-courses": "node scripts/build-online-courses.mjs",
+    "build:asc-data": "node scripts/build-fisher-data.mjs asc",
+    "build:student-orgs": "node scripts/build-student-orgs.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

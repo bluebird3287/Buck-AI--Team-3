@@ -1,10 +1,12 @@
 // Builds each college's faculty file (src/data/fisherFaculty.json, src/data/engineeringFaculty.json)
 // from public sources:
 //   1. OSU Class Search API (content.osu.edu) - every undergraduate course, section and instructor
+//      (Arts and Sciences: every course the registrar lists under the "Arts and Sciences" academic program)
 //   2. Fisher College of Business directory (fisher.osu.edu/directory) - Fisher faculty titles and departments
 //      (the College of Engineering directory blocks automated requests, so Engineering has no titles)
 // Run with: npm run build:fisher-data            (Fisher)
 //           npm run build:engineering-data (College of Engineering, including the Knowlton School)
+//           npm run build:asc-data         (College of Arts and Sciences)
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -54,6 +56,99 @@ const COLLEGES = {
       WELDENG: 'Welding Engineering',
     },
   },
+  asc: {
+    name: 'College of Arts and Sciences',
+    outFile: 'ascFaculty.json',
+    directory: false,
+    // About 80 subjects, so the registrar's own "Arts and Sciences" program filter is used instead of a subject list;
+    // `subjects` only names each subject's department (subjects not listed use the registrar's subject name).
+    academicProgram: 'asc',
+    subjects: {
+      ACCAD: 'Advanced Computing Center for the Arts and Design',
+      AFAMAST: 'African American and African Studies',
+      AMINSTS: 'American Indian Studies',
+      ANTHROP: 'Anthropology',
+      ARABIC: 'Near Eastern and South Asian Languages and Cultures',
+      ART: 'Art',
+      ARTEDUC: 'Arts Administration, Education and Policy',
+      ARTSSCI: 'Arts and Sciences',
+      ASAMSTS: 'Asian American Studies',
+      ASL: 'American Sign Language',
+      ASTRON: 'Astronomy',
+      ATMOSSC: 'Atmospheric Sciences',
+      BCS: 'Slavic and East European Languages and Cultures',
+      BIOCHEM: 'Chemistry and Biochemistry',
+      BIOLOGY: 'Center for Life Sciences Education',
+      CHEM: 'Chemistry and Biochemistry',
+      CHINESE: 'East Asian Languages and Literatures',
+      CLAS: 'Classics',
+      COMM: 'Communication',
+      COMPSTD: 'Comparative Studies',
+      CSTW: 'Center for the Study and Teaching of Writing',
+      CZECH: 'Slavic and East European Languages and Cultures',
+      DANCE: 'Dance',
+      DESIGN: 'Design',
+      DSABLST: 'Disability Studies',
+      EALL: 'East Asian Languages and Literatures',
+      EARTHSC: 'Earth Sciences',
+      ECON: 'Economics',
+      EEOB: 'Evolution, Ecology and Organismal Biology',
+      ENGLISH: 'English',
+      ETHNSTD: 'Center for Ethnic Studies',
+      FILMSTD: 'Film Studies',
+      FRENCH: 'French and Italian',
+      FRIT: 'French and Italian',
+      GEOG: 'Geography',
+      GERMAN: 'Germanic Languages and Literatures',
+      GREEK: 'Classics',
+      HEBREW: 'Near Eastern and South Asian Languages and Cultures',
+      HINDI: 'Near Eastern and South Asian Languages and Cultures',
+      HISTART: 'History of Art',
+      HISTORY: 'History',
+      INTSTDS: 'International Studies',
+      ISLAM: 'Near Eastern and South Asian Languages and Cultures',
+      ITALIAN: 'French and Italian',
+      JAPANSE: 'East Asian Languages and Literatures',
+      JEWSHST: 'Melton Center for Jewish Studies',
+      KOREAN: 'East Asian Languages and Literatures',
+      LATIN: 'Classics',
+      LING: 'Linguistics',
+      MATH: 'Mathematics',
+      MDRNGRK: 'Classics',
+      MEDREN: 'Medieval and Renaissance Studies',
+      MICRBIO: 'Microbiology',
+      MOLGEN: 'Molecular Genetics',
+      MUSIC: 'School of Music',
+      MVNGIMG: 'Theatre, Film, and Media Arts',
+      NELC: 'Near Eastern and South Asian Languages and Cultures',
+      NRO: 'Neuroscience',
+      PERSIAN: 'Near Eastern and South Asian Languages and Cultures',
+      PHILOS: 'Philosophy',
+      PHYSICS: 'Physics',
+      POLISH: 'Slavic and East European Languages and Cultures',
+      POLITSC: 'Political Science',
+      PORTGSE: 'Spanish and Portuguese',
+      PSYCH: 'Psychology',
+      RELSTDS: 'Comparative Studies',
+      RUSSIAN: 'Slavic and East European Languages and Cultures',
+      SASIA: 'Near Eastern and South Asian Languages and Cultures',
+      SCANDVN: 'Germanic Languages and Literatures',
+      SLAVIC: 'Slavic and East European Languages and Cultures',
+      SOCIOL: 'Sociology',
+      SOMALI: 'African American and African Studies',
+      SPANISH: 'Spanish and Portuguese',
+      SPHHRNG: 'Speech and Hearing Science',
+      STAT: 'Statistics',
+      SWAHILI: 'African American and African Studies',
+      SWEDISH: 'Germanic Languages and Literatures',
+      THEATRE: 'Theatre, Film, and Media Arts',
+      TURKISH: 'Near Eastern and South Asian Languages and Cultures',
+      URDU: 'Near Eastern and South Asian Languages and Cultures',
+      UZBEK: 'Near Eastern and South Asian Languages and Cultures',
+      WGSST: "Women's, Gender and Sexuality Studies",
+      YIDDISH: 'Germanic Languages and Literatures',
+    },
+  },
 };
 const COLLEGE = COLLEGES[process.argv[2] ?? 'fisher'];
 if (!COLLEGE) throw new Error(`Unknown college "${process.argv[2]}"; use one of: ${Object.keys(COLLEGES).join(', ')}`);
@@ -70,10 +165,11 @@ async function fetchText(url) {
   return res.text();
 }
 
-async function fetchClassSearch(term, subject) {
+async function fetchClassSearch(term, subject, academicProgram) {
   const results = [];
+  const filter = academicProgram ? `academic-program=${academicProgram}` : `subject=${subject}`;
   for (let page = 1; ; page++) {
-    const url = `https://content.osu.edu/v2/classes/search?q=&campus=col&academic-career=ugrd&term=${term}&subject=${subject}&p=${page}`;
+    const url = `https://content.osu.edu/v2/classes/search?q=&campus=col&academic-career=ugrd&term=${term}&${filter}&p=${page}`;
     const { data } = JSON.parse(await fetchText(url));
     results.push(...data.courses);
     if (page >= data.totalPages) return results;
@@ -132,9 +228,10 @@ async function main() {
   const faculty = new Map();
 
   for (const term of TERMS) {
-    for (const subject of Object.keys(SUBJECT_DEPARTMENT).map((s) => s.toLowerCase())) {
-      console.log(`Fetching ${term.name} ${subject.toUpperCase()}...`);
-      for (const { course, sections } of await fetchClassSearch(term.code, subject)) {
+    const queries = COLLEGE.academicProgram ? [null] : Object.keys(SUBJECT_DEPARTMENT).map((s) => s.toLowerCase());
+    for (const subject of queries) {
+      console.log(`Fetching ${term.name} ${subject ? subject.toUpperCase() : COLLEGE.name}...`);
+      for (const { course, sections } of await fetchClassSearch(term.code, subject, COLLEGE.academicProgram)) {
         const courseId = `${course.subject} ${course.catalogNumber}`;
         const entry = courses.get(courseId) ?? {
           id: courseId,
@@ -145,13 +242,14 @@ async function main() {
           prereq: extractPrereq(course.description),
           credits: course.minUnits === course.maxUnits ? `${course.minUnits}` : `${course.minUnits}-${course.maxUnits}`,
           grading: course.grading,
-          department: SUBJECT_DEPARTMENT[course.subject] ?? course.subjectDesc,
+          department: SUBJECT_DEPARTMENT[course.subject] ?? course.subjectDesc ?? course.subject,
           terms: [],
           instructorIds: [],
         };
         courses.set(courseId, entry);
 
-        const termEntry = { term: term.name, sections: 0, instructionModes: [] };
+        // A course can come back more than once in a term (one result per offering); merge them
+        const termEntry = entry.terms.find((t) => t.term === term.name) ?? { term: term.name, sections: 0, instructionModes: [] };
         for (const section of sections) {
           if (SKIPPED_COMPONENTS.has(section.component) || section.cancelDate) continue;
           termEntry.sections++;
@@ -180,7 +278,7 @@ async function main() {
             }
           }
         }
-        if (termEntry.sections > 0) entry.terms.push(termEntry);
+        if (termEntry.sections > 0 && !entry.terms.includes(termEntry)) entry.terms.push(termEntry);
       }
       await sleep(300);
     }

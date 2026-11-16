@@ -1,3 +1,4 @@
+import { officialTitle } from '../lib/courseTitles';
 import React, { useState } from 'react';
 import { trackAction } from '../lib/tracking';
 import {
@@ -20,6 +21,31 @@ import {
   ShieldCheck,
   Check
 } from 'lucide-react';
+
+// A watch-list entry for a class (from the Add Course form, or from the chat: "set a seat alert for BUSML 4254").
+// Demo only: no real seat data exists until BuckAI is integrated with BuckeyeLink.
+export function newWatchedCourse(code: string, instructor = '', section = ''): WatchedCourse {
+  const c = code.trim().toUpperCase().replace(/\s+/g, ' ');
+  return {
+    id: `watch-${Date.now()}-${c.replace(/\W/g, '')}`,
+    code: c,
+    title: officialTitle(c) ?? 'Added Course (SIS Auto-Lookup)',
+    instructor: instructor.trim() || 'Staff / Section Chair',
+    section: section.trim() || '0010',
+    meetingTime: 'TBD • BuckeyeLink Schedule',
+    location: 'Columbus Campus',
+    enrolled: 40,
+    capacity: 40,
+    waitlistPosition: 3,
+    waitlistTotal: 6,
+    status: 'full_waitlist',
+    dropProbability: '88% (Good probability based on historical SIS drop velocity)',
+    smsAlerts: true,
+    emailAlerts: true,
+    autoSnipeReady: true,
+    notes: 'Monitored continuously via BuckeyeLink Instant Alert.',
+  };
+}
 
 export interface WatchedCourse {
   id: string;
@@ -97,25 +123,7 @@ export const SeatAlertsView: React.FC<SeatAlertsViewProps> = ({
     e.preventDefault();
     if (!newCode.trim()) return;
 
-    const newEntry: WatchedCourse = {
-      id: `watch-${Date.now()}`,
-      code: newCode.trim().toUpperCase(),
-      title: 'Added Course (SIS Auto-Lookup)',
-      instructor: newInstructor.trim() || 'Staff / Section Chair',
-      section: newSection.trim() || '0010',
-      meetingTime: 'TBD • BuckeyeLink Schedule',
-      location: 'Columbus Campus',
-      enrolled: 40,
-      capacity: 40,
-      waitlistPosition: 3,
-      waitlistTotal: 6,
-      status: 'full_waitlist',
-      dropProbability: '88% (Good probability based on historical SIS drop velocity)',
-      smsAlerts: true,
-      emailAlerts: true,
-      autoSnipeReady: true,
-      notes: 'Monitored continuously via BuckeyeLink Instant Alert.'
-    };
+    const newEntry = newWatchedCourse(newCode, newInstructor, newSection);
 
     setCourses((prev) => [newEntry, ...prev]);
     trackAction('seat_alert_added');

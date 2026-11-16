@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
+import { codesIn, describeCourses, summarizeReviews } from './src/lib/courseFacts.js';
+import { ORG_QUESTION, describeOrgsFor, type StudentOrgData } from './src/lib/studentOrgs.js';
 import { busyBlocksFromIcs, normalizeFeedUrl, IMPORT_WEEKS } from './src/lib/ics.js';
 import { lookupAdvisorByName, lookupUsername, toAdvisor } from './src/lib/osuDirectory.js';
 
@@ -98,8 +100,11 @@ function describeStudent(profile: any, roadmap: any[] | undefined): string {
     `- College: ${profile?.college || 'Not provided'}`,
     `- Major / specialization(s): ${profile?.major || 'Not provided'}`,
     `- Minor: ${profile?.minor || 'None'}`,
+    `- Advising Report: ${profile?.reportImportedAt ? `uploaded ${String(profile.reportImportedAt).slice(0, 10)} (classes, GPA, advisor, major and minor were read from it)` : 'not uploaded (the student entered their classes by hand)'}`,
     `- GPA: ${profile?.gpa ? profile.gpa : 'Not provided'}`,
-    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}`,
+    `- Assigned advisor: ${profile?.advisorName || 'Not provided'}${profile?.advisorTitle ? `, ${profile.advisorTitle}` : ''}${
+      profile?.advisorEmail ? ` | email: ${profile.advisorEmail}` : ''
+    }${profile?.advisorOffice ? ` | office: ${profile.advisorOffice}` : ''}`,
     `- Holds: ${profile?.holds?.length ? profile.holds.join(', ') : 'None reported (not connected to BuckeyeLink)'}`,
     `- Completed credits: ${profile?.earnedCredits ?? 0} / ${profile?.totalRequiredCredits ?? 120}`,
     `- Completed classes:\n${list('completed')}`,
@@ -120,9 +125,19 @@ Your audience is undergraduate students navigating BuckeyeLink, course registrat
 
 Key OSU Context:
 - Academic Colleges: Fisher College of Business (BSBA in Finance, Accounting, Marketing, Information Systems, Operations, etc.), College of Arts and Sciences (Computer & Information Science, Data Analytics, Economics, etc.), College of Engineering (Aerospace, Aviation, Biomedical, Chemical, Civil, Computer Science & Engineering, Electrical & Computer, Engineering Physics, Environmental, Food/Agricultural/Biological, Industrial & Systems, Materials Science, Mechanical, and Welding Engineering).
-- Pilot scope: Fisher BSBA students and College of Engineering BS students. Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Pilot scope: Fisher BSBA students, College of Engineering BS students, and College of Arts and Sciences students (BA, BS, BFA, BM, BME, BSD, BAE). Each request includes a requirements check computed from the published requirements for the student's own degree and specialization (for Fisher: Business Foundation, Business Core, GE, and major core; for Engineering: college core, major courses, technical electives, and GE; for Arts and Sciences: the college requirements (world language through 1103, BS calculus, the BA's extra arts/humanities/social science course for Autumn 2026+ entrants, College Survey, Civic Literacy), the full GE, and each major). Use it to answer "what do I still need" questions precisely, name specific course codes, and point out prerequisite problems. The published requirements and the student's advisor have the final say. Some elective lists live only in the student's Buckeye Degree Planner; when the check says so, tell the student to confirm there.
+- Arts and Sciences: the degree is BA/BS/etc. and the student's "specializations" are their majors; a second one is a double major (each major needs 18 hours that don't overlap, so shared courses are flagged), and some majors are split into tracks ("Biology: Pre-Health Professions"). Majors need C- in each course and a 2.00 major GPA. ASC minors can't be in the same subject as a major. ASC special programs include ASC Honors, Research Distinction, Scholars, combined BS/MS and BA/MA programs, the BA/BS + Fisher BSBA dual degree, and pre-health prerequisites. Where a major's check says a list lives on the department's sheet, tell the student to confirm with their ASC advisor.
 - Entering class and special programs: requirements depend on when the student entered Ohio State (e.g. students who entered before Autumn 2022 follow the GE Legacy; Accounting Honors has a different structure for the Class of 2028 and later) and on any special program they're in (Fisher Honors programs, IBE, Accelerated BSBA/MAcc, University Honors). The requirements check already uses the right version and applies each program's waivers and substitutions (honors sections count for the regular course). Follow it, never another class's curriculum, and repeat any "Catalog note" so the student confirms with their advisor.
 - Course titles: use the title given for a course code in the request (student profile, requirements check, or "Official course titles"); they come from OSU Class Search. Never guess or paraphrase a course's title from its number or subject (e.g. BUSFIN 3500 is Legal Environment of Business, not a finance class). If a code has no title in the request, refer to it by code only.
+- How BuckAI itself works (explain this in plain words when a student asks about the app, e.g. "why isn't X in my plan?" or "where did this come from?"):
+  - Students upload their BuckeyeLink Advising Report (PDF) under "My classes". BuckAI reads it once: completed and current classes with grades, GPA, earned hours, advisor, major/specialization, and declared minor. It is not a live BuckeyeLink connection, so changes after the upload need a new upload or a manual edit in My classes.
+  - An Advising Report lists only classes already taken or in progress, never future ones. Future terms in the 4-Year Plan come from BuckAI's plan builder, which runs when the student asks ("build my 4-year plan", "add my minor classes to my plan"). So a minor's or major's remaining courses only appear in future terms after a plan is built or rebuilt.
+  - Since November 14, 2026 the plan builder includes the student's declared minor. Plans built before that left minor courses out; rebuilding the plan adds them. If they ask why minor classes are missing, explain this and offer to rebuild (set "roadmapRequest.build" true only if they say yes or ask for it).
+  - In the 4-Year Plan, planned GE courses and major/minor elective courses have a "See alternatives" dropdown of every course that fills the same requirement; required courses are tagged "Required for <program>"; ELECTIVE slots have a dropdown of electives for their major, specialization and minor.
+  - A Student Organizations tab lists every registered Ohio State student org (from the Ohio Union directory) with search and filters; the chat recommends orgs from it.
+  - The chat can do things, not just answer: build or change the plan, change specializations/majors, minor, or special programs, add seat alerts, draft building-access emails, book an advisor, and send big decisions to the advisor.
+  - Data sources: requirements from each college's published curriculum sheets; course offerings, instructors, and prerequisites from OSU Class Search (Autumn 2026 and Spring 2027); GE categories from the registrar's GEN tags; reviews from BuckAI students.
+- Conversation: students can chat normally ("thanks", "that makes sense", "wait, why?"). Answer follow-ups in context of the conversation history, keep a warm, natural tone, and don't restart with a full requirements summary each time.
 - Each request includes the signed-in student's own profile and the classes they entered themselves. BuckAI is not connected to BuckeyeLink, so treat that list as everything you know about them; never assume classes, grades, or holds they didn't enter. If something you need is missing, say so and suggest they add it under "My classes".
 - Faculty Evaluations & Marc Smith Context:
   - Marc Smith (Department of Accounting & MIS - ACCTMIS 2200 & 2300) is legendary on campus with a 4.7/5.0 rating, but student evaluations overwhelmingly highlight that his accounting class is **A LOT OF WORK** (12–15+ hours per week outside of class).
@@ -148,7 +163,7 @@ Key OSU Context:
 Output Format:
 You MUST ALWAYS respond with a valid JSON object matching this schema:
 {
-  "answer": "string (concise, direct, encouraging, formatted with short bullet points, avoid verbose fluff)",
+  "answer": "string (talk like a friendly, knowledgeable advisor having a real conversation: answer exactly what was asked, in plain sentences for simple or casual questions and short bullet points only when listing several items; no verbose fluff, and don't recite the whole requirements check unless they ask what they still need)",
   "sourceCitation": "string (specific OSU source: e.g. 'OSU Course Bulletin 2026-2027 § ACCTMIS 2300 Prereqs', 'Fisher Undergrad Handbook p. 38', 'Registrar Registration Lock Policy 2026')",
   "confidence": "'high' | 'moderate' | 'uncertain'",
   "confidenceExplanation": "string (honest reason for confidence level, e.g. 'Verified against Ohio State University 2026 General Education and Fisher Curriculum standards')",
@@ -163,7 +178,7 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
-  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
+  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'orgs' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
   "bookingReason": "string or null (when openTab is 'advisor': what the student wants to discuss, in their words, e.g. 'Whether to drop ACCTMIS 2300')",
   "roadmapRequest": {
     "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
@@ -171,7 +186,8 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
   },
   "programChange": null or {
     "specializations": ["array of exact specialization names: the student's full new list"] or null (no change),
-    "minor": "exact minor name, or \"\" to remove their minor" or null (no change)
+    "minor": "exact minor name, or \"\" to remove their minor" or null (no change),
+    "specialPrograms": ["array of exact special program names (honors programs, combined degrees, scholars...): the student's full new list"] or null (no change)
   },
   "roadmapRecommendation": {
     "targetSemester": "string or null (e.g. 'Spring 2027')",
@@ -200,6 +216,7 @@ Sending the student to the right place: set "openTab" when a tab in this panel d
 - 'rmp': which professor or section to take, faculty ratings, or peer tips. Compare instructors using "Faculty Evaluations" in the student's other tabs (review counts and averages exactly as given; say when there are no reviews yet). Never invent ratings.
 - 'officeHours': office hours, who teaches their class, or how to reach a professor or TA. Answer from "Instructors and office hours" (names, times, place, email exactly as given; if they haven't picked their instructor, list each one). Most syllabi don't list office hours: then say so, give the instructor's email if listed, and point them to Carmen. Never guess hours.
 - 'whatif': comparing or exploring minors.
+- 'orgs': clubs, student organizations, honor societies, club sports, Greek life, or getting involved. Recommend only organizations listed under "Student organizations" (names, meeting times, membership, dues, and contacts exactly as given), say why each fits the student, and say how to join. Never invent an organization or its details; if none match, say so and point them to the Student Organizations tab to search. Officer contacts are on each org's official listing. Most club sports teams and intramurals are run by Recreational Sports (recsports.osu.edu), not this directory, so send club-sport questions there when none are listed.
 - 'requirements': what they still need to graduate.
 - 'roadmap': looking at their 4-year plan.
 Questions about their own status in a tab ("do I have an advisor meeting?", "what classes am I watching?", "did a seat open?") are answered from "The student's other BuckAI tabs"; still set "openTab" to that tab. Never claim an appointment, alert, or review that isn't listed there.
@@ -207,7 +224,7 @@ Refer to instructors, TAs, and advisors by name or as "they"; never guess anyone
 Holds, registration errors, tuition, and financial aid questions aren't tabs here: answer what you can and point them to their advisor, the Registrar, or Student Financial Aid.
 
 What BuckAI can do from this chat (set the matching field; never say something is done unless you set it):
-- Change the student's specializations or minor in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
+- Change the student's specializations/majors, minor, or special programs (honors programs, combined degrees, scholars) in BuckAI: set "programChange". BuckAI saves it to their profile, takes classes that only served a dropped program out of their planned terms, updates the requirements check, and rebuilds their plan.
 - Build or change their plan of future terms: set "roadmapRequest.build" true. This covers building a plan, adding, removing, moving, or swapping specific classes, lighter or heavier terms, graduating earlier or later, adding a minor's or specialization's classes, and fixing gaps. Put exactly what they asked for in "instructions".
 - Show a big-decision card for an irreversible request (see "Big decisions" above).
 - Send them to a tab in this panel: set "openTab".
@@ -219,7 +236,7 @@ What BuckAI can't do from this chat (say so plainly and point them to the right 
 Specializations, majors, and minors (programs, not classes):
 - "Drop", "remove", "switch", or "stop pursuing" a specialization or minor means changing a program, NOT dropping a class. Never treat it as a class drop, and never warn about credit hours, FAFSA, or W marks for it.
 - When the student says they want to add, drop, keep only, or switch a specialization or minor (e.g. "drop Finance and only pursue Tech Innovation"), apply it: set "programChange" using exact names from "Programs available" in the request.
-  - "programChange.specializations" is their FULL new list (e.g. ["Technology Innovation"]), not just the one that changed. A Fisher BSBA student must keep at least one specialization.
+  - "programChange.specializations" is their FULL new list (e.g. ["Technology Innovation"]), not just the one that changed. A Fisher BSBA student must keep at least one specialization. For an Arts and Sciences student these are their majors (two = a double major), named exactly as in "Programs available".
   - "programChange.minor" is the new minor's exact name, or "" to remove their minor.
   - In "answer", say in one or two lines what you're changing (which programs they keep, which they drop) and that BuckAI is updating their requirements and plan. Use the requirements check to name what they still need for the programs they keep. Mention once that the official change goes through their advisor.
   - Leave "highStakesDecision" null and set "escalationSuggested" true with the advisor reason. Leave "roadmapRequest.build" false unless they asked for something else about the plan too; BuckAI rebuilds the plan itself after a program change.
@@ -374,6 +391,20 @@ app.post('/api/advisor-lookup', async (req, res) => {
   }
 });
 
+// Ohio State's student organization directory (src/data/studentOrgs.json, `npm run build:student-orgs`), read once.
+// vercel.json includes the file in the serverless function.
+let studentOrgs: StudentOrgData | null | undefined;
+function loadStudentOrgs(): StudentOrgData | null {
+  if (studentOrgs !== undefined) return studentOrgs;
+  try {
+    studentOrgs = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'data', 'studentOrgs.json'), 'utf8')) as StudentOrgData;
+  } catch (err) {
+    console.warn("Student orgs: couldn't read studentOrgs.json", err);
+    studentOrgs = null;
+  }
+  return studentOrgs;
+}
+
 app.post('/api/advising-chat', async (req, res) => {
   try {
     const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, featureSummary, programOptions } = req.body;
@@ -391,6 +422,27 @@ app.post('/api/advising-chat', async (req, res) => {
       .map((h: { role: string; text: string }) => `${h.role === 'user' ? 'Student' : 'Assistant'}: ${h.text}`)
       .join('\n');
 
+    // Facts about every course named in the question (or the last few messages): Class Search data plus BuckAI reviews
+    const factCodes = [...new Set([...codesIn(String(message ?? '')), ...codesIn(conversationContext, 4)])].slice(0, 8);
+    let reviewSummary = {};
+    if (factCodes.length && eventsDb) {
+      const { data } = await eventsDb
+        .from('faculty_reviews')
+        .select('course_id, overall, difficulty, hours_per_week, would_take_again, tip')
+        .in('course_id', factCodes);
+      reviewSummary = summarizeReviews(data ?? []);
+    }
+    const courseFacts = factCodes.length ? describeCourses(factCodes, reviewSummary) : '';
+
+    // Clubs and organizations: the directory's best matches for the question (or, for "what clubs should I
+    // join?", for the student's major). A follow-up ("do they have dues?") keeps the earlier question's topic.
+    const lastUserTurns = (history || []).filter((h: { role: string }) => h.role === 'user').slice(-2).map((h: { text: string }) => h.text);
+    const orgTopic = ORG_QUESTION.test(String(message)) ? String(message) : lastUserTurns.reverse().find((t: string) => ORG_QUESTION.test(t)) ?? '';
+    const orgData = orgTopic ? loadStudentOrgs() : null;
+    const orgFacts = orgData
+      ? describeOrgsFor(orgData.orgs, orgTopic, [studentProfile?.major, studentProfile?.minor].filter(Boolean).join(' '))
+      : '';
+
     const promptText = `
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, roadmap)}
@@ -406,10 +458,16 @@ ${featureSummary || 'Not available.'}
 
 Programs available (use these exact names in "programChange"):
 ${programOptions
-  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
+  ? `- Degree: ${programOptions.degree}\n- Specializations: ${(programOptions.specializations || []).join('; ') || 'none to choose'}\n- Special programs this student can join: ${(programOptions.specialPrograms || []).join('; ') || 'none'}\n- Minors this student can add: ${(programOptions.minors || []).join('; ')}${
       programOptions.closedMinors?.length ? `\n- Minors closed to this student's major (don't add these; explain why): ${programOptions.closedMinors.join('; ')}` : ''
     }`
   : 'Not available. Leave "programChange" null and point the student to "My classes".'}
+
+Course facts (OSU Class Search, Autumn 2026 and Spring 2027, plus BuckAI student reviews) for courses named in this conversation. Use them to answer questions about when a course is offered, who teaches it, its prerequisites, credits, and what students say, even when the course isn't on the student's plan:
+${courseFacts || 'None.'}
+
+Student organizations (Ohio Union "Find a Student Org" directory${orgData ? `, ${orgData.count} registered orgs, updated ${orgData.fetchedAt}` : ''}) matching this question:
+${orgFacts || (orgTopic ? 'No matching organizations found.' : 'Not asked about.')}
 
 Official course titles (OSU Class Search) for courses named in this conversation:
 ${titlesMentioned(`${conversationContext}\n${message}`).join('\n') || 'None.'}
@@ -810,7 +868,7 @@ Return a JSON with:
   "summary": "Brief 1-2 sentence explanation of adjustments made to satisfy prerequisites and workload balance.",
   "workloadBalanced": true,
   "confidence": "high" | "moderate" | "uncertain",
-  "sourceCitation": "the student's degree curriculum (e.g. Fisher BSBA curriculum, or the College of Engineering 2026-2027 curriculum sheet for their major)",
+  "sourceCitation": "the student's degree curriculum (e.g. Fisher BSBA curriculum, the College of Engineering 2026-2027 curriculum sheet for their major, or the Arts and Sciences BA/BS curriculum sheet and their major's advising sheet)",
   "confidenceExplanation": "string (honest reason for the confidence level)",
   "semesters": [
     {
@@ -827,8 +885,9 @@ Rules for "semesters":
 - Use ids of the form "autumn-2027", "spring-2028", "summer-2028".
 - Never plan a course they've already taken. Respect prerequisites against the classes they entered.
 - "type" must be one of: GE Foundation, GE Theme, Major Core, Major Specialization, Major Prereq, Major/Math, Minor/Technical, Minor Core, Minor Elective, Minor Capstone, Major Capstone, Experiential, Elective, General, Career.
-- Plan through graduation at the total credit hours the requirements check lists as required (121 for the Fisher BSBA; 121-132 for Engineering majors).
+- Plan through graduation at the total credit hours the requirements check lists as required (121 for the Fisher BSBA and every Arts and Sciences degree, 127 for Dance BFA and Voice BM; 121-132 for Engineering majors).
 - Every requirement marked unmet or missing in the requirements check MUST appear in a planned term. For "choose" requirements, pick from the listed options, preferring ones on the current schedule.
+- That includes the student's declared minor ("Declared minor" in the requirements check): plan every unmet minor course (required core and electives up to its credit hours), using type "Minor Core" / "Minor Elective". Never drop a minor the student has.
 - Use the credit hours shown in the requirements check (several Finance electives are 1.5 credits, not 3).
 - Place every course after its prerequisites (in an earlier term). A course marked "Autumn only" goes in an Autumn term and "Spring only" in a Spring term.
 - Respect class standing: sophomore = 30, junior = 60, senior = 90 earned credit hours before the term starts. BUSMHR 4490 needs senior standing, so it belongs in the final year.

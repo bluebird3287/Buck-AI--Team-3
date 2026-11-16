@@ -314,6 +314,7 @@ export const DegreeRequirementsView: React.FC<DegreeRequirementsViewProps> = ({ 
       {audit.specialPrograms.map((p) => (
         <ProgramSection key={p.program.id} p={p} />
       ))}
+      {audit.minor && <ProgramSection p={audit.minor} />}
       <ProgramSection p={audit.degree} />
     </div>
   );

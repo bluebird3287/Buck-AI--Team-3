@@ -1,7 +1,7 @@
 // Builds src/data/courseTitles.ts: the official title of every course in the OSU Class Search
-// data we already keep (src/data/fisherFaculty.json, engineeringFaculty.json, geCourses.json).
+// data we already keep (src/data/fisherFaculty.json, engineeringFaculty.json, ascFaculty.json, geCourses.json).
 // The app uses it so course names never come from the AI or a hand-typed label.
-// Run with: npm run build:course-titles (after rebuilding any of those files)
+// Run with: npm run build:course-titles (after rebuilding any of those files). Also writes src/data/courseCatalog.json.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,7 +10,7 @@ const dataDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 's
 const read = (file) => JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf8'));
 
 const titles = {};
-for (const file of ['fisherFaculty.json', 'engineeringFaculty.json']) {
+for (const file of ['fisherFaculty.json', 'engineeringFaculty.json', 'ascFaculty.json']) {
   for (const c of read(file).courses) if (c.title && !titles[c.id]) titles[c.id] = c.title.trim();
 }
 for (const [code, c] of Object.entries(read('geCourses.json').courses)) {
@@ -23,3 +23,19 @@ export const COURSE_TITLES: Record<string, string> = ${JSON.stringify(sorted, nu
 `;
 fs.writeFileSync(path.join(dataDir, 'courseTitles.ts'), out);
 console.log(`Wrote ${Object.keys(sorted).length} course titles to src/data/courseTitles.ts`);
+
+// Also writes src/data/courseCatalog.json: credits and the seasons each scheduled course is offered, for the 4-Year Plan's
+// "See alternatives" menus on major/specialization electives (a group like "any ECON 3000+ course" lists real courses).
+// Shape: { "ECON 3001": [3, "AS"] } — credits (null if variable) and seasons (A = Autumn, S = Spring).
+const catalog = {};
+for (const file of ['fisherFaculty.json', 'engineeringFaculty.json', 'ascFaculty.json']) {
+  for (const c of read(file).courses) {
+    if (catalog[c.id]) continue;
+    const credits = /^\d+(\.\d+)?$/.test(String(c.credits)) ? Number(c.credits) : null;
+    const seasons = ['Autumn', 'Spring'].filter((s) => (c.terms ?? []).some((t) => t.term.startsWith(s))).map((s) => s[0]).join('');
+    catalog[c.id] = [credits, seasons];
+  }
+}
+const sortedCatalog = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
+fs.writeFileSync(path.join(dataDir, 'courseCatalog.json'), JSON.stringify(sortedCatalog) + '\n');
+console.log(`Wrote ${Object.keys(sortedCatalog).length} scheduled courses to src/data/courseCatalog.json`);

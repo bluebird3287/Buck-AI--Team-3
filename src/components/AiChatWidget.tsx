@@ -26,7 +26,8 @@ import {
   CreditCard,
   CheckCircle2,
   PanelLeftOpen,
-  Plus
+  Plus,
+  Users,
 } from 'lucide-react';
 import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
 import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
@@ -38,8 +39,10 @@ import type { OfficeHoursLoad } from '../lib/officeHours';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
-import { Curriculum, DegreeAudit, GeOption, geSlotFor } from '../lib/requirements';
+import { StudentOrgsView } from './StudentOrgsView';
+import { Curriculum, DegreeAudit, ElectiveSlot, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
+import { ChatText } from './ChatText';
 import { MinorAuditView } from './MinorAuditView';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { FacultyEvaluationsView } from './FacultyEvaluationsView';
@@ -97,7 +100,7 @@ interface AiChatWidgetProps {
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
   onNextStep?: () => void;
-  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
+  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
@@ -146,7 +149,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 }) => {
   // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
   const [openGe, setOpenGe] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs'>(initialTab || 'chat');
 
   useEffect(() => {
     if (initialTab) {
@@ -213,6 +216,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   };
 
   // Opens Advisor Scheduling with what the student wants to talk about filled in
+  // The Student Organizations search a chat button opens (e.g. "consulting" from "any consulting clubs?")
+  const [orgQuery, setOrgQuery] = useState('');
+
   const openAdvisorWith = (note?: string) => {
     if (note) setAppointmentNote(note);
     setActiveTab('advisor');
@@ -222,7 +228,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const runAction = (action: ChatAction) => {
     if (action.tab === 'profile') onEditProfile?.();
     else if (action.tab === 'advisor') openAdvisorWith(action.note);
-    else setActiveTab(action.tab);
+    else {
+      if (action.tab === 'orgs') setOrgQuery(action.note ?? '');
+      setActiveTab(action.tab);
+    }
   };
 
   // "Confirm with my advisor first": the request (with BuckAI's impacts) goes to the advisor's queue, and
@@ -416,6 +425,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('orgs')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'orgs'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Student Organizations</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('advisor')}
             className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors relative whitespace-nowrap ${
               activeTab === 'advisor'
@@ -558,7 +579,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                         : 'bg-white text-gray-900 border border-gray-200 rounded-tl-none space-y-3'
                     }`}
                   >
-                    <div className="whitespace-pre-line text-xs sm:text-sm">{msg.text}</div>
+                    <ChatText text={msg.text} className="text-xs sm:text-sm break-words" />
                     {msg.action && (
                       <button
                         onClick={() => runAction(msg.action!)}
@@ -794,8 +815,15 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 
                               <div className="space-y-2">
                                 {sem.courses.map((course, idx) => {
-                                  // Planned GE courses open a menu of every course that fills the same GE
-                                  const slot = sem.status === 'planned' && onReplaceCourse ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
+                                  // Planned GE courses and major/specialization electives open a menu of every course that fills the
+                                  // same requirement; required major courses are tagged instead.
+                                  const planned = sem.status === 'planned' && !!onReplaceCourse;
+                                  const geSlot = planned ? geSlotFor(audit, course.code, Number(course.credits) || 0) : null;
+                                  // An ELECTIVE placeholder offers every major/minor elective
+                                  const electiveSlot: ElectiveSlot | null =
+                                    planned && course.code.toUpperCase() === 'ELECTIVE' ? { label: 'Elective', electives: true } : null;
+                                  const slot = electiveSlot ?? geSlot ?? (planned ? choiceSlotFor(audit, course.code) : null);
+                                  const required = planned && !slot ? requiredFor(audit, course.code) : null;
                                   const key = `${sem.id}:${idx}`;
                                   const open = !!slot && openGe === key;
                                   const body = (
@@ -805,9 +833,13 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                         <div className="text-gray-600 text-[11px]">{course.name}</div>
                                         {slot && (
                                           <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-[#ba0c2f]">
-                                            GE {slot.label} · {open ? 'Close' : 'See alternatives'}
+                                            {electiveSlot ? 'Elective · Pick a major or minor elective' : geSlot ? `GE ${slot.label}` : slot.label} ·{' '}
+                                            {open ? 'Close' : electiveSlot ? 'Choose' : 'See alternatives'}
                                             {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                           </div>
+                                        )}
+                                        {required && (
+                                          <div className="mt-1 text-[10px] font-semibold text-gray-500">Required for {required}</div>
                                         )}
                                       </div>
                                       <div className="text-right">
@@ -831,6 +863,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                                       {open && (
                                         <GeAlternativesMenu
                                           slot={slot}
+                                          audit={audit}
                                           current={course.code}
                                           term={sem.name}
                                           inPlan={roadmap.flatMap((s) => s.courses.map((c) => c.code))}
@@ -863,7 +896,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
                   }`}
                 >
                   {roadmapResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-px" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-px" />}
-                  <span className="flex-1">{roadmapResult.text}</span>
+                  <ChatText text={roadmapResult.text} className="flex-1" />
                   <button type="button" onClick={() => setRoadmapResult(null)} aria-label="Dismiss" className="opacity-60 hover:opacity-100">
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -920,6 +953,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         )}
 
         {activeTab === 'rmp' && <FacultyEvaluationsView />}
+
+        {activeTab === 'orgs' && <StudentOrgsView initialQuery={orgQuery} />}
 
         {activeTab === 'officeHours' && (
           <OfficeHoursView roadmap={roadmap} picks={profile.officeHoursPicks ?? {}} onPick={(c, p) => onPickInstructor?.(c, p)} load={officeHours} />

@@ -136,7 +136,7 @@ export const AuthGate: React.FC = () => {
   const handleRoadmapChange = (semesters: Semester[]) => updateRecord({ semesters }, 'roadmap');
 
   // A specialization or minor the student changed from the chat
-  const handleProgramChange = (change: { specialization_ids: string[]; major: string; minor: string | null }) =>
+  const handleProgramChange = (change: { specialization_ids: string[]; major: string; minor: string | null; special_program_ids?: string[] }) =>
     updateRecord({ ...change, specialization_id: change.specialization_ids[0] ?? null }, 'program change');
 
   if (loading || (session && (role === null || (role === 'student' && loadedFor !== userId)))) {
@@ -246,7 +246,7 @@ export const AuthGate: React.FC = () => {
       ) : (
         <App
           key={`${userId}-${version}`}
-          // Credits to graduate come from the student's degree (121 for the Fisher BSBA, 121-132 for Engineering)
+          // Credits to graduate come from the student's degree (121 for the Fisher BSBA and Arts and Sciences degrees, 121-132 for Engineering)
           profile={{ ...toStudentProfile(record!, email), totalRequiredCredits: curriculum?.degree.min_total_credits ?? 120 }}
           initialRoadmap={normalizeSemesters(record!.semesters)}
           onRoadmapChange={handleRoadmapChange}

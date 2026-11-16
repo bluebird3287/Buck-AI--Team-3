@@ -8,8 +8,9 @@
 import type { Semester, StudentProfile } from '../data/sampleData';
 import type { HighStakesDecisionData, DecisionType } from '../components/HighStakesDecisionCard';
 import { Curriculum, DegreeAudit, catalogCourse, coursesRequiring, requirementsUsing } from './requirements';
+import { ORG_QUESTION, orgTopic } from './studentOrgs';
 
-export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
+export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
 
 export const TAB_LABELS: Record<ChatTab, string> = {
   chat: 'Advising Assistant',
@@ -21,6 +22,7 @@ export const TAB_LABELS: Record<ChatTab, string> = {
   advisor: 'Advisor Scheduling',
   seatAlerts: 'Seat Alerts',
   studyAccess: 'After-Hours Study Access',
+  orgs: 'Student Organizations',
 };
 
 // A button under a chat reply. `tab` opens a panel tab; 'profile' opens the My classes editor.
@@ -28,7 +30,7 @@ export interface ChatAction {
   label: string;
   tab: ChatTab | 'profile';
   autoOpen?: boolean; // open it right away (only for fresh replies, never when an old chat is reloaded)
-  note?: string; // for Advisor Scheduling: what the student wants to talk about (pre-fills the request)
+  note?: string; // Advisor Scheduling: what the student wants to talk about (pre-fills the request); Student Organizations: the search
 }
 
 export interface NavigationIntent {
@@ -86,6 +88,7 @@ const TAB_WORDS: [RegExp, ChatTab][] = [
   [/after[- ]hours|study access|building access/, 'studyAccess'],
   [/faculty eval|evaluations|professor ratings/, 'rmp'],
   [/office hours/, 'officeHours'],
+  [/student org|organizations|clubs/, 'orgs'],
   [/what[- ]if|minor audit/, 'whatif'],
   [/degree requirements|requirements tab|degree audit/, 'requirements'],
   [/4[- ]year|four[- ]year|degree plan|roadmap/, 'roadmap'],
@@ -170,6 +173,11 @@ export function detectNavigation(text: string): NavigationIntent | null {
   // Office hours: the AI answers from the student's own classes' syllabi, with a button to the full list
   if (WHO_TEACHES.test(t)) return { id: 'who_teaches', handleLocally: false, action: { label: 'See who teaches my classes', tab: 'officeHours' }, reply: '' };
   if (OFFICE_HOURS.test(t)) return { id: 'office_hours', handleLocally: false, action: { label: 'See office hours for my classes', tab: 'officeHours' }, reply: '' };
+  // Clubs and organizations: the AI answers from the directory's best matches; the button opens the tab on that search
+  if (ORG_QUESTION.test(t)) {
+    const topic = orgTopic(t);
+    return { id: 'orgs', handleLocally: false, action: { label: 'Browse student organizations', tab: 'orgs', note: topic || undefined }, reply: '' };
+  }
   if (FACULTY.test(t)) return { id: 'faculty', handleLocally: false, action: { label: 'See faculty evaluations', tab: 'rmp' }, reply: '' };
   if (REQUIREMENTS.test(t)) return { id: 'requirements', handleLocally: false, action: { label: 'See my degree requirements', tab: 'requirements' }, reply: '' };
   return null;
@@ -197,7 +205,8 @@ export interface DecisionContext {
   specializationNames: string[]; // so "switch my specialization to Finance" isn't treated as leaving the college
 }
 
-const PROGRAM_WORDS = /speciali[sz]|\bminor\b|concentration|\btrack\b/;
+// Program changes BuckAI applies itself (an Arts and Sciences second/double major is one of the student's "specializations")
+const PROGRAM_WORDS = /speciali[sz]|\bminor\b|concentration|\btrack\b|\b(second|double|add(ing)? a) major\b/;
 
 // Which big decision a message is asking to make, if any.
 export function detectDecision(text: string, ctx: DecisionContext): DecisionType | null {
@@ -227,7 +236,7 @@ export function detectDecision(text: string, ctx: DecisionContext): DecisionType
   if (
     !PROGRAM_WORDS.test(t) &&
     !mentionsSpec &&
-    (/\b(change|switch|transfer)\b[^.?!]{0,30}\b(my )?(major|college|degree)\b|\b(leave|transfer out of|get out of) (fisher|the college of business|business school|engineering|the college of engineering)\b/.test(t))
+    (/\b(change|switch|transfer)\b[^.?!]{0,30}\b(my )?(major|college|degree)\b|\b(leave|transfer out of|get out of) (fisher|the college of business|business school|engineering|the college of engineering|arts and sciences|the college of arts and sciences|asc)\b/.test(t))
   )
     return 'change_major';
   // "drop ACCTMIS 2300 from my plan" edits future terms, which the plan builder handles

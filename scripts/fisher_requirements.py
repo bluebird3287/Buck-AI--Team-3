@@ -426,8 +426,8 @@ PROGRAMS += [
         "id": "spec-tech-innovation", "kind": "specialization", "name": "Tech Innovation",
         "source_url": "https://oaa.osu.edu/sites/default/files/documents/FCOB%20-%20Proposal%20to%20establish%20a%20Tech%20Innovation%20Specialization%20in%20the%20Business%20Administration%20major.pdf",
         "notes": "New in Autumn 2026 (approved by the Council on Academic Affairs, Feb 2026). Requires an application in year 1 "
-                 "(minimum 3.0 GPA) and starts in year 2 with a one-semester immersion, then one Builders Studio course each semester "
-                 "junior and senior year with corporate-sponsored projects. Takes at least 5 semesters.",
+                 "(minimum 3.0 GPA) and starts in year 2 with a one-semester immersion, then Builders Studio courses (I-IV, in order) "
+                 "with corporate-sponsored projects: offered Autumn and Spring (including Spring 2027), and a student may take up to two in the same semester. Takes at least 5 semesters.",
         "groups": [
             group("ti-immersion", "Sophomore Immersion (13 credit hours, one semester)", "all", [
                 c("BUSADM 2800", "Executive Lecture Series", 1, "Admission to specialization", offered=["None"],
@@ -440,14 +440,14 @@ PROGRAMS += [
                   notes="Second 7-week session of the immersion semester"),
             ]),
             group("ti-studio", "Builders Studio (12 credit hours, junior and senior years)", "all", [
-                c("BUSADM 3801", "Builders Studio I: Corporate Technology Strategy", 3, "BUSADM 2802", offered=["Autumn"],
-                  notes="Junior autumn, the autumn after the immersion year"),
-                c("BUSADM 3802", "Builders Studio II: Product Development & Implementation", 3, "BUSADM 3801", offered=["Spring"],
-                  notes="Junior spring"),
-                c("BUSADM 4803", "Builders Studio III: Advanced Technology Consulting", 3, "BUSADM 3802", offered=["Autumn"],
-                  notes="Senior autumn"),
-                c("BUSADM 4804", "Builders Studio IV: Strategic Technology Leadership", 3, "BUSADM 4803", offered=["Spring"],
-                  notes="Senior spring"),
+                c("BUSADM 3801", "Builders Studio I: Corporate Technology Strategy", 3, "BUSADM 2802",
+                  notes="Autumn or Spring (offered Spring 2027); up to two Builders Studio courses may be taken in one semester"),
+                c("BUSADM 3802", "Builders Studio II: Product Development & Implementation", 3, "BUSADM 3801 (concurrent allowed)",
+                  notes="Autumn or Spring; may be taken with Builders Studio I in the same semester (two studios max per semester)"),
+                c("BUSADM 4803", "Builders Studio III: Advanced Technology Consulting", 3, "BUSADM 3802 (concurrent allowed)",
+                  notes="Autumn or Spring; may be taken with Builders Studio II in the same semester (two studios max per semester)"),
+                c("BUSADM 4804", "Builders Studio IV: Strategic Technology Leadership", 3, "BUSADM 4803 (concurrent allowed)",
+                  notes="Autumn or Spring; may be taken with Builders Studio III in the same semester (two studios max per semester)"),
             ]),
         ],
     },

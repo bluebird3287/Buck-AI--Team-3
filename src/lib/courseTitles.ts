@@ -25,3 +25,13 @@ export function titlesMentioned(text: string): string[] {
   }
   return [...out].map(([code, title]) => `${code}: ${title}`);
 }
+
+// Subjects that exist in the catalog (BUSFIN, ECON, ...), so "Spring 2027" or "room 2050" aren't read as course codes.
+const SUBJECTS = new Set(Object.keys(COURSE_TITLES).map((code) => code.split(' ')[0]));
+
+// Every course code a student typed ("busml4254", "ECON 2001.01"), whether or not it's on this year's schedule.
+export function coursesMentioned(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.toUpperCase().matchAll(/\b([A-Z]{2,8})\s?(\d{4}(?:\.\d{2})?[HE]?)\b/g)) if (SUBJECTS.has(m[1])) out.add(`${m[1]} ${m[2]}`);
+  return [...out];
+}

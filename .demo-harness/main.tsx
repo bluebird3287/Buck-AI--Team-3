@@ -24,17 +24,44 @@ const record: StudentRecord = {
     { id: 'a26', name: 'Autumn 2026', status: 'in-progress', courses: [c('BUSFIN 3220'), c('BUSFIN 4210'), c('BUSMGT 3230'), c('BUSML 3250'), c('ACCTMIS 3200')], totalCredits: 0, workloadRating: 'Balanced' },
   ] as any,
 };
+// ?student=asc: an Arts and Sciences BA double major (Economics + Psychology) in ASC Honors
+const ascRecord: StudentRecord = {
+  full_name: 'Jordan Lee', major: 'Bachelor of Arts (BA): Economics + Psychology', minor: null, college: 'College of Arts and Sciences',
+  class_standing: 'Sophomore', gpa: 3.61, advisor_name: null, advisor_directory: null,
+  degree_id: 'asc-ba', specialization_ids: ['asc-economics-ba', 'asc-psychology-ba'], special_program_ids: ['sp-asc-honors'],
+  entry_term: 'autumn-2025', expected_graduation: 'spring-2029',
+  semesters: [
+    { id: 'a25', name: 'Autumn 2025', status: 'completed', courses: [c('ARTSSCI 1100.01',1), c('GENED 1201',1), c('ECON 2001.01'), c('MATH 1130',4), c('SPANISH 1101',4), c('PSYCH 1100')], totalCredits: 0, workloadRating: 'Balanced' },
+    { id: 's26', name: 'Spring 2026', status: 'completed', courses: [c('ECON 2002.01'), c('STAT 1450'), c('SPANISH 1102',4), c('ENGLISH 1110.01'), c('PSYCH 2220')], totalCredits: 0, workloadRating: 'Balanced' },
+    { id: 'a26', name: 'Autumn 2026', status: 'in-progress', courses: [c('ECON 4001.01'), c('SPANISH 1103',4), c('PSYCH 2300'), c('PSYCH 3313'), c('HISTORY 2003')], totalCredits: 0, workloadRating: 'Balanced' },
+  ] as any,
+};
 const email = 'thompson.1234@osu.edu';
 
 function Harness() {
   const [library, setLibrary] = useState<CurriculumLibrary | null>(null);
   useEffect(() => { loadCurriculum().then(setLibrary).catch((e) => console.warn(e)); }, []);
-  const curriculum = useMemo(() => (library ? curriculumFor(library, record.degree_id, { entryTerm: record.entry_term }) : null), [library]);
+  const asc = new URLSearchParams(location.search).get('student') === 'asc';
+  const base = asc ? ascRecord : record;
+  const curriculum = useMemo(
+    () => (library ? curriculumFor(library, base.degree_id, { entryTerm: base.entry_term, specialProgramIds: base.special_program_ids ?? [] }) : null),
+    [library],
+  );
   const spec = curriculum?.specializations.find((p) => /^finance/i.test(p.name))?.id;
   // ?view=plan adds a planned term with two GE courses (taken from a real Buck AI plan) so the GE picker can be captured
   const withPlan = new URLSearchParams(location.search).get('view') === 'plan';
-  const rec = useMemo(() => ({ ...record, specialization_ids: spec ? [spec] : [],
-    semesters: withPlan ? [...record.semesters, { id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('BUSOBA 2320'), c('BUSFIN 4211'), c('AFAMAST 2050'), c('ENGLISH 3304'), c('ANTHROP 1101')], totalCredits: 0, workloadRating: 'Balanced' }] as any : record.semesters }), [spec, withPlan]);
+  const ascPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('ECON 4002.01'), c('PSYCH 3325'), c('ECON 5130'), c('AFAMAST 2050'), c('COMM 2367')], totalCredits: 0, workloadRating: 'Balanced' }];
+  const fisherPlan: any[] = [{ id: 's27', name: 'Spring 2027', status: 'planned', courses: [c('BUSOBA 2320'), c('BUSFIN 4211'), c('AFAMAST 2050'), c('ENGLISH 3304'), c('ANTHROP 1101'), { ...c('ELECTIVE'), name: 'Elective' }], totalCredits: 0, workloadRating: 'Balanced' }];
+  // ?minor=International%20Business puts a declared minor on the profile (as an advising report would)
+  const minorParam = new URLSearchParams(location.search).get('minor');
+  const rec: StudentRecord = useMemo(() => {
+    const r = recBase();
+    return minorParam ? { ...r, minor: minorParam } : r;
+  }, [spec, withPlan, asc]);
+  function recBase(): StudentRecord {
+    if (asc) return { ...ascRecord, semesters: [...ascRecord.semesters, ...(withPlan ? ascPlan : [])] };
+    return { ...record, specialization_ids: spec ? [spec] : [], semesters: [...record.semesters, ...(withPlan ? fisherPlan : [])] };
+  }
   if (!library) return <div style={{ padding: 40 }}>Loading curriculum…</div>;
   // ?view=signin | upload | review renders the onboarding screens for teaser captures (nothing is submitted)
   const view = new URLSearchParams(location.search).get('view');
@@ -44,7 +71,7 @@ function Harness() {
   return (
     <div>
       <div className="bg-[#2c2c2a] text-white text-xs px-4 py-1.5 flex items-center justify-between">
-        <span className="opacity-90">Signed in as {email} · <span className="capitalize">student</span></span>
+        <span className="opacity-90">Signed in as {asc ? 'lee.5678@osu.edu' : email} · <span className="capitalize">student</span></span>
         <div className="flex items-center gap-4"><span className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5" /> My classes</span><span className="flex items-center gap-1"><LogOut className="w-3.5 h-3.5" /> Sign out</span></div>
       </div>
       <App profile={{ ...toStudentProfile(rec, email), totalRequiredCredits: curriculum?.degree.min_total_credits ?? 121 }}
