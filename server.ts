@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { officialTitle, titlesMentioned } from './src/lib/courseTitles.js';
 import { codesIn, describeCourses, summarizeReviews } from './src/lib/courseFacts.js';
+import { ORG_QUESTION, describeOrgsFor, type StudentOrgData } from './src/lib/studentOrgs.js';
 import { busyBlocksFromIcs, normalizeFeedUrl, IMPORT_WEEKS } from './src/lib/ics.js';
 import { lookupAdvisorByName, lookupUsername, toAdvisor } from './src/lib/osuDirectory.js';
 
@@ -133,6 +134,7 @@ Key OSU Context:
   - An Advising Report lists only classes already taken or in progress, never future ones. Future terms in the 4-Year Plan come from BuckAI's plan builder, which runs when the student asks ("build my 4-year plan", "add my minor classes to my plan"). So a minor's or major's remaining courses only appear in future terms after a plan is built or rebuilt.
   - Since November 14, 2026 the plan builder includes the student's declared minor. Plans built before that left minor courses out; rebuilding the plan adds them. If they ask why minor classes are missing, explain this and offer to rebuild (set "roadmapRequest.build" true only if they say yes or ask for it).
   - In the 4-Year Plan, planned GE courses and major/minor elective courses have a "See alternatives" dropdown of every course that fills the same requirement; required courses are tagged "Required for <program>"; ELECTIVE slots have a dropdown of electives for their major, specialization and minor.
+  - A Student Organizations tab lists every registered Ohio State student org (from the Ohio Union directory) with search and filters; the chat recommends orgs from it.
   - The chat can do things, not just answer: build or change the plan, change specializations/majors, minor, or special programs, add seat alerts, draft building-access emails, book an advisor, and send big decisions to the advisor.
   - Data sources: requirements from each college's published curriculum sheets; course offerings, instructors, and prerequisites from OSU Class Search (Autumn 2026 and Spring 2027); GE categories from the registrar's GEN tags; reviews from BuckAI students.
 - Conversation: students can chat normally ("thanks", "that makes sense", "wait, why?"). Answer follow-ups in context of the conversation history, keep a warm, natural tone, and don't restart with a full requirements summary each time.
@@ -176,7 +178,7 @@ You MUST ALWAYS respond with a valid JSON object matching this schema:
     "escalateRecommended": true
   },
   "suggestedActions": ["array of 2-4 concise next action strings"],
-  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
+  "openTab": "'advisor' | 'seatAlerts' | 'studyAccess' | 'rmp' | 'officeHours' | 'orgs' | 'whatif' | 'requirements' | 'roadmap' | null (the panel tab that handles this request; BuckAI shows a button to it)",
   "bookingReason": "string or null (when openTab is 'advisor': what the student wants to discuss, in their words, e.g. 'Whether to drop ACCTMIS 2300')",
   "roadmapRequest": {
     "build": boolean (true when the student asks you to build, create, generate, fill in, redo, rebalance, or otherwise change their 4-year plan / roadmap / schedule of future terms),
@@ -214,6 +216,7 @@ Sending the student to the right place: set "openTab" when a tab in this panel d
 - 'rmp': which professor or section to take, faculty ratings, or peer tips. Compare instructors using "Faculty Evaluations" in the student's other tabs (review counts and averages exactly as given; say when there are no reviews yet). Never invent ratings.
 - 'officeHours': office hours, who teaches their class, or how to reach a professor or TA. Answer from "Instructors and office hours" (names, times, place, email exactly as given; if they haven't picked their instructor, list each one). Most syllabi don't list office hours: then say so, give the instructor's email if listed, and point them to Carmen. Never guess hours.
 - 'whatif': comparing or exploring minors.
+- 'orgs': clubs, student organizations, honor societies, club sports, Greek life, or getting involved. Recommend only organizations listed under "Student organizations" (names, meeting times, membership, dues, and contacts exactly as given), say why each fits the student, and say how to join. Never invent an organization or its details; if none match, say so and point them to the Student Organizations tab to search. Officer contacts are on each org's official listing. Most club sports teams and intramurals are run by Recreational Sports (recsports.osu.edu), not this directory, so send club-sport questions there when none are listed.
 - 'requirements': what they still need to graduate.
 - 'roadmap': looking at their 4-year plan.
 Questions about their own status in a tab ("do I have an advisor meeting?", "what classes am I watching?", "did a seat open?") are answered from "The student's other BuckAI tabs"; still set "openTab" to that tab. Never claim an appointment, alert, or review that isn't listed there.
@@ -388,6 +391,20 @@ app.post('/api/advisor-lookup', async (req, res) => {
   }
 });
 
+// Ohio State's student organization directory (src/data/studentOrgs.json, `npm run build:student-orgs`), read once.
+// vercel.json includes the file in the serverless function.
+let studentOrgs: StudentOrgData | null | undefined;
+function loadStudentOrgs(): StudentOrgData | null {
+  if (studentOrgs !== undefined) return studentOrgs;
+  try {
+    studentOrgs = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'data', 'studentOrgs.json'), 'utf8')) as StudentOrgData;
+  } catch (err) {
+    console.warn("Student orgs: couldn't read studentOrgs.json", err);
+    studentOrgs = null;
+  }
+  return studentOrgs;
+}
+
 app.post('/api/advising-chat', async (req, res) => {
   try {
     const { message, history, studentProfile, roadmap, requirementsSummary, officeHoursSummary, featureSummary, programOptions } = req.body;
@@ -417,6 +434,15 @@ app.post('/api/advising-chat', async (req, res) => {
     }
     const courseFacts = factCodes.length ? describeCourses(factCodes, reviewSummary) : '';
 
+    // Clubs and organizations: the directory's best matches for the question (or, for "what clubs should I
+    // join?", for the student's major). A follow-up ("do they have dues?") keeps the earlier question's topic.
+    const lastUserTurns = (history || []).filter((h: { role: string }) => h.role === 'user').slice(-2).map((h: { text: string }) => h.text);
+    const orgTopic = ORG_QUESTION.test(String(message)) ? String(message) : lastUserTurns.reverse().find((t: string) => ORG_QUESTION.test(t)) ?? '';
+    const orgData = orgTopic ? loadStudentOrgs() : null;
+    const orgFacts = orgData
+      ? describeOrgsFor(orgData.orgs, orgTopic, [studentProfile?.major, studentProfile?.minor].filter(Boolean).join(' '))
+      : '';
+
     const promptText = `
 Student Profile (entered by the student):
 ${describeStudent(studentProfile, roadmap)}
@@ -439,6 +465,9 @@ ${programOptions
 
 Course facts (OSU Class Search, Autumn 2026 and Spring 2027, plus BuckAI student reviews) for courses named in this conversation. Use them to answer questions about when a course is offered, who teaches it, its prerequisites, credits, and what students say, even when the course isn't on the student's plan:
 ${courseFacts || 'None.'}
+
+Student organizations (Ohio Union "Find a Student Org" directory${orgData ? `, ${orgData.count} registered orgs, updated ${orgData.fetchedAt}` : ''}) matching this question:
+${orgFacts || (orgTopic ? 'No matching organizations found.' : 'Not asked about.')}
 
 Official course titles (OSU Class Search) for courses named in this conversation:
 ${titlesMentioned(`${conversationContext}\n${message}`).join('\n') || 'None.'}

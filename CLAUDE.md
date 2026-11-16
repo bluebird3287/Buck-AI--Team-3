@@ -35,6 +35,7 @@ user who opens a protected page is sent to sign in.
 | Book an advisor appointment | Own only | No | No → sign in |
 | Escalate a high-stakes decision to an advisor | Own only (creates a request) | No | No → sign in |
 | View faculty evaluations & peer tips | Yes | Yes | Yes, read-only (public) |
+| Browse student organizations | Yes | Yes | Yes, read-only (public) |
 | View the advisor queue (requests routed in) | No | All requests, own advisees first and flagged | No |
 | Act on a routed request (clear a hold, approve/deny) | No | Any request (own advisees, or others' when they have time) | No |
 | Set own availability (calendar import, weekly hours, days off) | No | Own only | No |
@@ -236,7 +237,7 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
   programs (`programChange.specialPrograms`).
 - What the AI sees beyond the student's own data: `server.ts` adds "Course facts" for every course named in the
   conversation (`src/lib/courseFacts.ts`: Class Search title, credits, sections per term, instructors, prerequisites,
-  description, BuckAI review averages; `vercel.json` `includeFiles` ships the `*Faculty.json` files), the browser adds
+  description, BuckAI review averages; `vercel.json` `includeFiles` ships `src/data/*.json`), the browser adds
   the full requirements of any minor/special program/specialization the question names (`describeProgramsMentioned`)
   and Summer 2026 online options when a question mentions summer/online. The student's declared minor is part of the
   audit (`audit.minor`), so plans, gaps, and the chat cover it.
@@ -250,7 +251,24 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
   meeting?", "what am I watching?") go to the AI with that data plus a button, not a canned reply.
   The seat-alert watch list lives in `App.tsx` so it survives switching tabs.
 - Tab order: Advising Assistant, 4-Year Degree Plan, What-If Minor Audit, Degree Requirements,
-  Faculty Evaluations, Advisor Scheduling, Seat Alerts, Office Hours, After-Hours Study Access.
+  Faculty Evaluations, Student Organizations, Advisor Scheduling, Seat Alerts, Office Hours, After-Hours Study Access.
+
+## Student organizations
+
+`src/data/studentOrgs.json` is every active registered student org on all six campuses (1,582 on 2026-11-16), from
+the Ohio Union's public directory API behind https://activities.osu.edu/involvement/student-organizations/find-a-student-org/
+(`/public/api/v1/directory/search` and `/org/<id>`). Refresh it each term with `npm run build:student-orgs`
+(`scripts/build-student-orgs.mjs`; the unfiltered search returns Columbus only, so it lists each campus).
+
+- **No individual people in the data**: this repo is public, so officers' and advisors' names and emails are dropped, an org
+  email that is an officer's name.#@osu.edu address is dropped, and name.# addresses in free text become a pointer to the
+  official listing. The script fails if one slips through. Students reach an org through its own email/website/socials or
+  the official listing link (the directory's search by name, since it has no per-org URL).
+- The Student Organizations tab (`StudentOrgsView`) loads the JSON lazily (its own chunk). Search and ranking live in
+  `src/lib/studentOrgs.ts`, shared with the server so the tab and the chat rank orgs the same way.
+- Chat: `ORG_QUESTION` (clubs, orgs, Greek life, honor societies, "get involved") gives a button that opens the tab
+  on the question's topic. `server.ts` adds "Student organizations": the best matches for the question, or for the
+  student's major when the question is generic ("what clubs should I join?"), and the AI recommends only those.
 
 ## Office hours (instructors per section)
 

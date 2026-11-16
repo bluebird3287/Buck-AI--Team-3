@@ -8,8 +8,9 @@
 import type { Semester, StudentProfile } from '../data/sampleData';
 import type { HighStakesDecisionData, DecisionType } from '../components/HighStakesDecisionCard';
 import { Curriculum, DegreeAudit, catalogCourse, coursesRequiring, requirementsUsing } from './requirements';
+import { ORG_QUESTION, orgTopic } from './studentOrgs';
 
-export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
+export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
 
 export const TAB_LABELS: Record<ChatTab, string> = {
   chat: 'Advising Assistant',
@@ -21,6 +22,7 @@ export const TAB_LABELS: Record<ChatTab, string> = {
   advisor: 'Advisor Scheduling',
   seatAlerts: 'Seat Alerts',
   studyAccess: 'After-Hours Study Access',
+  orgs: 'Student Organizations',
 };
 
 // A button under a chat reply. `tab` opens a panel tab; 'profile' opens the My classes editor.
@@ -28,7 +30,7 @@ export interface ChatAction {
   label: string;
   tab: ChatTab | 'profile';
   autoOpen?: boolean; // open it right away (only for fresh replies, never when an old chat is reloaded)
-  note?: string; // for Advisor Scheduling: what the student wants to talk about (pre-fills the request)
+  note?: string; // Advisor Scheduling: what the student wants to talk about (pre-fills the request); Student Organizations: the search
 }
 
 export interface NavigationIntent {
@@ -86,6 +88,7 @@ const TAB_WORDS: [RegExp, ChatTab][] = [
   [/after[- ]hours|study access|building access/, 'studyAccess'],
   [/faculty eval|evaluations|professor ratings/, 'rmp'],
   [/office hours/, 'officeHours'],
+  [/student org|organizations|clubs/, 'orgs'],
   [/what[- ]if|minor audit/, 'whatif'],
   [/degree requirements|requirements tab|degree audit/, 'requirements'],
   [/4[- ]year|four[- ]year|degree plan|roadmap/, 'roadmap'],
@@ -170,6 +173,11 @@ export function detectNavigation(text: string): NavigationIntent | null {
   // Office hours: the AI answers from the student's own classes' syllabi, with a button to the full list
   if (WHO_TEACHES.test(t)) return { id: 'who_teaches', handleLocally: false, action: { label: 'See who teaches my classes', tab: 'officeHours' }, reply: '' };
   if (OFFICE_HOURS.test(t)) return { id: 'office_hours', handleLocally: false, action: { label: 'See office hours for my classes', tab: 'officeHours' }, reply: '' };
+  // Clubs and organizations: the AI answers from the directory's best matches; the button opens the tab on that search
+  if (ORG_QUESTION.test(t)) {
+    const topic = orgTopic(t);
+    return { id: 'orgs', handleLocally: false, action: { label: 'Browse student organizations', tab: 'orgs', note: topic || undefined }, reply: '' };
+  }
   if (FACULTY.test(t)) return { id: 'faculty', handleLocally: false, action: { label: 'See faculty evaluations', tab: 'rmp' }, reply: '' };
   if (REQUIREMENTS.test(t)) return { id: 'requirements', handleLocally: false, action: { label: 'See my degree requirements', tab: 'requirements' }, reply: '' };
   return null;

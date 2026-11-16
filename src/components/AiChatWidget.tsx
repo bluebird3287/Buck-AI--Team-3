@@ -26,7 +26,8 @@ import {
   CreditCard,
   CheckCircle2,
   PanelLeftOpen,
-  Plus
+  Plus,
+  Users,
 } from 'lucide-react';
 import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
 import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
@@ -38,6 +39,7 @@ import type { OfficeHoursLoad } from '../lib/officeHours';
 import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
+import { StudentOrgsView } from './StudentOrgsView';
 import { Curriculum, DegreeAudit, ElectiveSlot, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
 import { ChatText } from './ChatText';
@@ -98,7 +100,7 @@ interface AiChatWidgetProps {
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
   onNextStep?: () => void;
-  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess';
+  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
@@ -147,7 +149,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 }) => {
   // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
   const [openGe, setOpenGe] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess'>(initialTab || 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs'>(initialTab || 'chat');
 
   useEffect(() => {
     if (initialTab) {
@@ -214,6 +216,9 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   };
 
   // Opens Advisor Scheduling with what the student wants to talk about filled in
+  // The Student Organizations search a chat button opens (e.g. "consulting" from "any consulting clubs?")
+  const [orgQuery, setOrgQuery] = useState('');
+
   const openAdvisorWith = (note?: string) => {
     if (note) setAppointmentNote(note);
     setActiveTab('advisor');
@@ -223,7 +228,10 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
   const runAction = (action: ChatAction) => {
     if (action.tab === 'profile') onEditProfile?.();
     else if (action.tab === 'advisor') openAdvisorWith(action.note);
-    else setActiveTab(action.tab);
+    else {
+      if (action.tab === 'orgs') setOrgQuery(action.note ?? '');
+      setActiveTab(action.tab);
+    }
   };
 
   // "Confirm with my advisor first": the request (with BuckAI's impacts) goes to the advisor's queue, and
@@ -414,6 +422,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
           >
             <Star className="w-4 h-4" />
             <span>Faculty Evaluations &amp; Feedback</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('orgs')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'orgs'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Student Organizations</span>
           </button>
 
           <button
@@ -933,6 +953,8 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         )}
 
         {activeTab === 'rmp' && <FacultyEvaluationsView />}
+
+        {activeTab === 'orgs' && <StudentOrgsView initialQuery={orgQuery} />}
 
         {activeTab === 'officeHours' && (
           <OfficeHoursView roadmap={roadmap} picks={profile.officeHoursPicks ?? {}} onPick={(c, p) => onPickInstructor?.(c, p)} load={officeHours} />
