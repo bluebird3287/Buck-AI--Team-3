@@ -314,6 +314,9 @@ export const MyClassesEditor: React.FC<MyClassesEditorProps> = ({ library, initi
               In BuckeyeLink, open your Advising Report and save it as a PDF. BuckAI reads your classes, grades, GPA, major,
               and advisor from it. The file itself isn&apos;t saved, and your student ID and birthdate are ignored.
             </p>
+            <p className="mt-2 text-sm font-bold text-red-600">
+              Click the link below to go straight to your advising report.
+            </p>
             <a
               href={ADVISING_REPORT_URL}
               target="_blank"
