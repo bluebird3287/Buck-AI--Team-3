@@ -7,7 +7,8 @@ export default defineConfig(() => ({
   root: repo,
   envDir: repo,
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': repo } },
+  // App's office hours come from fictional sample rows (officeHoursSample.ts), never the OSU-only table
+  resolve: { alias: [{ find: '@', replacement: repo }, { find: /^\.\/lib\/officeHours$/, replacement: path.join(__dirname, 'officeHoursSample.ts') }] },
   server: { port: 5201, strictPort: true, fs: { allow: [repo] },
     proxy: { '/api': { target: 'https://buck-ai-team-3.vercel.app', changeOrigin: true } } },
 }));
