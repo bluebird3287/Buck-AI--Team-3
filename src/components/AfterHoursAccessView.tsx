@@ -1,24 +1,10 @@
+// After-Hours Study Access: get a BuckID to open a building after it locks.
+// One flow in three steps (pick a building, when and why, send the email), then "Your access" to track requests.
+// The BuckID office doesn't grant door access; the office that runs each building does (src/lib/buildingAccess.ts).
+// BuckAI writes the email and the student sends it from their own OSU account.
+
 import React, { useEffect, useState } from 'react';
-import {
-  Building2,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Search,
-  Check,
-  Send,
-  X,
-  BookOpen,
-  CreditCard,
-  MapPin,
-  ChevronRight,
-  Filter,
-  Sparkles,
-  Mail,
-  Copy,
-  ExternalLink,
-  ShieldCheck
-} from 'lucide-react';
+import { BookOpen, Check, ChevronRight, Clock, Copy, CreditCard, ExternalLink, Mail, Search, ShieldCheck, X } from 'lucide-react';
 import { StudentProfile } from '../data/sampleData';
 import {
   AccessEmail,
@@ -889,746 +875,393 @@ export const ALL_CAMPUS_BUILDINGS: CampusBuilding[] = [
   }
 ];
 
-export interface UserAccessItem {
-  id: string;
-  buildingName: string;
-  code: string;
-  hours: string;
-  term: string;
-  status: 'active' | 'waiting';
-  notes: string;
-}
-
 interface AfterHoursAccessViewProps {
   profile: StudentProfile;
 }
 
+// Libraries every student's BuckID already opens (no request needed)
+const LIBRARY_ACCESS = [
+  { id: 'lib-18th', name: '18th Avenue Library', hours: 'Open 24/7' },
+  { id: 'lib-thompson', name: 'Thompson Library', hours: 'Until 10 PM weekdays, 9 PM weekends' },
+];
+
+const WHEN_OPTIONS = [
+  { label: 'Weeknights', value: 'Evenings (weeknights after the building locks)' },
+  { label: 'Weekends', value: 'Weekends (Saturday and Sunday)' },
+  { label: 'Both', value: 'Evenings and weekends' },
+];
+const TERM = 'The whole semester';
+const WHY_OPTIONS = ['Studying for exams', 'Group project', 'Using computer labs', 'Quiet individual study'];
+
+// Buildings to suggest before the student searches, from their college
+function suggestedCategories(college: string): CampusBuilding['category'][] {
+  if (/fisher|business/i.test(college)) return ['Business'];
+  if (/engineering/i.test(college)) return ['Engineering'];
+  if (/arts and sciences/i.test(college)) return ['Arts & Humanities', 'Sciences & Math'];
+  return [];
+}
+
+const matches = (b: CampusBuilding, q: string) =>
+  [b.name, b.code, b.category, b.area].some((f) => f.toLowerCase().includes(q));
+
+const shortHours = (b: CampusBuilding) => `${b.locksAt.replace(/^Locks at /, 'Locks ')} · ${b.weekendStatus}`;
+
+const StepHeader: React.FC<{ n: number; title: string; done?: boolean; muted?: boolean }> = ({ n, title, done, muted }) => (
+  <div className="flex items-center gap-3">
+    <span
+      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+        done ? 'bg-emerald-600 text-white' : muted ? 'bg-neutral-200 text-neutral-500' : 'bg-neutral-900 text-white'
+      }`}
+    >
+      {done ? <Check className="w-4 h-4" /> : n}
+    </span>
+    <h4 className={`text-base font-bold ${muted ? 'text-neutral-400' : 'text-neutral-900'}`}>{title}</h4>
+  </div>
+);
+
+const chip = (on: boolean) =>
+  `px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors ${
+    on ? 'border-[#ba0c2f] bg-[#ba0c2f] text-white' : 'border-neutral-300 text-neutral-700 hover:border-neutral-400 bg-white'
+  }`;
+
 export const AfterHoursAccessView: React.FC<AfterHoursAccessViewProps> = ({ profile }) => {
-  // Simple view switcher: 'request' | 'my-access' | 'all-buildings'
-  const [activeTab, setActiveTab] = useState<'request' | 'my-access' | 'all-buildings'>('request');
-
-  // Libraries every student can already enter
-  const libraryAccess: UserAccessItem[] = [
-    {
-      id: 'acc-1',
-      buildingName: '18th Avenue Library',
-      code: '18TH',
-      hours: '24 Hours / 7 Days a Week',
-      term: 'Automatic for All Students',
-      status: 'active',
-      notes: 'Your BuckID always opens the doors here 24/7.'
-    },
-    {
-      id: 'acc-2',
-      buildingName: 'Thompson Library',
-      code: 'THOMP',
-      hours: 'Open until 10:00 PM weekdays, 9:00 PM weekends',
-      term: 'Automatic for All Students',
-      status: 'active',
-      notes: 'Your BuckID always works here during open hours.'
-    }
-  ];
-
   // The student's saved requests, emailed to the office that grants access
   const [requests, setRequests] = useState<AccessRequestRow[]>([]);
   useEffect(() => {
     listAccessRequests().then(setRequests);
   }, []);
-  const codeFor = (buildingId: string) => ALL_CAMPUS_BUILDINGS.find((b) => b.id === buildingId)?.code ?? '';
-  const myAccess: UserAccessItem[] = [
-    ...libraryAccess,
-    ...requests
-      .filter((r) => r.status === 'granted')
-      .map((r) => ({
-        id: r.id,
-        buildingName: r.building_name,
-        code: codeFor(r.building_id),
-        hours: r.hours,
-        term: r.term,
-        status: 'active' as const,
-        notes: `Granted by ${r.office_name}.`
-      }))
-  ];
-  const pendingRequests = requests.filter((r) => r.status === 'emailed');
+  const pending = requests.filter((r) => r.status === 'emailed');
+  const granted = requests.filter((r) => r.status === 'granted');
 
-  // Request form state
-  const [selectedBuildingId, setSelectedBuildingId] = useState<string>('dreese');
-  const [formFilterQuery, setFormFilterQuery] = useState<string>('');
-  const [formCategoryFilter, setFormCategoryFilter] = useState<string>('All');
-  const [selectedTimeOption, setSelectedTimeOption] = useState<string>('Evenings (Tonight & weeknights after building locks)');
-  const [selectedDuration, setSelectedDuration] = useState<string>('The whole semester');
-  const [selectedReason, setSelectedReason] = useState<string>('Studying for exams');
-  // The email for the request just saved, so the student can send it from their OSU account
-  const [sentEmail, setSentEmail] = useState<{ buildingName: string; email: AccessEmail; saved: boolean } | null>(null);
+  // Step 1: building
+  const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+  const building = ALL_CAMPUS_BUILDINGS.find((b) => b.id === buildingId) ?? null;
+  const office = building ? officeForBuilding(building.id) : null;
+
+  const q = query.trim().toLowerCase();
+  const categories = suggestedCategories(profile.college || '');
+  const requestable = ALL_CAMPUS_BUILDINGS.filter((b) => !b.isLibrary);
+  const suggested = requestable.filter((b) => categories.includes(b.category));
+  const list = q ? ALL_CAMPUS_BUILDINGS.filter((b) => matches(b, q)) : showAll || !suggested.length ? requestable : suggested;
+  const listLabel = q
+    ? `${list.length} match${list.length === 1 ? '' : 'es'}`
+    : showAll || !suggested.length
+    ? `All ${requestable.length} buildings`
+    : `Suggested for ${profile.college}`;
+
+  // Step 2: when and why
+  const [when, setWhen] = useState(WHEN_OPTIONS[0].value);
+  const [why, setWhy] = useState(WHY_OPTIONS[0]);
+
+  // Step 3: the email the student sends from their OSU account
+  const [draft, setDraft] = useState<{ buildingName: string; email: AccessEmail; saved: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Search & filter state for building directory tab
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-
-  const selectedBuildingObj = ALL_CAMPUS_BUILDINGS.find((b) => b.id === selectedBuildingId) || ALL_CAMPUS_BUILDINGS[3];
-
-  // Buildings available in the form dropdown based on form filter
-  const dropdownBuildings = ALL_CAMPUS_BUILDINGS.filter((b) => {
-    const matchesText =
-      b.name.toLowerCase().includes(formFilterQuery.toLowerCase()) ||
-      b.code.toLowerCase().includes(formFilterQuery.toLowerCase()) ||
-      b.category.toLowerCase().includes(formFilterQuery.toLowerCase());
-    const matchesCategory = formCategoryFilter === 'All' || b.category === formCategoryFilter;
-    return matchesText && matchesCategory;
-  });
-
-  // When a search or category filter hides the chosen building, choose the first match, so the
-  // building the dropdown shows is the one the request is for (it used to stay on Dreese).
-  useEffect(() => {
-    if (dropdownBuildings.length > 0 && !dropdownBuildings.some((b) => b.id === selectedBuildingId)) {
-      setSelectedBuildingId(dropdownBuildings[0].id);
-    }
-  }, [formFilterQuery, formCategoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const selectedOffice = officeForBuilding(selectedBuildingObj.id);
-
-  const handleSendRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (selectedBuildingObj.isLibrary) {
-      alert("You already have access to this library! Every Ohio State student's BuckID already opens the doors.");
-      return;
-    }
-
+  const writeEmail = async () => {
+    if (!building || !office || building.isLibrary) return;
     const email = buildAccessEmail({
-      office: selectedOffice,
-      buildingName: selectedBuildingObj.name,
-      hours: selectedTimeOption,
-      term: selectedDuration,
-      reason: selectedReason,
+      office,
+      buildingName: building.name,
+      hours: when,
+      term: TERM,
+      reason: why,
       studentName: profile.name,
       nameDotNum: profile.nameDotNum.split('@')[0],
       email: profile.nameDotNum.includes('@') ? profile.nameDotNum : `${profile.nameDotNum}@osu.edu`,
       rank: profile.rank,
-      major: profile.major
+      major: profile.major,
     });
-
-    setIsSaving(true);
+    setSaving(true);
     const saved = await saveAccessRequest({
-      building_id: selectedBuildingObj.id,
-      building_name: selectedBuildingObj.name,
-      office_name: selectedOffice.name,
-      office_email: selectedOffice.email,
-      hours: selectedTimeOption,
-      term: selectedDuration,
-      reason: selectedReason
+      building_id: building.id,
+      building_name: building.name,
+      office_name: office.name,
+      office_email: office.email,
+      hours: when,
+      term: TERM,
+      reason: why,
     });
-    setIsSaving(false);
+    setSaving(false);
     if (saved) setRequests((prev) => [saved, ...prev]);
     setCopied(false);
-    setSentEmail({ buildingName: selectedBuildingObj.name, email, saved: Boolean(saved) });
+    setDraft({ buildingName: building.name, email, saved: Boolean(saved) });
   };
 
-  const handleCopyEmail = async () => {
-    if (!sentEmail) return;
-    const { to, subject, body } = sentEmail.email;
+  const copyEmail = async () => {
+    if (!draft) return;
+    const { to, subject, body } = draft.email;
     try {
       await navigator.clipboard.writeText(`To: ${to}\nSubject: ${subject}\n\n${body}`);
       setCopied(true);
     } catch {
-      alert(`Couldn't copy. Email ${to} with the subject "${subject}".`);
+      /* clipboard blocked: the email is on screen to copy by hand */
     }
   };
 
-  const handleCancelRequest = async (reqId: string) => {
-    if (await deleteAccessRequest(reqId)) setRequests((prev) => prev.filter((r) => r.id !== reqId));
+  const startOver = () => {
+    setDraft(null);
+    setBuildingId(null);
+    setQuery('');
+    setShowAll(false);
   };
 
-  const handleMarkGranted = async (reqId: string) => {
-    if (await setAccessRequestStatus(reqId, 'granted')) {
-      setRequests((prev) => prev.map((r) => (r.id === reqId ? { ...r, status: 'granted' } : r)));
-    }
+  const cancelRequest = async (id: string) => {
+    if (await deleteAccessRequest(id)) setRequests((prev) => prev.filter((r) => r.id !== id));
   };
-
-  // Filtered building list for the directory tab
-  const filteredBuildings = ALL_CAMPUS_BUILDINGS.filter((b) => {
-    const matchesSearch =
-      b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.notes.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.area.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || b.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const categoriesList = [
-    'All',
-    'Libraries',
-    'Business',
-    'Engineering',
-    'Arts & Humanities',
-    'Sciences & Math',
-    'Agriculture & Environment',
-    'Health & Medicine',
-    'Architecture',
-    'Public Affairs & Law',
-    'Student Centers'
-  ];
+  const markGranted = async (id: string) => {
+    if (await setAccessRequestStatus(id, 'granted')) setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'granted' } : r)));
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5 text-gray-900 pb-10">
-      
-      {/* 1. Super-Simple Header */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#ba0c2f]" />
-              <h2 className="text-xl font-bold tracking-tight text-gray-900">
-                After-Hours Study Access
-              </h2>
-            </div>
-            <p className="text-xs text-gray-600 mt-1">
-              Need a quiet place to study after academic buildings lock? Request access here from all <strong>{ALL_CAMPUS_BUILDINGS.length} campus buildings</strong>. Once approved, you just <strong>tap your student BuckID</strong> at the door.
-            </p>
-          </div>
-
-          <div className="text-xs bg-gray-50 border border-gray-200 px-3 py-2 rounded-lg shrink-0">
-            <span className="text-gray-500">Cardholder:</span>{' '}
-            <strong className="text-gray-900">{profile.name}</strong> •{' '}
-            <span className="font-mono text-gray-600">{profile.nameDotNum}</span>
+    <div className="max-w-3xl mx-auto space-y-4 text-neutral-900 pb-10">
+      {/* Header */}
+      <div className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-4">
+        <div>
+          <h3 className="text-lg font-bold text-neutral-900">After-Hours Study Access</h3>
+          <p className="text-sm text-neutral-600">Get your BuckID to open a building after it locks: pick the building, say when, and send the email BuckAI writes.</p>
+        </div>
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+          <BookOpen className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+          <div className="text-sm text-emerald-950">
+            <strong>Need somewhere tonight?</strong> 18th Avenue Library is open 24/7 on your BuckID. No request needed.
           </div>
         </div>
-
-        {/* Big Friendly Library Notice */}
-        <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start space-x-2.5 text-xs text-emerald-900">
-          <BookOpen className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
-          <div>
-            <strong className="font-semibold text-emerald-950">Good news about libraries:</strong> Every Ohio State student already has automatic access to <strong>18th Avenue Library (24/7)</strong> and <strong>Thompson Library</strong> on their BuckID. You don’t need to request access—your card already works!
-          </div>
-        </div>
+        {pending.length > 0 && (
+          <a href="#your-access" className="flex items-center gap-2 text-sm text-amber-900 font-semibold hover:underline">
+            <Clock className="w-4 h-4" />
+            {pending.length} request{pending.length === 1 ? '' : 's'} waiting on an office
+            <ChevronRight className="w-4 h-4" />
+          </a>
+        )}
       </div>
 
-      {/* 2. Dead-Simple Navigation (3 Tabs) */}
-      <div className="flex border-b border-gray-200 bg-white rounded-t-xl px-2 pt-2 gap-2 text-xs font-semibold overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('request')}
-          className={`px-4 py-2.5 rounded-t-lg transition-colors flex items-center space-x-1.5 whitespace-nowrap ${
-            activeTab === 'request'
-              ? 'bg-[#ba0c2f] text-white'
-              : 'text-gray-600 hover:text-black hover:bg-gray-100'
-          }`}
-        >
-          <Send className="w-3.5 h-3.5" />
-          <span>Request Access</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('my-access')}
-          className={`px-4 py-2.5 rounded-t-lg transition-colors flex items-center space-x-1.5 whitespace-nowrap ${
-            activeTab === 'my-access'
-              ? 'bg-[#ba0c2f] text-white'
-              : 'text-gray-600 hover:text-black hover:bg-gray-100'
-          }`}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          <span>My BuckID Access</span>
-          {pendingRequests.length > 0 && (
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-              activeTab === 'my-access' ? 'bg-white text-[#ba0c2f]' : 'bg-[#ba0c2f] text-white'
-            }`}>
-              {pendingRequests.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('all-buildings')}
-          className={`px-4 py-2.5 rounded-t-lg transition-colors flex items-center space-x-1.5 whitespace-nowrap ${
-            activeTab === 'all-buildings'
-              ? 'bg-[#ba0c2f] text-white'
-              : 'text-gray-600 hover:text-black hover:bg-gray-100'
-          }`}
-        >
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Campus Buildings Database ({ALL_CAMPUS_BUILDINGS.length})</span>
-        </button>
-      </div>
-
-      {/* TAB 1: SIMPLE REQUEST ACCESS FORM */}
-      {activeTab === 'request' && (
-        <div className="bg-white rounded-b-xl border border-gray-200 p-5 sm:p-6 shadow-xs space-y-5">
-          {sentEmail && (
-            <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs space-y-3 animate-in fade-in">
-              <div className="flex items-start space-x-2">
-                <Mail className="w-5 h-5 text-emerald-600 shrink-0" />
-                <div>
-                  <strong>Last step: send your request for {sentEmail.buildingName}.</strong> Your email to{' '}
-                  <strong>{sentEmail.email.to}</strong> is written. Send it from your Ohio State email so the office can
-                  confirm it&apos;s you.{' '}
-                  {sentEmail.saved
-                    ? 'We saved the request in My BuckID Access so you can track it.'
-                    : "We couldn't save it for tracking right now, but you can still send the email."}
+      {/* The request, in three steps */}
+      <div className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-6">
+        {/* 1. Building */}
+        <section className="space-y-3">
+          <StepHeader n={1} title="Pick a building" done={!!building} />
+          {building ? (
+            <div className="sm:ml-10 p-3.5 rounded-xl border border-[#ba0c2f]/30 bg-[#ba0c2f]/5 space-y-1.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-neutral-900">
+                    {building.name} <span className="font-mono text-[11px] text-neutral-500">{building.code}</span>
+                  </div>
+                  <div className="text-xs text-neutral-600">{shortHours(building)}</div>
                 </div>
+                {!draft && (
+                  <button onClick={() => setBuildingId(null)} className="text-xs font-semibold text-[#ba0c2f] hover:underline shrink-0">
+                    Change
+                  </button>
+                )}
+              </div>
+              {office && (
+                <div className="text-xs text-neutral-700 flex flex-wrap items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#ba0c2f]" />
+                  Access comes from <strong>{office.name}</strong>
+                  {!office.verified && <span className="bg-amber-100 text-amber-900 font-semibold px-1.5 py-0.5 rounded text-[10px]">Confirm with office</span>}
+                  {office.formUrl && (
+                    <a href={office.formUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">
+                      · They also have a form
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="sm:ml-10 space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search buildings (e.g. Dreese, Mason, Scott)"
+                  className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-neutral-300 text-sm bg-white focus:outline-none focus:border-[#ba0c2f]"
+                />
+                {query && (
+                  <button onClick={() => setQuery('')} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="text-xs font-semibold text-neutral-500">{listLabel}</div>
+              <ul className="border border-neutral-200 rounded-xl divide-y divide-neutral-100 max-h-80 overflow-y-auto">
+                {list.length === 0 && <li className="px-3 py-4 text-sm text-neutral-500">No building matches “{query}”. Try its name or code.</li>}
+                {list.map((b) => (
+                  <li key={b.id}>
+                    {b.isLibrary ? (
+                      <div className="px-3 py-2.5 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-neutral-900">{b.name}</div>
+                          <div className="text-xs text-neutral-500">{b.locksAt}</div>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                          Already open to you
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setBuildingId(b.id);
+                          setDraft(null);
+                        }}
+                        className="w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-neutral-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-neutral-900">
+                            {b.name} <span className="font-mono text-[11px] text-neutral-400">{b.code}</span>
+                          </div>
+                          <div className="text-xs text-neutral-500">{shortHours(b)}</div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0" />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!q && suggested.length > 0 && (
+                <button onClick={() => setShowAll(!showAll)} className="text-xs font-semibold text-[#ba0c2f] hover:underline">
+                  {showAll ? `Show only ${profile.college} buildings` : `Show all ${requestable.length} buildings`}
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 2. When and why */}
+        <section className="space-y-3">
+          <StepHeader n={2} title="When and why" muted={!building} />
+          {building && (
+            <div className="sm:ml-10 space-y-3">
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-neutral-500">When do you need in? (for the semester)</div>
+                <div className="flex flex-wrap gap-2">
+                  {WHEN_OPTIONS.map((o) => (
+                    <button key={o.label} disabled={!!draft} onClick={() => setWhen(o.value)} className={chip(when === o.value)}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-neutral-500">What for?</div>
+                <div className="flex flex-wrap gap-2">
+                  {WHY_OPTIONS.map((r) => (
+                    <button key={r} disabled={!!draft} onClick={() => setWhy(r)} className={chip(why === r)}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 3. Send */}
+        <section className="space-y-3">
+          <StepHeader n={3} title="Send the email" muted={!building} done={!!draft} />
+          {building && !draft && (
+            <div className="sm:ml-10 space-y-2">
+              <button
+                onClick={writeEmail}
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ba0c2f] text-white text-sm font-bold hover:bg-[#a00a28] disabled:opacity-50"
+              >
+                <Mail className="w-4 h-4" /> {saving ? 'Writing…' : 'Write my request email'}
+              </button>
+              <p className="text-xs text-neutral-500">You send it from your OSU email so the office knows it’s you. BuckAI never sends it for you.</p>
+            </div>
+          )}
+          {draft && (
+            <div className="sm:ml-10 space-y-3">
+              <div className="rounded-xl border border-neutral-200 overflow-hidden">
+                <div className="px-3 py-2 bg-neutral-50 border-b border-neutral-200 text-xs space-y-0.5">
+                  <div>
+                    <span className="text-neutral-500">To:</span> <strong>{draft.email.to}</strong>
+                  </div>
+                  <div>
+                    <span className="text-neutral-500">Subject:</span> {draft.email.subject}
+                  </div>
+                </div>
+                <pre className="px-3 py-2.5 text-xs text-neutral-800 whitespace-pre-wrap font-sans max-h-48 overflow-y-auto">{draft.email.body}</pre>
               </div>
               <div className="flex flex-wrap gap-2">
                 <a
-                  href={outlookLink(sentEmail.email)}
+                  href={outlookLink(draft.email)}
                   target="_blank"
                   rel="noreferrer"
-                  className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white font-bold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#ba0c2f] text-white text-sm font-bold hover:bg-[#a00a28]"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open in Outlook (OSU email)</span>
+                  Send from Outlook <ExternalLink className="w-4 h-4" />
                 </a>
-                <a
-                  href={mailtoLink(sentEmail.email)}
-                  className="bg-white border border-emerald-300 hover:border-emerald-500 text-emerald-900 font-semibold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
-                >
-                  <Mail className="w-3.5 h-3.5" />
-                  <span>Open in my email app</span>
+                <a href={mailtoLink(draft.email)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 hover:border-[#ba0c2f]">
+                  <Mail className="w-4 h-4" /> Mail app
                 </a>
-                <button
-                  type="button"
-                  onClick={handleCopyEmail}
-                  className="bg-white border border-emerald-300 hover:border-emerald-500 text-emerald-900 font-semibold px-3.5 py-2 rounded-lg flex items-center space-x-1.5"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Copied' : 'Copy the email'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSentEmail(null)}
-                  className="text-emerald-800 hover:underline px-2 py-2"
-                >
-                  Done
+                <button onClick={copyEmail} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 hover:border-[#ba0c2f]">
+                  {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />} {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <p className="text-[11px] text-emerald-800">
-                Never email your 19-digit BuckID number; Ohio State treats it as restricted data. Your name.# and OSU email are enough.
+              <p className="text-xs text-neutral-500">
+                {draft.saved ? 'Saved under Your access below, so you can track it. ' : 'Couldn’t save it for tracking, but you can still send it. '}
+                Never add your 19-digit BuckID number; your name.# is enough.
               </p>
+              <button onClick={startOver} className="text-xs font-semibold text-[#ba0c2f] hover:underline">
+                Request another building
+              </button>
             </div>
           )}
+        </section>
+      </div>
 
-          <div>
-            <h3 className="text-base font-bold text-gray-900">
-              Pick any building on campus to unlock
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Choose from all 80 Ohio State academic and study buildings. When approved, your BuckID will let you in.
-            </p>
-          </div>
-
-          <form onSubmit={handleSendRequest} className="space-y-5">
-            {/* Step 1: Pick the building with instant search & filter */}
-            <div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  1. Which building do you need? ({dropdownBuildings.length} available)
-                </label>
-
-                {/* Quick search input to find any building in seconds */}
-                <div className="relative w-full sm:w-60">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Type building (e.g. Scott, Arps)..."
-                    value={formFilterQuery}
-                    onChange={(e) => setFormFilterQuery(e.target.value)}
-                    className="w-full pl-8 pr-2 py-1 text-xs rounded-lg border border-gray-300 focus:border-[#ba0c2f] outline-none"
-                  />
-                  {formFilterQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setFormFilterQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
+      {/* Your access */}
+      <div id="your-access" className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-3 scroll-mt-4">
+        <h4 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-[#ba0c2f]" /> Your access
+        </h4>
+        <ul className="border border-neutral-200 rounded-xl divide-y divide-neutral-100">
+          {pending.map((r) => (
+            <li key={r.id} className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-neutral-900">{r.building_name}</div>
+                <div className="text-xs text-neutral-500">
+                  Emailed {r.office_name} on {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </div>
               </div>
-
-              {/* Category Quick Chips for Form */}
-              <div className="flex gap-1 overflow-x-auto pb-2 text-[11px]">
-                {['All', 'Business', 'Engineering', 'Arts & Humanities', 'Sciences & Math', 'Agriculture & Environment', 'Health & Medicine'].map((cat) => (
-                  <button
-                    type="button"
-                    key={cat}
-                    onClick={() => setFormCategoryFilter(cat)}
-                    className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
-                      formCategoryFilter === cat
-                        ? 'bg-gray-800 text-white font-bold'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              <select
-                value={selectedBuildingId}
-                onChange={(e) => setSelectedBuildingId(e.target.value)}
-                className="w-full text-sm font-medium px-3.5 py-2.5 rounded-xl border border-gray-300 bg-white focus:border-[#ba0c2f] focus:ring-1 focus:ring-[#ba0c2f] outline-none"
-              >
-                {dropdownBuildings.length === 0 ? (
-                  <option disabled>No buildings matching &quot;{formFilterQuery}&quot;</option>
-                ) : (
-                  dropdownBuildings.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.code}) — {b.locksAt}
-                    </option>
-                  ))
-                )}
-              </select>
-
-              {/* Instant Building Summary Info */}
-              <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs space-y-1">
-                <div className="font-semibold text-gray-900 flex items-center justify-between">
-                  <span>{selectedBuildingObj.name}</span>
-                  <span className="text-[11px] text-gray-500 font-normal">{selectedBuildingObj.area} • {selectedBuildingObj.category}</span>
-                </div>
-                <div className="text-gray-600 text-[11px] flex items-center space-x-3">
-                  <span><strong>Lock schedule:</strong> {selectedBuildingObj.locksAt}</span>
-                  <span>•</span>
-                  <span><strong>Weekends:</strong> {selectedBuildingObj.weekendStatus}</span>
-                </div>
-                <p className="text-gray-500 text-[11px] pt-0.5">
-                  {selectedBuildingObj.notes}
-                </p>
-                {selectedBuildingObj.isLibrary ? (
-                  <div className="mt-1 text-emerald-700 font-bold text-[11px]">
-                    ✓ You already have automatic access to this library! No request is needed.
-                  </div>
-                ) : (
-                  <div className="mt-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 space-y-0.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-[#ba0c2f]" />
-                      <strong>Who grants access:</strong>
-                      <span>{selectedOffice.name}</span>
-                      {!selectedOffice.verified && (
-                        <span className="bg-amber-100 text-amber-900 font-semibold px-1.5 py-0.5 rounded">Confirm with office</span>
-                      )}
-                    </div>
-                    <div className="text-gray-600">
-                      {selectedOffice.email}
-                      {selectedOffice.phone && <> • {selectedOffice.phone}</>}
-                      {selectedOffice.location && <> • {selectedOffice.location}</>} •{' '}
-                      <a href={selectedOffice.sourceUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">
-                        Source
-                      </a>
-                      {selectedOffice.formUrl && (
-                        <>
-                          {' '}•{' '}
-                          <a href={selectedOffice.formUrl} target="_blank" rel="noreferrer" className="text-[#ba0c2f] hover:underline">
-                            Department form
-                          </a>
-                        </>
-                      )}
-                    </div>
-                    {selectedOffice.note && <div className="text-gray-500">{selectedOffice.note}</div>}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Step 2: When do you need it? */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                2. When do you need access?
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {[
-                  { title: 'Evenings', desc: 'Tonight & weeknights after building locks' },
-                  { title: 'Weekends', desc: 'Saturday & Sunday study sessions' },
-                  { title: 'Full Semester', desc: 'All evenings and weekends this semester' }
-                ].map((opt) => (
-                  <button
-                    type="button"
-                    key={opt.title}
-                    onClick={() => setSelectedTimeOption(opt.title + ' (' + opt.desc + ')')}
-                    className={`p-3 rounded-xl border text-left transition-all text-xs ${
-                      selectedTimeOption.startsWith(opt.title)
-                        ? 'border-[#ba0c2f] bg-red-50/60 ring-1 ring-[#ba0c2f]'
-                        : 'border-gray-200 hover:border-gray-300 bg-white'
-                    }`}
-                  >
-                    <div className="font-bold text-gray-900">{opt.title}</div>
-                    <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Step 3: Why do you need it? */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                3. What are you using the space for?
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  'Studying for exams',
-                  'Group project',
-                  'Using computer labs',
-                  'Quiet individual study'
-                ].map((reason) => (
-                  <button
-                    type="button"
-                    key={reason}
-                    onClick={() => setSelectedReason(reason)}
-                    className={`p-2.5 rounded-lg border text-center transition-all text-xs font-medium ${
-                      selectedReason === reason
-                        ? 'border-[#ba0c2f] bg-red-50 text-[#ba0c2f] font-bold'
-                        : 'border-gray-200 hover:border-gray-300 text-gray-700 bg-white'
-                    }`}
-                  >
-                    {reason}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Submit Button */}
-            <div className="pt-2 flex items-center justify-between border-t border-gray-100">
-              <span className="text-xs text-gray-500">
-                We write the email; you send it to the office from your <strong>OSU email</strong>.
-              </span>
-              <button
-                type="submit"
-                disabled={selectedBuildingObj.isLibrary || isSaving}
-                className="bg-[#ba0c2f] hover:bg-[#9d0a27] text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow-xs transition-all flex items-center space-x-2 disabled:opacity-50 cursor-pointer"
-              >
-                <span>{isSaving ? 'Saving…' : 'Write My Request Email'}</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* TAB 2: MY BUCKID ACCESS & TRACKING */}
-      {activeTab === 'my-access' && (
-        <div className="space-y-5">
-          {/* Active Access List */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Buildings you can enter right now ({myAccess.length})</span>
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Just tap your BuckID at the outside door scanner to enter.
-                </p>
-              </div>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
-                Active on BuckID
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              {myAccess.map((item) => (
-                <div key={item.id} className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1.5">
-                  <div className="flex items-start justify-between">
-                    <div className="font-bold text-gray-900 text-sm">{item.buildingName}</div>
-                    <span className="font-mono text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-600 font-bold">
-                      {item.code}
-                    </span>
-                  </div>
-                  <div className="text-gray-700 font-medium">
-                    {item.hours}
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {item.notes}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Pending Requests */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-                  <Clock className="w-4 h-4 text-amber-600" />
-                  <span>Requests waiting for approval ({pendingRequests.length})</span>
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Emailed to the office that grants access. Mark a request granted once the office confirms and your BuckID works.
-                </p>
-              </div>
-              {pendingRequests.length > 0 && (
-                <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded">
-                  In Review
-                </span>
-              )}
-            </div>
-
-            {pendingRequests.length === 0 ? (
-              <div className="text-center py-6 text-gray-400 text-xs">
-                You have no pending requests right now.
-              </div>
-            ) : (
-              <div className="space-y-2.5 pt-1">
-                {pendingRequests.map((req) => (
-                  <div key={req.id} className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <div className="font-bold text-gray-900 text-sm flex items-center space-x-1.5">
-                        <span>{req.building_name}</span>
-                        <span className="text-[10px] font-mono text-gray-500">({codeFor(req.building_id)})</span>
-                      </div>
-                      <div className="text-gray-700 font-medium">{req.hours}</div>
-                      <div className="text-[11px] text-gray-500">
-                        Emailed to {req.office_name} ({req.office_email}) on {new Date(req.created_at).toLocaleDateString()}.
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2 shrink-0">
-                      <span className="text-[11px] text-amber-800 bg-amber-100 font-semibold px-2.5 py-1 rounded-lg">
-                        Waiting on Office
-                      </span>
-                      <button
-                        onClick={() => handleMarkGranted(req.id)}
-                        className="text-[11px] text-emerald-800 bg-emerald-100 hover:bg-emerald-200 font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                        title="The office gave you access"
-                      >
-                        Access granted
-                      </button>
-                      <button
-                        onClick={() => handleCancelRequest(req.id)}
-                        className="text-gray-400 hover:text-red-600 p-1 rounded transition-colors text-xs"
-                        title="Cancel this request"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: COMPLETE CAMPUS BUILDINGS DATABASE (80 BUILDINGS) */}
-      {activeTab === 'all-buildings' && (
-        <div className="bg-white rounded-b-xl border border-gray-200 p-5 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-bold text-gray-900">
-                All Ohio State Campus Buildings ({ALL_CAMPUS_BUILDINGS.length})
-              </h3>
-              <p className="text-xs text-gray-500">
-                Every academic building, laboratory, studio, and facility across North, South, Central, and West campus.
-              </p>
-            </div>
-
-            {/* Simple Search Input */}
-            <div className="relative w-full sm:w-72">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by name, code, or area..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:border-[#ba0c2f] outline-none"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"
-                >
-                  <X className="w-3 h-3" />
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Waiting</span>
+                <button onClick={() => markGranted(r.id)} className="text-xs font-semibold text-emerald-800 hover:underline">
+                  My BuckID works now
                 </button>
-              )}
-            </div>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
-            {categoriesList.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1 rounded-full whitespace-nowrap text-[11px] font-medium transition-colors ${
-                  selectedCategory === cat
-                    ? 'bg-[#ba0c2f] text-white font-bold'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Results Summary */}
-          <div className="text-[11px] text-gray-500 flex items-center justify-between">
-            <span>Showing {filteredBuildings.length} of {ALL_CAMPUS_BUILDINGS.length} campus buildings</span>
-            {selectedCategory !== 'All' && (
-              <button
-                onClick={() => setSelectedCategory('All')}
-                className="text-[#ba0c2f] hover:underline"
-              >
-                Clear filter
-              </button>
-            )}
-          </div>
-
-          {/* Building Cards List */}
-          <div className="divide-y divide-gray-100 max-h-[560px] overflow-y-auto pr-1">
-            {filteredBuildings.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-xs">
-                No buildings found matching &quot;{searchQuery}&quot;. Try searching by name or building code.
+                <button onClick={() => cancelRequest(r.id)} className="text-xs font-semibold text-neutral-500 hover:text-red-600">
+                  Cancel
+                </button>
               </div>
-            ) : (
-              filteredBuildings.map((building) => (
-                <div key={building.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-gray-50/80 px-2 rounded-lg transition-colors">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-gray-900 text-sm">{building.name}</span>
-                      <span className="text-[10px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-semibold">
-                        {building.code}
-                      </span>
-                      {building.isLibrary && (
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
-                          Automatic BuckID Access
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                      <span><strong>Locks:</strong> {building.locksAt}</span>
-                      <span>•</span>
-                      <span><strong>Weekends:</strong> {building.weekendStatus}</span>
-                      <span>•</span>
-                      <span className="text-gray-500 font-medium">{building.area}</span>
-                      <span>•</span>
-                      <span className="text-gray-400">{building.category}</span>
-                    </div>
-                    <div className="text-[11px] text-gray-500">
-                      {building.notes}
-                    </div>
-                  </div>
-
-                  {!building.isLibrary && (
-                    <button
-                      onClick={() => {
-                        // Clear the request form's filters so this building shows in its dropdown
-                        setFormFilterQuery('');
-                        setFormCategoryFilter('All');
-                        setSelectedBuildingId(building.id);
-                        setSentEmail(null);
-                        setActiveTab('request');
-                      }}
-                      className="self-start sm:self-center text-xs font-bold text-[#ba0c2f] hover:bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                    >
-                      Request Access ➔
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+            </li>
+          ))}
+          {granted.map((r) => (
+            <li key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-neutral-900">{r.building_name}</div>
+                <div className="text-xs text-neutral-500">{r.hours}</div>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">Granted</span>
+            </li>
+          ))}
+          {LIBRARY_ACCESS.map((l) => (
+            <li key={l.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-neutral-900">{l.name}</div>
+                <div className="text-xs text-neutral-500">{l.hours}</div>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">Every student</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-neutral-500">When an office says yes, tap “My BuckID works now” so BuckAI knows.</p>
+      </div>
     </div>
   );
 };
