@@ -6,7 +6,7 @@
 // affects their aid). Dates and rules come from Student Financial Aid (sfa.osu.edu); update AID_YEAR each fall.
 
 import React, { useEffect, useState } from 'react';
-import { Award, CalendarClock, CheckCircle2, Circle, Copy, ExternalLink, GraduationCap, Info, MessageSquare, Rocket, ShieldCheck } from 'lucide-react';
+import { Award, CalendarClock, CheckCircle2, Circle, Copy, ExternalLink, Info, MessageSquare, Rocket, ShieldCheck } from 'lucide-react';
 import type { Semester, StudentProfile } from '../data/sampleData';
 
 export const SCHOLARSHIP_UNIVERSE_URL = 'https://osu.scholarshipuniverse.com/';
@@ -260,10 +260,14 @@ export const ScholarshipsAidView: React.FC<{
 
       {/* FAFSA checklist */}
       <div className="p-5 bg-white rounded-2xl border border-neutral-200/90 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h4 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
-            <GraduationCap className="w-4 h-4 text-[#ba0c2f]" /> FAFSA, step by step
-          </h4>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <a href={FAFSA_URL} target="_blank" rel="noreferrer" title="FAFSA form at StudentAid.gov" className="shrink-0">
+              {/* FAFSA® wordmark from StudentAid.gov (U.S. Department of Education); used only to identify the form */}
+              <img src="/fafsa-logo.svg" alt="FAFSA form" className="h-9 w-auto" />
+            </a>
+            <h4 className="text-sm font-bold text-neutral-900">FAFSA, step by step</h4>
+          </div>
           <span className="text-[11px] font-semibold text-neutral-500">
             {doneCount} of {FAFSA_STEPS.length} done
           </span>
@@ -308,7 +312,10 @@ export const ScholarshipsAidView: React.FC<{
             Ohio State’s step-by-step guide <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
-        <p className="text-[11px] text-neutral-500">Your checkmarks are saved in this browser only. BuckAI never sees your FAFSA or tax information.</p>
+        <p className="text-[11px] text-neutral-500">
+          Your checkmarks are saved in this browser only. BuckAI never sees your FAFSA or tax information. FAFSA® is a registered mark of the U.S.
+          Department of Education; BuckAI isn’t affiliated with or endorsed by it.
+        </p>
       </div>
 
       {/* Keeping aid */}
