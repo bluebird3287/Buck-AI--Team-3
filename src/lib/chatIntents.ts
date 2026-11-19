@@ -10,7 +10,7 @@ import type { HighStakesDecisionData, DecisionType } from '../components/HighSta
 import { Curriculum, DegreeAudit, catalogCourse, coursesRequiring, requirementsUsing } from './requirements';
 import { ORG_QUESTION, orgTopic } from './studentOrgs';
 
-export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
+export type ChatTab = 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs' | 'aid';
 
 export const TAB_LABELS: Record<ChatTab, string> = {
   chat: 'Advising Assistant',
@@ -23,6 +23,7 @@ export const TAB_LABELS: Record<ChatTab, string> = {
   seatAlerts: 'Seat Alerts',
   studyAccess: 'After-Hours Study Access',
   orgs: 'Student Organizations',
+  aid: 'Scholarships & FAFSA',
 };
 
 // A button under a chat reply. `tab` opens a panel tab; 'profile' opens the My classes editor.
@@ -72,6 +73,7 @@ const REQUIREMENTS =
   /\bwhat (do|else do) i (still )?need\b|\brequirements? (do i have )?(left|remaining)\b|\bdegree audit\b|\bhow close am i\b|\bam i on track\b|\bwhat('s| is) left\b|\bgraduation requirements\b|\bwhat classes (do i|i) (still )?need\b/;
 const OFFICE_HOURS = /\boffice hours?\b|\b(when|where) (can|could|do) i (meet|see|find|talk to) (my )?(professor|prof|instructor|ta|teaching assistant)\b|\b(ta|teaching assistant)'?s? (hours|office|email)\b|\b(email|contact) (my )?(professor|prof|instructor|ta)\b/;
 const WHO_TEACHES = /\bwho (teaches|is teaching|'s teaching|is my (professor|prof|instructor|ta))\b|\bwho('s| is) my (professor|prof|instructor|ta|teaching assistant)\b|\b(my|the) (professor|prof|instructor)('s)? (name|email)\b/;
+const AID_QUESTION = /\bscholarships?\b|\bfafsa\b|\bfinancial aid\b|\bscholarship universe\b|\b(pell|ocog) grant\b|\bstudent loans?\b|\bwork[- ]study\b|\bsap (status|suspension|appeal)\b|\bpay(ing)? for (college|school|tuition)\b/;
 // "Do I have an advisor meeting?", "what classes am I watching?": the AI answers from the tab's data
 const STATUS_QUESTION = /^(do|did|does|have|has|is|are|am|what|which|when|where|any)\b[^.!]*\?*$/;
 const APPOINTMENT_STATUS = /\b(my|an?|the) (advis[oe]r )?(appointment|meeting)\b|\bmeeting with (my|the) advis[oe]r\b|\bappointment with (my|the) advis[oe]r\b/;
@@ -89,6 +91,7 @@ const TAB_WORDS: [RegExp, ChatTab][] = [
   [/faculty eval|evaluations|professor ratings/, 'rmp'],
   [/office hours/, 'officeHours'],
   [/student org|organizations|clubs/, 'orgs'],
+  [/scholarship|fafsa|financial aid/, 'aid'],
   [/what[- ]if|minor audit/, 'whatif'],
   [/degree requirements|requirements tab|degree audit/, 'requirements'],
   [/4[- ]year|four[- ]year|degree plan|roadmap/, 'roadmap'],
@@ -178,6 +181,8 @@ export function detectNavigation(text: string): NavigationIntent | null {
     const topic = orgTopic(t);
     return { id: 'orgs', handleLocally: false, action: { label: 'Browse student organizations', tab: 'orgs', note: topic || undefined }, reply: '' };
   }
+  // Scholarships, the FAFSA, and financial aid: the AI answers; the button opens the Scholarships & FAFSA tab
+  if (AID_QUESTION.test(t)) return { id: 'aid', handleLocally: false, action: { label: 'Open Scholarships & FAFSA', tab: 'aid' }, reply: '' };
   if (FACULTY.test(t)) return { id: 'faculty', handleLocally: false, action: { label: 'See faculty evaluations', tab: 'rmp' }, reply: '' };
   if (REQUIREMENTS.test(t)) return { id: 'requirements', handleLocally: false, action: { label: 'See my degree requirements', tab: 'requirements' }, reply: '' };
   return null;

@@ -251,7 +251,8 @@ when the AI is down; the AI's `openTab` / `bookingReason` and `highStakesDecisio
   meeting?", "what am I watching?") go to the AI with that data plus a button, not a canned reply.
   The seat-alert watch list lives in `App.tsx` so it survives switching tabs.
 - Tab order: Advising Assistant, 4-Year Degree Plan, What-If Minor Audit, Degree Requirements,
-  Faculty Evaluations, Student Organizations, Advisor Scheduling, Seat Alerts, Office Hours, After-Hours Study Access.
+  Faculty Evaluations, Student Organizations, Advisor Scheduling, Seat Alerts, Office Hours, After-Hours Study Access,
+  Scholarships & FAFSA.
 
 ## Student organizations
 
@@ -269,6 +270,16 @@ the Ohio Union's public directory API behind https://activities.osu.edu/involvem
 - Chat: `ORG_QUESTION` (clubs, orgs, Greek life, honor societies, "get involved") gives a button that opens the tab
   on the question's topic. `server.ts` adds "Student organizations": the best matches for the question, or for the
   student's major when the question is generic ("what clubs should I join?"), and the AI recommends only those.
+
+## Scholarships & FAFSA
+
+`ScholarshipsAidView` (tab `aid`). The goal is applying to and tracking scholarships inside BuckAI, but Scholarship
+Universe (https://osu.scholarshipuniverse.com/) has no API and applications sit behind the OSU sign-in, so for now the tab
+links out and covers the rest: aid-year dates with countdowns, school code 003090, a FAFSA checklist (localStorage only;
+BuckAI never stores FAFSA or tax data), the student's college scholarship page, and how their current-term credits, GPA and
+hours line up with SAP (1.80 first year / 2.00 after, 67% completion, 150% max hours). Dates and SAP rules come from
+sfa.osu.edu; **update `AID_YEAR` in the component and the 'aid' facts in `server.ts` each fall**. Chat: `AID_QUESTION` in
+`chatIntents.ts` adds a button to the tab; the AI never estimates award amounts or eligibility.
 
 ## Office hours (instructors per section)
 

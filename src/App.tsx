@@ -99,7 +99,7 @@ const mdUrl = (url: string) => url.replace(/\(/g, '%28').replace(/\)/g, '%29');
 export default function App({ profile, initialRoadmap, onRoadmapChange, curriculum, planTerms, onPlanTermsChange, onProgramChange, onEditProfile, onPickInstructor }: AppProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
-  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs'>('chat');
+  const [chatTab, setChatTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs' | 'aid'>('chat');
   const [isSurveyModalOpen, setIsSurveyModalOpen] = useState<boolean>(false);
   const [alertCourse, setAlertCourse] = useState<WatchedCourse | null>(null);
   const [isSeatDropBannerOpen, setIsSeatDropBannerOpen] = useState<boolean>(false);

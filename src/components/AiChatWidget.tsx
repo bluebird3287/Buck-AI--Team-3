@@ -28,6 +28,7 @@ import {
   PanelLeftOpen,
   Plus,
   Users,
+  Award,
 } from 'lucide-react';
 import { StudentProfile, Semester, AdvisorSlot } from '../data/sampleData';
 import { describeSlot, MatchSlot, studentFromProfile, submitRequest, toAdvisorSlot, useAdvisingState } from '../lib/advising';
@@ -40,6 +41,7 @@ import { SeatAlertsView, WatchedCourse } from './SeatAlertsView';
 import { AfterHoursAccessView } from './AfterHoursAccessView';
 import { DegreeRequirementsView } from './DegreeRequirementsView';
 import { StudentOrgsView } from './StudentOrgsView';
+import { ScholarshipsAidView } from './ScholarshipsAidView';
 import { Curriculum, DegreeAudit, ElectiveSlot, GeOption, choiceSlotFor, geSlotFor, requiredFor } from '../lib/requirements';
 import { GeAlternativesMenu } from './GeAlternativesMenu';
 import { ChatText } from './ChatText';
@@ -100,7 +102,7 @@ interface AiChatWidgetProps {
   onUpdateDecision?: (messageId: string, updatedDecision: HighStakesDecisionData) => void;
   onBackToDashboard?: () => void;
   onNextStep?: () => void;
-  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs';
+  initialTab?: 'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs' | 'aid';
   onSimulateSeatDrop?: (course: WatchedCourse) => void;
   audit: DegreeAudit | null;
   curriculum: Curriculum | null;
@@ -149,7 +151,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
 }) => {
   // The planned GE course whose alternatives menu is open ("<semester id>:<index>")
   const [openGe, setOpenGe] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs'>(initialTab || 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'roadmap' | 'requirements' | 'whatif' | 'rmp' | 'officeHours' | 'advisor' | 'seatAlerts' | 'studyAccess' | 'orgs' | 'aid'>(initialTab || 'chat');
 
   useEffect(() => {
     if (initialTab) {
@@ -491,6 +493,18 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
             <span className="bg-[#ba0c2f] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
               BUCKID
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('aid')}
+            className={`py-3 px-3.5 font-medium text-xs sm:text-sm border-b-2 flex items-center space-x-2 transition-colors whitespace-nowrap ${
+              activeTab === 'aid'
+                ? 'border-[#e8213f] text-white font-semibold bg-white/10'
+                : 'border-transparent text-gray-300 hover:text-white hover:bg-white/5 hover:border-gray-500'
+            }`}
+          >
+            <Award className="w-4 h-4" />
+            <span>Scholarships &amp; FAFSA</span>
           </button>
         </div>
 
@@ -955,6 +969,17 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({
         {activeTab === 'rmp' && <FacultyEvaluationsView />}
 
         {activeTab === 'orgs' && <StudentOrgsView initialQuery={orgQuery} />}
+
+        {activeTab === 'aid' && (
+          <ScholarshipsAidView
+            profile={profile}
+            roadmap={roadmap}
+            onAsk={(q) => {
+              setActiveTab('chat');
+              onSendMessage(q);
+            }}
+          />
+        )}
 
         {activeTab === 'officeHours' && (
           <OfficeHoursView roadmap={roadmap} picks={profile.officeHoursPicks ?? {}} onPick={(c, p) => onPickInstructor?.(c, p)} load={officeHours} />
